@@ -1,0 +1,140 @@
+# Getting Started
+
+## Install
+
+<div class="pkg-tabs" data-pkg-tabs>
+  <div class="pkg-tabs-bar" role="tablist">
+    <button class="pkg-tab active" data-pkg="bun" role="tab">bun</button>
+    <button class="pkg-tab" data-pkg="npm" role="tab">npm</button>
+    <button class="pkg-tab" data-pkg="pnpm" role="tab">pnpm</button>
+    <button class="pkg-tab" data-pkg="yarn" role="tab">yarn</button>
+  </div>
+  <pre class="pkg-panel active" data-pkg="bun"><code>bun add creo creo-editor</code></pre>
+  <pre class="pkg-panel" data-pkg="npm"><code>npm install creo creo-editor</code></pre>
+  <pre class="pkg-panel" data-pkg="pnpm"><code>pnpm add creo creo-editor</code></pre>
+  <pre class="pkg-panel" data-pkg="yarn"><code>yarn add creo creo-editor</code></pre>
+</div>
+
+`creo-editor` has a peer dependency on `creo` (≥ 0.2.5). No other runtime dependencies. Ships as ESM with TypeScript types.
+
+## Minimal app
+
+```ts
+import { createApp, HtmlRender } from "creo";
+import { createEditor } from "creo-editor";
+
+const editor = createEditor();
+
+createApp(
+  () => editor.EditorView(),
+  new HtmlRender(document.querySelector("#app")!),
+).mount();
+```
+
+That gives you a single empty paragraph the user can type into. The editor manages its own input pipeline, selection, history, and rendering — you only need to mount it.
+
+## Loading initial content
+
+`createEditor` accepts an `initial` document in its serialized form:
+
+```ts
+const editor = createEditor({
+  initial: {
+    blocks: [
+      { type: "h1", runs: [{ text: "Welcome" }] },
+      {
+        type: "p",
+        runs: [
+          { text: "Try editing " },
+          { text: "this", marks: ["b"] },
+          { text: "." },
+        ],
+      },
+      {
+        type: "li",
+        ordered: false,
+        depth: 0,
+        runs: [{ text: "List item" }],
+      },
+    ],
+  },
+});
+```
+
+Block types are `p`, `h1` … `h6`, `li`, `img`, `table`, and `columns`. See [Editor API](#/editor-api) for the full `SerializedDoc` shape.
+
+## A toolbar
+
+The editor doesn't ship a toolbar — you build one with whatever component model you prefer. The pattern is: a button calls `editor.dispatch()`, then `editor.focus()` so the textarea regains keyboard input.
+
+```ts
+import { view, button } from "creo";
+
+const Toolbar = view(() => ({
+  render() {
+    button(
+      {
+        onClick: (e) => {
+          e.preventDefault();
+          editor.dispatch({ t: "toggleMark", mark: "b" });
+          editor.focus();
+        },
+      },
+      "B",
+    );
+    button(
+      {
+        onClick: (e) => {
+          e.preventDefault();
+          editor.dispatch({ t: "setBlockType", payload: { type: "h2" } });
+          editor.focus();
+        },
+      },
+      "H2",
+    );
+  },
+}));
+```
+
+The `e.preventDefault()` keeps the button click from stealing focus from the editor's hidden textarea. See [Commands](#/commands) for the full list of dispatchable actions.
+
+## Reading content out
+
+```ts
+const json = editor.toJSON();          // SerializedDoc — JSON-safe
+localStorage.setItem("draft", JSON.stringify(json));
+```
+
+To round-trip from arbitrary HTML (paste source, server-stored markup):
+
+```ts
+editor.setDocFromHTML("<h1>Hello</h1><p>World</p>");
+```
+
+See [HTML interop](#/html-interop) for what's supported on the way in and out.
+
+## Undo, redo, focus
+
+```ts
+editor.undo();
+editor.redo();
+editor.focus();   // moves keyboard focus to the editor
+editor.blur();    // releases it
+```
+
+Undo coalescing groups consecutive same-tag commands into a single step (so a string of typing is one undo, not one-per-character). See [Commands](#/commands#history-and-coalescing) for which commands coalesce.
+
+## Styles
+
+The editor produces a small set of class names (`.creo-editor`, `.ce-block`, `.ce-h1` …). It does not ship CSS — you style them yourself. The simplest starting point is to copy the `ed-demo` and `.ce-*` rules from this docs site's [`docs/src/styles.css`](https://github.com/xnimorz/creo-editor/blob/main/docs/src/styles.css) into your own stylesheet and adjust.
+
+Two CSS rules are non-negotiable on the editor root, set automatically by the editor:
+
+- `white-space: pre-wrap` — without this, trailing spaces collapse visually but not in the model, so typing space at end-of-line silently fails to render.
+- `cursor: text` — standard text-editor UX.
+
+## Next
+
+- **[Editor API](#/editor-api)** — full `EditorOptions` and `Editor` handle.
+- **[Commands](#/commands)** — every dispatchable action.
+- **[Demo](#/demo)** — the editor with a full toolbar wired up.

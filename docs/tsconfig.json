@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "lib": ["ESNext", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "creo-editor": ["../src/index.ts"],
+      "creo": ["./node_modules/creo/dist/index.d.ts"]
+    }
+  },
+  "include": ["src"]
+}
