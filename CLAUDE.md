@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `bun run typecheck` — `tsc --noEmit -p tsconfig.json`.
 - `src/__perf__/` holds perf-style specs that also run under `bun test`.
 
-`creo` is declared as a peer-dep (`>=0.2.5`); the published package has no other runtime deps. The root `package.json` still lists `creo: workspace:*` as a devDep — historical from the monorepo, not currently installed.
+`creo` is declared as a peer-dep (`>=0.2.6`); the published package has no other runtime deps.
 
 ## Sub-projects
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **No `contentEditable`.** A hidden `<textarea>` (`input/HiddenInput.ts`) captures all keystrokes, IME composition, mobile soft keyboards, and clipboard events. `input/inputPipeline.ts` wires the textarea to commands; `input/keymap.ts` maps chords to `Command`s. `pointToAnchor` (`render/measure.ts`) hit-tests pointer events back to model anchors. The editor root sets `cursor:text` and `white-space:pre-wrap` (the latter is required — `normal` collapses trailing spaces so typing space at end-of-line wouldn't render).
 
-**Block model** (`model/types.ts`). `DocState = { byId: Map<BlockId, Block>; order: BlockId[] }` where `order` is sorted by each block's `index: FracIndex` — a base-62 fractional key so insert-between is O(log n) with no renumbering (`model/fractional.ts`). `attachAutoRebalance` runs a microtask check after each mutation and rebalances only when a key has outgrown the soft threshold. Block kinds: `p`, `h1..h6`, `li` (with `ordered`/`depth`), `img`, `table`, `columns`.
+**Block model** (`model/types.ts`). `DocState = { byId: Map<BlockId, Block>; order: BlockId[] }` where `order` is sorted by each block's `index: FracIndex` — a base-62 fractional key so insert-between is O(log n) with no renumbering (`model/fractional.ts`). `attachAutoRebalance` runs a microtask check after each mutation and rebalances only when a key has outgrown the soft threshold. Block kinds: `p`, `h1..h6`, `li` (with `ordered`/`depth`), `code` (multi-line monospaced; Enter inserts `\n` instead of splitting), `img`, `table`, `columns`. `isTextBearing()` (`model/blockText.ts`) is the canonical predicate for "block has a top-level `runs: InlineRun[]` field" — `p`/`h*`/`li`/`code`. Use it for command logic that should apply to any text-bearing block.
 
 **Anchors** are `{ blockId, path: number[], offset }`. Path encoding by block type:
 - text-bearing (`p`/`h*`/`li`): `[charOffset]`

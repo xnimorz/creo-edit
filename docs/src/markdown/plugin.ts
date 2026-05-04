@@ -1,37 +1,9 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
-import { Marked } from "marked";
-import { markedHighlight } from "marked-highlight";
-import hljs from "highlight.js/lib/core";
-import typescript from "highlight.js/lib/languages/typescript";
-import javascript from "highlight.js/lib/languages/javascript";
-import bash from "highlight.js/lib/languages/bash";
-import css from "highlight.js/lib/languages/css";
-import xml from "highlight.js/lib/languages/xml";
-import json from "highlight.js/lib/languages/json";
-import plaintext from "highlight.js/lib/languages/plaintext";
-
-hljs.registerLanguage("typescript", typescript);
-hljs.registerLanguage("ts", typescript);
-hljs.registerLanguage("javascript", javascript);
-hljs.registerLanguage("js", javascript);
-hljs.registerLanguage("bash", bash);
-hljs.registerLanguage("sh", bash);
-hljs.registerLanguage("shell", bash);
-hljs.registerLanguage("css", css);
-hljs.registerLanguage("xml", xml);
-hljs.registerLanguage("html", xml);
-hljs.registerLanguage("json", json);
-hljs.registerLanguage("plaintext", plaintext);
-
-export type DocMeta = { title: string; slug: string };
-export type DocHeading = { level: number; text: string; slug: string };
-export type CompiledDoc = {
-  meta: DocMeta;
-  html: string;
-  headings: DocHeading[];
-};
+import { Marked, type Tokens } from "marked";
+import { markdownToDoc } from "./toEditorDoc";
+import type { CompiledDoc, DocHeading } from "./types";
 
 function slugify(s: string): string {
   return s
@@ -61,33 +33,27 @@ function parseFrontmatter(src: string): {
   return { body: src.slice(m[0].length), data };
 }
 
+function extractHeadings(src: string): DocHeading[] {
+  // Use marked's lexer just to walk headings — same lexer that
+  // markdownToDoc uses, so heading order matches what the editor renders.
+  const lex = new Marked({ gfm: true });
+  const tokens = lex.lexer(src);
+  const headings: DocHeading[] = [];
+  for (const tok of tokens) {
+    if (tok.type === "heading") {
+      const h = tok as Tokens.Heading;
+      const plain = h.tokens.map((t: any) => t.text ?? "").join("");
+      headings.push({ level: h.depth, text: plain, slug: slugify(plain) });
+    }
+  }
+  return headings;
+}
+
 function compile(src: string, slug: string): CompiledDoc {
   const { body, data } = parseFrontmatter(src);
-  const headings: DocHeading[] = [];
 
-  const marked = new Marked(
-    markedHighlight({
-      langPrefix: "hljs language-",
-      highlight(code, lang) {
-        const language = hljs.getLanguage(lang) ? lang : "plaintext";
-        return hljs.highlight(code, { language }).value;
-      },
-    }),
-  );
-
-  marked.use({
-    renderer: {
-      heading({ tokens, depth }) {
-        const text = this.parser.parseInline(tokens);
-        const plain = tokens.map((t: any) => t.text ?? "").join("");
-        const hslug = slugify(plain);
-        headings.push({ level: depth, text: plain, slug: hslug });
-        return `<h${depth} id="${hslug}"><a class="h-anchor" href="#${hslug}">#</a>${text}</h${depth}>\n`;
-      },
-    },
-  });
-
-  const html = marked.parse(body) as string;
+  const headings = extractHeadings(body);
+  const doc = markdownToDoc(body);
 
   let title = data.title ?? "";
   if (!title) {
@@ -97,7 +63,7 @@ function compile(src: string, slug: string): CompiledDoc {
 
   return {
     meta: { title, slug },
-    html,
+    doc,
     headings,
   };
 }

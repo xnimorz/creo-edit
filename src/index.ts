@@ -22,6 +22,7 @@ export { MobileToolbar } from "./render/MobileToolbar";
 export { ParagraphView } from "./render/blocks/ParagraphView";
 export { HeadingView } from "./render/blocks/HeadingView";
 export { ListItemView } from "./render/blocks/ListItemView";
+export { CodeBlockView } from "./render/blocks/CodeBlockView";
 export { TableView } from "./render/blocks/TableView";
 export { ImageView } from "./render/blocks/ImageView";
 export { InlineRunsView } from "./render/InlineRunsView";
@@ -39,6 +40,7 @@ export type {
   BlockId,
   BlockSpec,
   BlockType,
+  CodeBlock,
   DistOmit,
   DocState,
   FracIndex,

@@ -38,3 +38,27 @@ export const { routeStore, navigate, RouterView, Link } = createRouter({
   routes,
   fallback: () => NotFound(),
 });
+
+// Scroll to the top of the page on route change. The router's hash-based
+// nav doesn't reset scroll like a full page load does — without this,
+// clicking a sidebar entry while scrolled deep on the previous page leaves
+// you mid-page on the new one.
+//
+// In-page heading anchors (e.g. clicking a TOC link) use `replaceState`
+// from anchor.ts, which doesn't trigger `hashchange` → doesn't fire this
+// subscription. So heading anchors still scroll to their target without
+// us clobbering them.
+//
+// The initial load is also fine: on first subscribe, `lastPath` is already
+// the current path, so the no-op guard skips the first synchronous emit
+// (if any). DocPage's `consumePendingAnchor` then handles deep links into
+// a heading on the page.
+{
+  let lastPath = routeStore.get().path;
+  routeStore.subscribe(() => {
+    const path = routeStore.get().path;
+    if (path === lastPath) return;
+    lastPath = path;
+    window.scrollTo(0, 0);
+  });
+}

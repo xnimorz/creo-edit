@@ -15,7 +15,8 @@ export function isTextBearing(block: Block): block is TextBearingBlock {
     block.type === "h4" ||
     block.type === "h5" ||
     block.type === "h6" ||
-    block.type === "li"
+    block.type === "li" ||
+    block.type === "code"
   );
 }
 

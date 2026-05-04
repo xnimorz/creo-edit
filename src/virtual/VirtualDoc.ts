@@ -7,6 +7,7 @@ import { selectionStart } from "../controller/selection";
 import { ParagraphView } from "../render/blocks/ParagraphView";
 import { HeadingView } from "../render/blocks/HeadingView";
 import { ListItemView } from "../render/blocks/ListItemView";
+import { CodeBlockView } from "../render/blocks/CodeBlockView";
 import { ImageView } from "../render/blocks/ImageView";
 import { TableView } from "../render/blocks/TableView";
 import { HeightIndex } from "./heightIndex";
@@ -171,6 +172,9 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
                 break;
               case "li":
                 ListItemView({ block, key: id });
+                break;
+              case "code":
+                CodeBlockView({ block, key: id });
                 break;
               case "img":
                 ImageView({ block, key: id });

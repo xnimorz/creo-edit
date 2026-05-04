@@ -84,6 +84,54 @@ export type CaretRect = {
 };
 
 /**
+ * Code blocks are rendered with one <div class="ce-code-line"> per line
+ * (including empty lines, which carry a ZWSP placeholder). The model
+ * treats `\n` as a real character at the END of every non-last line —
+ * so the caret offset = (sum of line text lengths) + (number of preceding
+ * line breaks). Convert that offset into a (textNode, localOffset) pair by
+ * walking the line elements and accounting for the implicit \n between
+ * them.
+ *
+ * Without this, a single text node like "abc\n\ndef" gives the Range API
+ * a degenerate position on the empty middle line, the bounding rect comes
+ * back as 0×0, and measureCaretRect falls through to its block-rect
+ * fallback — visually planting the caret across the whole code block.
+ */
+function findCodeCaretHit(
+  blockEl: HTMLElement,
+  offset: number,
+): TextHit | null {
+  const lines = blockEl.querySelectorAll<HTMLElement>(".ce-code-line");
+  if (lines.length === 0) {
+    return findTextNodeAtOffset(blockEl, offset);
+  }
+  let remaining = offset;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const lineLen = visibleTextLength(line);
+    if (remaining <= lineLen) {
+      return findTextNodeAtOffset(line, remaining);
+    }
+    remaining -= lineLen;
+    if (i < lines.length - 1) {
+      // Implicit \n between this line and the next.
+      if (remaining === 0) {
+        // Boundary — caret should sit at the START of the next line.
+        return findTextNodeAtOffset(lines[i + 1]!, 0);
+      }
+      remaining -= 1;
+    }
+  }
+  // Past end — clamp to end of last line.
+  const last = lines[lines.length - 1]!;
+  return findTextNodeAtOffset(last, visibleTextLength(last));
+}
+
+function isCodeBlockEl(el: HTMLElement): boolean {
+  return el.classList.contains("ce-code-block");
+}
+
+/**
  * Measure the caret at `offset` inside `blockEl`. Returns coordinates
  * relative to `referenceEl` (typically the editor root or the overlay
  * container — both must share a positioning context).
@@ -95,7 +143,9 @@ export function measureCaretRect(
   offset: number,
   referenceEl: HTMLElement,
 ): CaretRect | null {
-  const hit = findTextNodeAtOffset(blockEl, offset);
+  const hit = isCodeBlockEl(blockEl)
+    ? findCodeCaretHit(blockEl, offset)
+    : findTextNodeAtOffset(blockEl, offset);
   const range = document.createRange();
   try {
     if (hit) {
@@ -151,8 +201,12 @@ export function measureSelectionRectsInBlock(
   referenceEl: HTMLElement,
 ): SelectionRect[] {
   if (startOffset === endOffset) return [];
-  const startHit = findTextNodeAtOffset(blockEl, startOffset);
-  const endHit = findTextNodeAtOffset(blockEl, endOffset);
+  const startHit = isCodeBlockEl(blockEl)
+    ? findCodeCaretHit(blockEl, startOffset)
+    : findTextNodeAtOffset(blockEl, startOffset);
+  const endHit = isCodeBlockEl(blockEl)
+    ? findCodeCaretHit(blockEl, endOffset)
+    : findTextNodeAtOffset(blockEl, endOffset);
   if (!startHit || !endHit) return [];
   const range = document.createRange();
   try {
@@ -284,18 +338,57 @@ function offsetWithinBlock(
     }
     return 0;
   }
+  if (isCodeBlockEl(blockEl)) {
+    return offsetWithinCode(blockEl, hitNode, localOffset);
+  }
+  return offsetByRangeText(blockEl, hitNode, localOffset);
+}
+
+// Range-based text-prefix length, scoped to `scopeEl`. Used as the leaf
+// step for both regular text-bearing blocks and individual code-lines.
+function offsetByRangeText(
+  scopeEl: HTMLElement,
+  hitNode: Node,
+  localOffset: number,
+): number {
   const range = document.createRange();
   try {
-    range.selectNodeContents(blockEl);
+    range.selectNodeContents(scopeEl);
     range.setEnd(hitNode, Math.max(0, localOffset));
     const text = range.toString();
     return text.replace(/​/g, "").length;
   } catch {
-    // Some hit nodes (e.g. detached) throw on setEnd. Gracefully degrade.
     return 0;
   } finally {
     range.detach?.();
   }
+}
+
+// Inverse of findCodeCaretHit: given a click hit (text node + local
+// offset), return the model offset by walking lines and adding 1 for
+// every implicit \n between them. Range.toString() doesn't insert line
+// breaks for block-element boundaries, so we have to do it ourselves.
+function offsetWithinCode(
+  blockEl: HTMLElement,
+  hitNode: Node,
+  localOffset: number,
+): number {
+  const lines = blockEl.querySelectorAll<HTMLElement>(".ce-code-line");
+  if (lines.length === 0) {
+    return offsetByRangeText(blockEl, hitNode, localOffset);
+  }
+  let total = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line === hitNode || line.contains(hitNode)) {
+      return total + offsetByRangeText(line, hitNode, localOffset);
+    }
+    total += visibleTextLength(line);
+    if (i < lines.length - 1) total += 1;
+  }
+  // Hit wasn't in any line (e.g. user clicked on the <pre>'s padding) —
+  // clamp to end of block.
+  return total;
 }
 
 function visibleTextLength(el: HTMLElement): number {

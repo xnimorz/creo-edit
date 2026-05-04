@@ -152,6 +152,22 @@ function walkBlock(node: Node, marks: Mark[], out: BlockSpec[]): void {
       return;
     }
 
+    case "pre": {
+      // <pre> — typically holds a single <code> element. We treat the inner
+      // text content as the code block's text (preserving \n exactly), and
+      // pull a `language-foo` class off the <code> if present.
+      const codeEl = el.querySelector("code");
+      const text = (codeEl ?? el).textContent ?? "";
+      const langMatch = codeEl?.className.match(/language-(\S+)/);
+      out.push({
+        id: newBlockId(),
+        type: "code",
+        runs: text ? [{ text }] : [],
+        ...(langMatch ? { lang: langMatch[1] } : {}),
+      });
+      return;
+    }
+
     case "br":
       // A bare <br/> outside a block becomes an empty paragraph break.
       out.push({ id: newBlockId(), type: "p", runs: [] });

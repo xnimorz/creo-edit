@@ -3,6 +3,7 @@ import {
   blockTextLength,
   concatRuns,
   deleteRange,
+  insertText as insertTextRuns,
   isTextBearing,
   splitRunsAt,
   type TextBearingBlock,
@@ -27,6 +28,7 @@ import type {
   Block,
   BlockSpec,
   BlockType,
+  CodeBlock,
   DocState,
   HeadingBlock,
   ListItemBlock,
@@ -64,6 +66,20 @@ export function splitBlock({ docStore, selStore }: Stores): boolean {
   const block = getBlock(doc, cur.at.blockId);
   if (!block || !isTextBearing(block)) return false;
   const off = anchorOffset(cur.at);
+
+  // Code blocks are single multi-line regions — Enter inserts a newline
+  // character instead of splitting into two blocks. The block keeps any
+  // existing runs and their marks; the new \n inherits surrounding marks
+  // via insertTextRuns()'s normal logic.
+  if (block.type === "code") {
+    const newRuns = insertTextRuns(block.runs, off, "\n");
+    docStore.set(
+      updateBlock(doc, { ...(block as CodeBlock), runs: newRuns } as Block),
+    );
+    selStore.set(caret(withCharOffset(cur.at, off + 1)));
+    return true;
+  }
+
   const [left, right] = splitRunsAt(block.runs, off);
 
   // Same-id keeps the first half (cheap reuse). New id for the right half.
@@ -238,8 +254,16 @@ export function setBlockType(
         runs,
       } satisfies ListItemBlock;
       break;
+    case "code":
+      next = {
+        id: block.id,
+        index: block.index,
+        type: "code",
+        runs,
+      } satisfies CodeBlock;
+      break;
     default:
-      // img / table can't be reached from text — payload misuse, skip.
+      // img / table / columns can't be reached from text — payload misuse, skip.
       return false;
   }
   docStore.set(updateBlock(doc, next));

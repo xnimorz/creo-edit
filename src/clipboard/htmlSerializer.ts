@@ -90,6 +90,15 @@ function blockToHtml(block: Block, listOpen: { tag: string | null }): string {
         `<li data-depth="${li.depth}">${runsToHtml(li.runs)}</li>`
       );
     }
+    case "code": {
+      // Single multi-line region. Serialize as <pre><code> so other apps
+      // (and our own parser) recognize it. Lang is preserved as a class.
+      const langCls = block.lang ? ` class="language-${escapeHtml(block.lang)}"` : "";
+      return (
+        prefix +
+        `<pre><code${langCls}>${runsToHtml(block.runs)}</code></pre>`
+      );
+    }
     case "img": {
       const attrs: string[] = [`src="${escapeHtml(block.src)}"`];
       if (block.alt) attrs.push(`alt="${escapeHtml(block.alt)}"`);

@@ -2,20 +2,14 @@
 
 ## Install
 
-<div class="pkg-tabs" data-pkg-tabs>
-  <div class="pkg-tabs-bar" role="tablist">
-    <button class="pkg-tab active" data-pkg="bun" role="tab">bun</button>
-    <button class="pkg-tab" data-pkg="npm" role="tab">npm</button>
-    <button class="pkg-tab" data-pkg="pnpm" role="tab">pnpm</button>
-    <button class="pkg-tab" data-pkg="yarn" role="tab">yarn</button>
-  </div>
-  <pre class="pkg-panel active" data-pkg="bun"><code>bun add creo creo-editor</code></pre>
-  <pre class="pkg-panel" data-pkg="npm"><code>npm install creo creo-editor</code></pre>
-  <pre class="pkg-panel" data-pkg="pnpm"><code>pnpm add creo creo-editor</code></pre>
-  <pre class="pkg-panel" data-pkg="yarn"><code>yarn add creo creo-editor</code></pre>
-</div>
+```bash
+bun add creo creo-editor
+# or: npm install creo creo-editor
+# or: pnpm add creo creo-editor
+# or: yarn add creo creo-editor
+```
 
-`creo-editor` has a peer dependency on `creo` (≥ 0.2.5). No other runtime dependencies. Ships as ESM with TypeScript types.
+`creo-editor` has a peer dependency on `creo` (≥ 0.2.6). No other runtime dependencies. Ships as ESM with TypeScript types.
 
 ## Minimal app
 

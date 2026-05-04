@@ -1,6 +1,7 @@
 import { _ } from "creo";
 import { ol, ul, view } from "creo";
 import type { Block, DocState, ListItemBlock } from "../model/types";
+import { CodeBlockView } from "./blocks/CodeBlockView";
 import { ColumnsView } from "./blocks/ColumnsView";
 import { HeadingView } from "./blocks/HeadingView";
 import { ImageView } from "./blocks/ImageView";
@@ -35,6 +36,9 @@ const BlockView = view<{ block: Block }>(({ props }) => ({
         return;
       case "li":
         ListItemView({ block: b, key: b.id });
+        return;
+      case "code":
+        CodeBlockView({ block: b, key: b.id });
         return;
       case "table":
         TableView({ block: b, key: b.id });

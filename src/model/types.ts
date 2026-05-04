@@ -15,6 +15,21 @@ export type ParagraphBlock = {
   runs: InlineRun[];
 };
 
+/**
+ * Code-block — like a paragraph, but rendered monospaced inside a <pre>.
+ * Enter inside the block inserts a newline character (it does NOT split
+ * the block) — the editor treats the whole code block as a single
+ * multi-line region. `lang` is an optional language hint preserved across
+ * markdown / HTML round-trips; the editor itself doesn't syntax-highlight.
+ */
+export type CodeBlock = {
+  id: BlockId;
+  index: FracIndex;
+  type: "code";
+  runs: InlineRun[];
+  lang?: string;
+};
+
 export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type HeadingBlock = {
@@ -71,6 +86,7 @@ export type Block =
   | ParagraphBlock
   | HeadingBlock
   | ListItemBlock
+  | CodeBlock
   | ImageBlock
   | TableBlock
   | ColumnsBlock;

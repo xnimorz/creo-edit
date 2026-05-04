@@ -9,64 +9,51 @@ import {
 import type { InputEventData, PointerEventData } from "creo";
 import { createEditor, type Mark, type SerializedDoc } from "creo-editor";
 
-// Default seed used when no `initial` prop is provided. Doubles as the
-// landing-page first impression: it should explain the editor in itself.
+// Default initial — the actual createEditor() snippet from the README,
+// rendered as a real `code` block so the user can edit it as a single
+// multi-line region (Enter inserts \n, doesn't split). Editable: the
+// landing-page editor IS the welcome doc, so people can type into it as
+// the first thing they do on the site.
 const DEFAULT_INITIAL: SerializedDoc = {
   blocks: [
-    { type: "h1", runs: [{ text: "Creo Editor" }] },
+    { type: "h2", runs: [{ text: "This editor is the editor" }] },
     {
       type: "p",
       runs: [
-        { text: "A " },
-        { text: "no-contentEditable", marks: ["code"] },
         {
           text:
-            ", row-based rich-text editor for the Creo UI framework. Try it — every block you see is a row in the model, and every keystroke flows through a hidden textarea.",
+            "Below is a real createEditor() instance. The block you're reading right now is a row in its model. Click in, type, format with the toolbar — every interaction goes through the public API.",
         },
       ],
     },
-    { type: "h2", runs: [{ text: "What you can do here" }] },
     {
-      type: "li",
-      ordered: false,
-      depth: 0,
-      runs: [{ text: "Type anywhere — the cursor follows" }],
+      type: "p",
+      runs: [{ text: "Mount one in three lines:" }],
     },
     {
-      type: "li",
-      ordered: false,
-      depth: 0,
+      type: "code",
+      lang: "ts",
       runs: [
-        { text: "Select text and press " },
-        { text: "Cmd/Ctrl+B", marks: ["code"] },
-        { text: " or " },
-        { text: "Cmd/Ctrl+I", marks: ["code"] },
+        {
+          text:
+            'import { createApp, HtmlRender } from "creo";\n' +
+            'import { createEditor } from "creo-editor";\n' +
+            "\n" +
+            "const editor = createEditor();\n" +
+            "\n" +
+            "createApp(\n" +
+            "  () => editor.EditorView(),\n" +
+            '  new HtmlRender(document.querySelector("#app")!),\n' +
+            ").mount();",
+        },
       ],
-    },
-    {
-      type: "li",
-      ordered: false,
-      depth: 0,
-      runs: [
-        { text: "Press " },
-        { text: "Tab", marks: ["code"] },
-        { text: " inside a list to indent, " },
-        { text: "Shift+Tab", marks: ["code"] },
-        { text: " to outdent" },
-      ],
-    },
-    {
-      type: "li",
-      ordered: false,
-      depth: 0,
-      runs: [{ text: "Paste rich text from any web page" }],
     },
     {
       type: "p",
       runs: [
         {
           text:
-            "Use the toolbar above to change block types, toggle marks, insert a table or image. Cmd/Ctrl+Z / Shift+Cmd+Z for undo / redo.",
+            "Want a toolbar? Wire buttons to editor.dispatch(). Want to save? editor.toJSON(). Want to load HTML? editor.setDocFromHTML(html). The full API is one click away on the right.",
         },
       ],
     },
@@ -79,14 +66,12 @@ const blockTypes = [
   { v: "h2", label: "Heading 2" },
   { v: "h3", label: "Heading 3" },
   { v: "h4", label: "Heading 4" },
+  { v: "code", label: "Code block" },
 ] as const;
 
 export type EditorDemoProps = {
-  /** Custom initial content. Defaults to the welcome doc. */
   initial?: SerializedDoc;
-  /** Visual variant — "regular" sans-serif (default) or "mono". */
   mode?: "regular" | "mono";
-  /** Extra class applied to the wrapper. */
   class?: string;
 };
 
@@ -94,8 +79,6 @@ export const EditorDemo = view<EditorDemoProps>(({ props }) => {
   const initial = props().initial ?? DEFAULT_INITIAL;
   const mode = props().mode ?? "regular";
 
-  // One editor per view instance — created eagerly so its EditorView() is
-  // available on first render.
   const editor = createEditor({ initial, mode });
 
   const onTypeChange = (e: InputEventData) => {

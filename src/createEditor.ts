@@ -95,6 +95,12 @@ export type SerializedBlock =
     }
   | {
       id?: string;
+      type: "code";
+      runs: SerializedRun[];
+      lang?: string;
+    }
+  | {
+      id?: string;
       type: "img";
       src: string;
       alt?: string;
@@ -181,6 +187,13 @@ export type Editor = {
   redo: () => void;
   EditorView: PublicView<EditorViewProps, void>;
   setDocFromHTML: (html: string) => void;
+  /**
+   * Replace the entire document with a SerializedDoc. Resets selection to
+   * the end and clears history — used for swapping content on top of a
+   * long-lived editor instance (e.g. routing between different docs in a
+   * docs site without reallocating the input pipeline & DOM listeners).
+   */
+  setDoc: (doc: SerializedDoc) => void;
   toJSON: () => SerializedDoc;
   // Imperative focus / blur — wired in M3+.
   focus: () => void;
@@ -227,6 +240,13 @@ function deserializeDoc(s: SerializedDoc): DocState {
           ordered: sb.ordered,
           depth: sb.depth ?? 0,
           runs: sb.runs.map(deserializeRun),
+        } as BlockSpec;
+      case "code":
+        return {
+          id,
+          type: "code",
+          runs: sb.runs.map(deserializeRun),
+          ...(sb.lang ? { lang: sb.lang } : {}),
         } as BlockSpec;
       case "img":
         return {
@@ -285,6 +305,14 @@ function serializeDoc(doc: DocState): SerializedDoc {
           ordered: b.ordered,
           depth: b.depth,
           runs: b.runs.map(serializeRun),
+        });
+        break;
+      case "code":
+        blocks.push({
+          id: b.id,
+          type: "code",
+          runs: b.runs.map(serializeRun),
+          ...(b.lang ? { lang: b.lang } : {}),
         });
         break;
       case "img":
@@ -414,6 +442,16 @@ function docGet(doc: DocState, id: string) {
   return doc.byId.get(id);
 }
 
+function anchorsEqual(a: Anchor, b: Anchor): boolean {
+  if (a.blockId !== b.blockId) return false;
+  if (a.offset !== b.offset) return false;
+  if (a.path.length !== b.path.length) return false;
+  for (let i = 0; i < a.path.length; i++) {
+    if (a.path[i] !== b.path[i]) return false;
+  }
+  return true;
+}
+
 export function createEditor(opts: EditorOptions = {}): Editor {
   const editorId = `creo-editor-${++__editorIdCounter}`;
 
@@ -520,6 +558,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     const blocks = parseHTML(html);
     if (blocks.length === 0) return;
     docStore.set(docFromBlocks(blocks));
+    selStore.set(defaultSelection(docStore.get()));
+    history.reset();
+  };
+
+  const setDoc = (s: SerializedDoc): void => {
+    docStore.set(deserializeDoc(s));
     selStore.set(defaultSelection(docStore.get()));
     history.reset();
   };
@@ -676,6 +720,19 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               const y = Math.max(r.top + 1, Math.min(r.bottom - 1, e.clientY));
               const focusAnchor = pointToAnchor(docStore.get(), root, x, y);
               if (!focusAnchor) return;
+              // If the drag focus is at the SAME position as the anchor
+              // (sub-pixel jitter during a click, or genuinely the same
+              // character), keep a `caret` selection. A range with
+              // anchor === focus is semantically a caret, but the overlay
+              // only paints its blinking cursor for `kind: "caret"` — so
+              // emitting a range here would silently hide the caret on
+              // every click that happened to coincide with a tiny
+              // pointermove. (User-visible bug: caret disappears after a
+              // click; typing still inserts at the right place.)
+              if (anchorsEqual(dragState.fixed, focusAnchor)) {
+                selStore.set({ kind: "caret", at: dragState.fixed });
+                return;
+              }
               selStore.set({
                 kind: "range",
                 anchor: dragState.fixed,
@@ -782,6 +839,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     redo,
     EditorView,
     setDocFromHTML,
+    setDoc,
     toJSON,
     focus,
     blur,

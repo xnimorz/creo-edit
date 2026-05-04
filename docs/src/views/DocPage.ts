@@ -1,5 +1,5 @@
 import { view, div, aside, ul, li, a, span, _ } from "creo";
-import { RawHtml } from "./RawHtml";
+import { EditorPage } from "./EditorPage";
 import type { CompiledDoc } from "../markdown/types";
 import { prevNext } from "../nav";
 import { consumePendingAnchor, scrollToAnchor } from "../anchor";
@@ -12,22 +12,6 @@ const attachAnchorListener = () => {
   document.addEventListener("click", (e) => {
     const target = e.target as HTMLElement | null;
     if (!target) return;
-
-    // Package-manager tab widget (used in install instructions).
-    const tab = target.closest<HTMLElement>(".pkg-tab[data-pkg]");
-    if (tab) {
-      const root = tab.closest<HTMLElement>(".pkg-tabs");
-      const key = tab.dataset.pkg;
-      if (root && key) {
-        root.querySelectorAll<HTMLElement>(".pkg-tab").forEach((t) =>
-          t.classList.toggle("active", t.dataset.pkg === key),
-        );
-        root.querySelectorAll<HTMLElement>(".pkg-panel").forEach((p) =>
-          p.classList.toggle("active", p.dataset.pkg === key),
-        );
-      }
-      return;
-    }
 
     const anchor = target.closest(
       "a[href^='#']",
@@ -48,13 +32,17 @@ const onDocMount = () => {
   if (!pending) return;
 
   const doScroll = () => scrollToAnchor(pending, false);
+  // Wait for the editor to paint before scrolling — heading ids are wired
+  // in EditorPage's own rAF callback, so we do a slight delay then retry.
   requestAnimationFrame(() => {
-    doScroll();
-    if (document.readyState !== "complete") {
-      window.addEventListener("load", doScroll, { once: true });
-    } else {
-      setTimeout(doScroll, 120);
-    }
+    requestAnimationFrame(() => {
+      doScroll();
+      if (document.readyState !== "complete") {
+        window.addEventListener("load", doScroll, { once: true });
+      } else {
+        setTimeout(doScroll, 120);
+      }
+    });
   });
 };
 
@@ -65,9 +53,11 @@ export const DocPage = view<{ doc: CompiledDoc; slug: string }>(({ props }) => {
       const { doc, slug } = props();
 
       div({ class: "doc-page" }, () => {
+        // Article body — now a live editor over the page content.
         div({ class: "doc-article" }, () => {
-          RawHtml({ html: doc.html, class: "markdown-body" });
+          EditorPage({ doc });
 
+          // Prev/next pager — outside the editor, regular nav.
           const { prev, next } = prevNext(slug);
           if (prev || next) {
             div({ class: "doc-pager" }, () => {
@@ -89,6 +79,7 @@ export const DocPage = view<{ doc: CompiledDoc; slug: string }>(({ props }) => {
           }
         });
 
+        // Right-side TOC — outside the editor.
         if (doc.headings.length > 1) {
           aside({ class: "doc-toc" }, () => {
             div({ class: "toc-title" }, "On this page");
