@@ -14,6 +14,7 @@ import {
   insertAfter,
   newBlockId,
   removeBlock,
+  removeBlocks,
   updateBlock,
 } from "../model/doc";
 import {
@@ -328,10 +329,10 @@ function collapseRangeForStructuralOp(
     ...(startBlock as TextBearingBlock),
     runs: merged,
   } as Block);
-  for (let i = endI; i > startI; i--) {
-    const id = doc.order[i]!;
-    working = removeBlock(working, id);
-  }
+  // Bulk-remove rather than per-block (which is O(M*N) on the order array).
+  const idsToRemove: string[] = [];
+  for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
+  working = removeBlocks(working, idsToRemove);
   docStore.set(working);
   selStore.set(caret(caretAt(start.blockId, sOff)));
   return true;

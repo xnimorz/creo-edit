@@ -29,10 +29,10 @@ function mountTable(rows = 2, cols = 3) {
     new HtmlRender(root),
     SYNC_SCHEDULER,
   ).mount();
-  const ta = root.querySelector(
-    "textarea[data-creo-input]",
-  ) as HTMLTextAreaElement;
-  return { root, editor, id, ta };
+  const editorRoot = root.querySelector(
+    "[data-creo-editor]",
+  ) as HTMLElement;
+  return { root, editor, id, ta: editorRoot };
 }
 
 describe("Table rendering", () => {
@@ -124,6 +124,101 @@ describe("Table editing", () => {
       expect(sel.at.path[0]).toBe(2);
       expect(sel.at.path[1]).toBe(0);
     }
+  });
+
+  it("ArrowRight at end of cell jumps to next cell", () => {
+    const { editor, id, ta } = mountTable(2, 2);
+    // Put "ab" in cell (0, 0) and place caret at end.
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 0, 0], offset: 0 },
+    });
+    editor.dispatch({ t: "insertText", text: "ab" });
+    // Caret should be at offset 2 of cell (0, 0). ArrowRight at end → cell (0, 1).
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    );
+    const sel = editor.selStore.get();
+    if (sel.kind === "caret") {
+      expect(sel.at.path[0]).toBe(0);
+      expect(sel.at.path[1]).toBe(1);
+      expect(sel.at.path[2]).toBe(0);
+    }
+  });
+
+  it("ArrowLeft at start of cell jumps to end of previous cell", () => {
+    const { editor, id, ta } = mountTable(2, 2);
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 0, 0], offset: 0 },
+    });
+    editor.dispatch({ t: "insertText", text: "abc" });
+    // Move caret to start of cell (0, 1).
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 1, 0], offset: 0 },
+    });
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+    );
+    const sel = editor.selStore.get();
+    if (sel.kind === "caret") {
+      expect(sel.at.path[0]).toBe(0);
+      expect(sel.at.path[1]).toBe(0);
+      expect(sel.at.path[2]).toBe(3); // end of "abc"
+    }
+  });
+
+  it("ArrowDown moves to the cell directly below", () => {
+    const { editor, id, ta } = mountTable(2, 2);
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 1, 0], offset: 0 },
+    });
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    const sel = editor.selStore.get();
+    if (sel.kind === "caret") {
+      expect(sel.at.path[0]).toBe(1);
+      expect(sel.at.path[1]).toBe(1);
+    }
+  });
+
+  it("ArrowUp moves to the cell directly above", () => {
+    const { editor, id, ta } = mountTable(2, 2);
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [1, 0, 0], offset: 0 },
+    });
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    );
+    const sel = editor.selStore.get();
+    if (sel.kind === "caret") {
+      expect(sel.at.path[0]).toBe(0);
+      expect(sel.at.path[1]).toBe(0);
+    }
+  });
+
+  it("ArrowRight in mid-cell does NOT jump (lets browser handle within-cell)", () => {
+    const { editor, id, ta } = mountTable(2, 2);
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 0, 0], offset: 0 },
+    });
+    editor.dispatch({ t: "insertText", text: "abcd" });
+    // Move caret to middle of cell.
+    editor.dispatch({
+      t: "moveCursor",
+      to: { blockId: id, path: [0, 0, 2], offset: 2 },
+    });
+    const ev = new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    // Selection unchanged by us; browser would have moved the native caret,
+    // which selectionchange would mirror to selStore — but we don't simulate
+    // that. Just assert preventDefault wasn't called.
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it("Shift+Tab navigates backward", () => {

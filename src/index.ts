@@ -16,9 +16,6 @@ export type {
 
 // Render layer (advanced consumers)
 export { DocView } from "./render/DocView";
-export { CaretOverlay } from "./render/CaretOverlay";
-export { SelectionHandles } from "./render/SelectionHandles";
-export { MobileToolbar } from "./render/MobileToolbar";
 export { ParagraphView } from "./render/blocks/ParagraphView";
 export { HeadingView } from "./render/blocks/HeadingView";
 export { ListItemView } from "./render/blocks/ListItemView";
@@ -29,6 +26,13 @@ export { InlineRunsView } from "./render/InlineRunsView";
 
 // Mobile / input helpers
 export { isCoarsePointer } from "./input/mobile";
+
+// DOM ↔ Anchor mapping (advanced consumers)
+export {
+  domToAnchor,
+  anchorToDom,
+  findBlockElementById,
+} from "./dom/anchorMap";
 
 // Virtualization
 export { VirtualDoc } from "./virtual/VirtualDoc";

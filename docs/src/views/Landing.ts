@@ -14,9 +14,9 @@ import { EditorDemo } from "./EditorDemo";
 
 const features = [
   {
-    title: "No contentEditable",
+    title: "Controlled contentEditable",
     text:
-      "A hidden <textarea> captures every keystroke, IME composition, mobile soft keyboard, and clipboard event. The visible document is just rendered output.",
+      "Native browser selection and IME, but every beforeinput is intercepted and translated into a command. The model is the source of truth; the DOM is rendered output.",
   },
   {
     title: "Cursor outside the doc",
@@ -39,9 +39,9 @@ const features = [
       "Only blocks intersecting the viewport are mounted, with measured heights stored in a Fenwick tree. Hundreds of thousands of blocks stay responsive.",
   },
   {
-    title: "Mobile-first",
+    title: "First-class mobile support",
     text:
-      "Caret-following hidden input, visualViewport tracking, tap/scroll/long-press classifier, custom selection handles, floating mobile toolbar.",
+      "Native long-press OS menu, native selection handles, IME composition reconciled into one undo step, visualViewport-aware caret-keeping.",
   },
 ];
 
@@ -53,14 +53,14 @@ export const Landing = view(() => ({
         div({ class: "hero-inner" }, () => {
           div({ class: "hero-copy" }, () => {
             h1(_, () => {
-              span({ class: "hero-accent" }, "Rich text");
+              span({ class: "hero-accent" }, "A text editor framework");
               span({}, ", ");
-              span({ class: "hero-accent" }, "minus the magic");
+              span({ class: "hero-accent" }, "based on creo");
               span({}, ".");
             });
             p(
               { class: "hero-tagline" },
-              "Row-based, no-contentEditable rich-text editor for the Creo UI framework. Type into the editor on the right — it's the real thing, not a mockup.",
+              "Row-based rich-text editor for the Creo UI framework, on a controlled contentEditable. Type into the editor on the right — it's the real thing, not a mockup.",
             );
 
             div({ class: "hero-cta" }, () => {

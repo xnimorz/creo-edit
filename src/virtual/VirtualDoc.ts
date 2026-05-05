@@ -71,10 +71,22 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
     }
   };
 
-  const onScroll = (e: Event) => {
-    const t = e.target as HTMLElement | null;
-    if (!t) return;
-    scrollTop.set(t.scrollTop);
+  // Read the current scroll position from whichever element actually scrolls
+  // — a custom overflow ancestor if there is one, else the window. We re-read
+  // on every scroll event rather than trusting `e.target.scrollTop` because
+  // (a) window scroll fires with e.target=document and document.scrollTop=0,
+  // and (b) a synthetic dispatchEvent might land with e.target=window where
+  // window.scrollTop is undefined.
+  const readScrollPos = (): number => {
+    const root = currentRoot();
+    if (root) {
+      const sc = scrollAncestor(root);
+      if (sc) return sc.scrollTop;
+    }
+    return window.scrollY ?? document.documentElement.scrollTop ?? 0;
+  };
+  const onScroll = (): void => {
+    scrollTop.set(readScrollPos());
   };
 
   const onResize = () => {
@@ -205,7 +217,12 @@ function readViewportHeight(): number {
   if (typeof window === "undefined") return 800;
   const vv = (window as Window & { visualViewport?: VisualViewport })
     .visualViewport;
-  return vv?.height ?? window.innerHeight ?? 800;
+  // Use `||` (not `??`) so a 0 from either source falls through to the next —
+  // some preview / headless environments report innerHeight=0 transiently,
+  // which would otherwise leave the virtualizer with a zero-sized viewport
+  // and only one block ever mounted.
+  const h = (vv?.height || 0) || window.innerHeight || 0;
+  return h > 0 ? h : 800;
 }
 
 function currentRoot(): HTMLElement | null {

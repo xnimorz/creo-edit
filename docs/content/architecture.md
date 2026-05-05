@@ -15,23 +15,29 @@ They're separate because text editors have a fundamental performance asymmetry: 
 
 The cost is a small amount of cross-store coordination inside commands (a delete needs both the doc and the selection to compute its result). The win is that an editor with a big rendered surface stays fast.
 
-## No `contentEditable`
+## Controlled `contentEditable`
 
-`contentEditable` lets the browser own a region of the DOM and translate user input into mutations. That's convenient until you have to make the model the source of truth, at which point you're parsing the browser's mutations back into your model — and the gap between "what the browser did" and "what your model says" is full of edge cases.
+The editor root is `contenteditable="true"`. Native browser selection paints the caret and selection, native IME runs without intervention, and the OS context menu (long-press on mobile, right-click on desktop) appears for free. What it does *not* do: mutate the model.
 
-The editor takes the other path. A hidden `<textarea>` lives at the caret position. `keydown`, `input`, `compositionstart/update/end`, and `paste`/`copy`/`cut` all fire on the textarea, get classified by `inputPipeline.ts`, and dispatched as commands. The visible document is rendered output of `docStore` — no `contentEditable` set anywhere.
+Every `beforeinput` event is intercepted in `input/nativeInput.ts`. We `preventDefault()` and translate the event's `inputType` into an editor command. The browser is allowed to write to the DOM in exactly one situation — during an active IME composition — and we reconcile on `compositionend` by diffing the affected scope's `textContent` against the pre-composition snapshot, then dispatching a single `insertText` command.
+
+The contract:
+
+- **Anchor model is source of truth.** `selStore` holds `{ blockId, path, offset }`. A bidirectional mapper (`dom/anchorMap.ts`) translates between Anchor and DOM `(node, offset)` at the input boundary. Native selection always reflects the model after the next render flush.
+- **Render is the only legitimate writer to non-composing DOM.** A `selectionchange` echo guard (sequence-numbered) and a `renderPending` window (cleared after the next animation frame) prevent the browser from corrupting `selStore` when text nodes get replaced.
+- **Composition reconciliation is one command.** Multi-character IME compositions collapse into a single undo step via the existing `text:insert` history tag.
 
 The win:
 
-- **Deterministic input.** Every keystroke goes through one entry point.
-- **IME works.** Composition events fire on the textarea exactly as they do on a normal one.
-- **Mobile soft keyboards work.** Same.
-- **Clipboard works.** `paste` on a hidden textarea is no different from a visible one, with the upside that we can intercept and route HTML / plain / file payloads through our own paste pipeline.
+- **Native caret + selection on every platform.** No custom overlay, no drift between the browser's idea of where you are and ours.
+- **First-class mobile.** OS long-press menu, native selection handles, `font-size` not constrained to 16px, no soft-keyboard scroll glue.
+- **IME works the way users expect.** Browser owns composition; we observe and reconcile.
+- **Spellcheck, autocorrect, autocapitalize.** Configurable via standard CE attributes.
 
 The cost:
 
-- **No native selection UI on touch devices.** We draw our own handles and mobile toolbar.
-- **No browser spellcheck UI on the visible text.** The textarea is hidden, so the OS doesn't draw underlines on document text.
+- **Browser quirks live at the boundary.** Firefox / Safari / Chrome differ on `beforeinput` `inputType` strings and on what they do during composition. The dispatcher swallows unknown inputTypes silently and reconciles whatever the DOM ended up with on `compositionend`.
+- **Structural blocks are non-editable islands.** `img` is `contenteditable="false"` (atomic to caret); table cells inherit editability through the root, navigated via Tab in a custom keymap.
 
 ## Block model
 

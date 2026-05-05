@@ -27,6 +27,58 @@ createApp(
 
 That gives you a single empty paragraph the user can type into. The editor manages its own input pipeline, selection, history, and rendering — you only need to mount it.
 
+## Inside React, Vue, Svelte, Solid, …
+
+The editor renders through Creo's `HtmlRender`, which mounts into any DOM element. To embed it inside a host framework, give Creo a container element managed by that framework and let it own the contents from there. The editor does not have a React (or Vue, Svelte, Solid) wrapper package — you write the ten-line bridge once.
+
+**React**
+
+```tsx
+import { useEffect, useRef } from "react";
+import { createApp, HtmlRender } from "creo";
+import { createEditor } from "creo-editor";
+
+export function CreoEditor() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const editor = createEditor();
+    const app = createApp(
+      () => editor.EditorView(),
+      new HtmlRender(ref.current),
+    ).mount();
+    return () => app.unmount?.();
+  }, []);
+  return <div ref={ref} />;
+}
+```
+
+**Vue 3**
+
+```vue
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount, ref } from "vue";
+import { createApp as creoApp, HtmlRender } from "creo";
+import { createEditor } from "creo-editor";
+
+const host = ref<HTMLElement | null>(null);
+let app: ReturnType<typeof creoApp> | null = null;
+onMounted(() => {
+  const editor = createEditor();
+  app = creoApp(() => editor.EditorView(), new HtmlRender(host.value!)).mount();
+});
+onBeforeUnmount(() => app?.unmount?.());
+</script>
+
+<template>
+  <div ref="host" />
+</template>
+```
+
+**Svelte 5 / Solid / anything with a DOM ref**: same pattern — wait for the container to be mounted, call `createApp(...).mount()`, call `app.unmount()` on teardown.
+
+The editor handle (`createEditor()` return value) is plain JS — exposing `editor.dispatch`, `editor.toJSON`, `editor.docStore`, etc. from inside a hook / composable is straightforward. Nothing about commands, history, or serialization is Creo-specific.
+
 ## Loading initial content
 
 `createEditor` accepts an `initial` document in its serialized form:
@@ -59,7 +111,7 @@ Block types are `p`, `h1` … `h6`, `li`, `img`, `table`, and `columns`. See [Ed
 
 ## A toolbar
 
-The editor doesn't ship a toolbar — you build one with whatever component model you prefer. The pattern is: a button calls `editor.dispatch()`, then `editor.focus()` so the textarea regains keyboard input.
+The editor doesn't ship a toolbar — you build one with whatever component model you prefer. The pattern is: a button calls `editor.dispatch()`, then `editor.focus()` so the editor regains keyboard input.
 
 ```ts
 import { view, button } from "creo";
@@ -90,7 +142,7 @@ const Toolbar = view(() => ({
 }));
 ```
 
-The `e.preventDefault()` keeps the button click from stealing focus from the editor's hidden textarea. See [Commands](#/commands) for the full list of dispatchable actions.
+The `e.preventDefault()` keeps the button click from stealing focus from the editor. See [Commands](#/commands) for the full list of dispatchable actions.
 
 ## Reading content out
 

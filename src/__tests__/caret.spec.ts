@@ -106,95 +106,21 @@ describe("Block-edge navigation", () => {
   });
 });
 
-describe("ArrowLeft/Right via input pipeline", () => {
-  it("dispatches keydown ArrowRight to advance the caret", () => {
+// ArrowLeft/Right/Home/End under contentEditable are handled by the BROWSER —
+// our input pipeline does not translate them into commands. happy-dom does
+// not simulate native caret movement on keydown, so these can't be exercised
+// through synthesized events. The model-level navigation primitives
+// (nextAnchor / prevAnchor / homeOfBlock / endOfBlock) remain covered by the
+// describes above.
+describe.skip("ArrowLeft/Right via input pipeline", () => {
+  it("not applicable under contentEditable — browser handles arrow nav", () => {
     const root = makeContainer();
     const ids = [newBlockId()];
     const editor = createEditor({
       initial: { blocks: [{ id: ids[0]!, type: "p", runs: [{ text: "abc" }] }] },
     });
     createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-    // selStore default: end of doc → offset 3
     expect(editor.selStore.get().kind).toBe("caret");
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
-
-    // Move to start.
-    editor.selStore.set({
-      kind: "caret",
-      at: caretAt(ids[0]!, 0),
-    });
-    const press = (key: string, shift = false) => {
-      const ev = new KeyboardEvent("keydown", {
-        key,
-        bubbles: true,
-        cancelable: true,
-        shiftKey: shift,
-      });
-      ta.dispatchEvent(ev);
-    };
-    press("ArrowRight");
-    let sel = editor.selStore.get();
-    if (sel.kind === "caret") expect(sel.at.offset).toBe(1);
-    press("ArrowRight");
-    sel = editor.selStore.get();
-    if (sel.kind === "caret") expect(sel.at.offset).toBe(2);
-    press("ArrowLeft");
-    sel = editor.selStore.get();
-    if (sel.kind === "caret") expect(sel.at.offset).toBe(1);
-  });
-
-  it("Shift+Arrow extends a selection", () => {
-    const root = makeContainer();
-    const ids = [newBlockId()];
-    const editor = createEditor({
-      initial: { blocks: [{ id: ids[0]!, type: "p", runs: [{ text: "abc" }] }] },
-    });
-    createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
-    editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 0) });
-    const press = (key: string, shift = false) => {
-      const ev = new KeyboardEvent("keydown", {
-        key,
-        bubbles: true,
-        cancelable: true,
-        shiftKey: shift,
-      });
-      ta.dispatchEvent(ev);
-    };
-    press("ArrowRight", true);
-    press("ArrowRight", true);
-    const sel = editor.selStore.get();
-    expect(sel.kind).toBe("range");
-    if (sel.kind === "range") {
-      expect(sel.anchor.offset).toBe(0);
-      expect(sel.focus.offset).toBe(2);
-    }
-  });
-
-  it("Home / End navigate within block", () => {
-    const root = makeContainer();
-    const ids = [newBlockId()];
-    const editor = createEditor({
-      initial: { blocks: [{ id: ids[0]!, type: "p", runs: [{ text: "abc" }] }] },
-    });
-    createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
-    editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 1) });
-    const press = (key: string) =>
-      ta.dispatchEvent(
-        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-      );
-    press("End");
-    let sel = editor.selStore.get();
-    if (sel.kind === "caret") expect(sel.at.offset).toBe(3);
-    press("Home");
-    sel = editor.selStore.get();
-    if (sel.kind === "caret") expect(sel.at.offset).toBe(0);
+    void caretAt;
   });
 });

@@ -132,7 +132,7 @@ Returns a `SerializedDoc` — a plain JSON-safe object suitable for storage. Rou
 
 ### `focus()` / `blur()`
 
-Moves keyboard focus to / from the hidden textarea. Call `focus()` after any toolbar interaction so the user can keep typing without clicking back into the editor.
+Moves keyboard focus to / from the editor root. Call `focus()` after any toolbar interaction so the user can keep typing without clicking back into the editor.
 
 ## `SerializedDoc`
 

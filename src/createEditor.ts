@@ -1,6 +1,6 @@
 import { _ } from "creo";
 import { div, store, view } from "creo";
-import type { PointerEventData, PublicView, Store } from "creo";
+import type { PublicView, Store } from "creo";
 import { moveTo } from "./commands/navigationCommands";
 import {
   tableInsertCol as cmdTableInsertCol,
@@ -8,23 +8,14 @@ import {
   tableRemoveCol as cmdTableRemoveCol,
   tableRemoveRow as cmdTableRemoveRow,
 } from "./commands/tableCommands";
-import {
-  attachClipboard,
-  type ClipboardHandle,
-} from "./clipboard/clipboard";
 import { attachDrop, type DropHandle } from "./clipboard/drop";
 import { parseHTML } from "./clipboard/htmlParser";
-import { selectionToClipboard } from "./clipboard/htmlSerializer";
-import { deleteSelectedImage } from "./commands/imageCommands";
 import {
   attachVisualViewport,
   type ViewportHandle,
 } from "./input/mobile";
-import { MobileToolbar } from "./render/MobileToolbar";
-import { SelectionHandles } from "./render/SelectionHandles";
 import { homeOfDoc, endOfDocAnchor } from "./controller/navigation";
 import {
-  insertBlocks as cmdInsertBlocks,
   insertColumns as cmdInsertColumns,
   insertImage as cmdInsertImage,
   insertTable as cmdInsertTable,
@@ -47,29 +38,23 @@ import {
   deleteForward as cmdDeleteForward,
   insertText as cmdInsertText,
 } from "./commands/textCommands";
-import { caret, endOfDoc } from "./controller/selection";
-import { wordRangeAt } from "./controller/wordBoundary";
-import { runsAt } from "./model/cellAccess";
+import { endOfDoc } from "./controller/selection";
 import { createHistory, type History } from "./controller/history";
 import { attachAutoRebalance } from "./model/rebalance";
-import { HiddenInput } from "./input/HiddenInput";
 import {
-  attachInputPipeline,
-  type PipelineHandle,
-} from "./input/inputPipeline";
+  attachNativeInput,
+  type NativeInputHandle,
+} from "./input/nativeInput";
 import { docFromBlocks, emptyDoc, newBlockId } from "./model/doc";
 import type {
   Anchor,
-  Block,
   BlockSpec,
   DocState,
   InlineRun,
   Mark,
   Selection,
 } from "./model/types";
-import { CaretOverlay } from "./render/CaretOverlay";
 import { DocView } from "./render/DocView";
-import { pointToAnchor } from "./render/measure";
 import { VirtualDoc } from "./virtual/VirtualDoc";
 
 let __editorIdCounter = 0;
@@ -368,88 +353,7 @@ function historyTagFor(cmd: Command): string {
 }
 
 function defaultSelection(doc: DocState): Selection {
-  // Cursor sits at the end of the last block — gives the implicit "type to
-  // append" behaviour M3 promises before the caret overlay (M4) lands.
   return { kind: "caret", at: endOfDoc(doc) };
-}
-
-/** Build a range selecting the word containing `anchor`. */
-function selectWordAt(
-  doc: DocState,
-  anchor: Anchor,
-): { kind: "range"; anchor: Anchor; focus: Anchor } | null {
-  const block = docGet(doc, anchor.blockId);
-  if (!block) return null;
-  const ctx = runsAt(block, anchor);
-  if (!ctx) return null;
-  let text = "";
-  for (const r of ctx.runs) text += r.text;
-  const offsetField =
-    anchor.path.length >= 3 ? anchor.path[2] ?? 0 : anchor.path[0] ?? 0;
-  const [ws, we] = wordRangeAt(text, offsetField);
-  if (ws === we) return null;
-  const tablePrefix =
-    anchor.path.length >= 3
-      ? [anchor.path[0]!, anchor.path[1]!]
-      : ([] as number[]);
-  return {
-    kind: "range",
-    anchor: {
-      blockId: anchor.blockId,
-      path: tablePrefix.length ? [...tablePrefix, ws] : [ws],
-      offset: ws,
-    },
-    focus: {
-      blockId: anchor.blockId,
-      path: tablePrefix.length ? [...tablePrefix, we] : [we],
-      offset: we,
-    },
-  };
-}
-
-/** Build a range selecting the entire block (or current cell, for tables). */
-function selectBlockAt(
-  doc: DocState,
-  anchor: Anchor,
-): { kind: "range"; anchor: Anchor; focus: Anchor } | null {
-  const block = docGet(doc, anchor.blockId);
-  if (!block) return null;
-  const ctx = runsAt(block, anchor);
-  if (!ctx) return null;
-  let len = 0;
-  for (const r of ctx.runs) len += r.text.length;
-  if (len === 0) return null;
-  const tablePrefix =
-    anchor.path.length >= 3
-      ? [anchor.path[0]!, anchor.path[1]!]
-      : ([] as number[]);
-  return {
-    kind: "range",
-    anchor: {
-      blockId: anchor.blockId,
-      path: tablePrefix.length ? [...tablePrefix, 0] : [0],
-      offset: 0,
-    },
-    focus: {
-      blockId: anchor.blockId,
-      path: tablePrefix.length ? [...tablePrefix, len] : [len],
-      offset: len,
-    },
-  };
-}
-
-function docGet(doc: DocState, id: string) {
-  return doc.byId.get(id);
-}
-
-function anchorsEqual(a: Anchor, b: Anchor): boolean {
-  if (a.blockId !== b.blockId) return false;
-  if (a.offset !== b.offset) return false;
-  if (a.path.length !== b.path.length) return false;
-  for (let i = 0; i < a.path.length; i++) {
-    if (a.path[i] !== b.path[i]) return false;
-  }
-  return true;
 }
 
 export function createEditor(opts: EditorOptions = {}): Editor {
@@ -464,10 +368,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // document subscribers (and vice versa).
   const selStore = store.new<Selection>(defaultSelection(initialDoc));
 
-  let pipeline: PipelineHandle | null = null;
-  let clipboard: ClipboardHandle | null = null;
+  let nativeInput: NativeInputHandle | null = null;
   let drop: DropHandle | null = null;
   let viewport: ViewportHandle | null = null;
+  void nativeInput;
+  void drop;
+  void viewport;
 
   const history: History = createHistory({ docStore, selStore });
   // Microtask rebalance — keeps fractional indices short under adversarial
@@ -571,36 +477,18 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   const toJSON = (): SerializedDoc => serializeDoc(docStore.get());
 
   const focus = (): void => {
-    pipeline?.focus();
+    const root = document.querySelector(
+      `[data-creo-editor="${editorId}"]`,
+    ) as HTMLElement | null;
+    root?.focus();
   };
   const blur = (): void => {
-    pipeline?.blur();
+    const root = document.querySelector(
+      `[data-creo-editor="${editorId}"]`,
+    ) as HTMLElement | null;
+    root?.blur();
   };
 
-  const handleCopy = (): void => {
-    const sel = selStore.get();
-    if (sel.kind === "caret") return;
-    const payload = selectionToClipboard(docStore.get(), sel);
-    // Mobile-toolbar Copy is best-effort: the OS's "Allow paste from
-    // clipboard?" gate kicks in only on the SECOND clipboard write inside
-    // the same gesture on iOS, so we accept the silent failure path.
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(payload.plain).catch(() => {});
-    }
-  };
-  const handleCut = (): void => {
-    handleCopy();
-    cmdDeleteBackward({ docStore, selStore });
-  };
-  const handlePaste = async (): Promise<void> => {
-    if (typeof navigator === "undefined" || !navigator.clipboard) return;
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) cmdInsertText({ docStore, selStore }, text);
-    } catch {
-      // Clipboard read often denied without a recent gesture — silent fail.
-    }
-  };
   const handleSelectAll = (): void => {
     const doc = docStore.get();
     const start = homeOfDoc(doc);
@@ -608,172 +496,32 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     selStore.set({ kind: "range", anchor: start, focus: end });
   };
 
-  // Mouse / touch click + drag + double/triple-click state machine. Lives
-  // in plain closures (not Creo state) because pointermove fires at very
-  // high frequency and we don't want to dirty any view to handle it.
-  const dragState = {
-    active: false,
-    /** Anchor where the mousedown landed; held as the FIXED side of the range. */
-    fixed: null as Anchor | null,
-    lastClickAt: 0,
-    lastClickX: 0,
-    lastClickY: 0,
-    clickCount: 1,
-  };
-
-  const handleRootPointerDown = (e: PointerEventData): void => {
-    pipeline?.focus();
-    const root = document.querySelector(
-      `[data-creo-editor="${editorId}"]`,
-    ) as HTMLElement | null;
-    if (!root) return;
-    const anchor = pointToAnchor(docStore.get(), root, e.x, e.y);
-    if (!anchor) return;
-
-    // Multi-click detection: same point + within 400ms = click chain.
-    const now = Date.now();
-    const dx = e.x - dragState.lastClickX;
-    const dy = e.y - dragState.lastClickY;
-    const sameSpot = dx * dx + dy * dy < 64; // within 8px
-    const withinWindow = now - dragState.lastClickAt < 400;
-    dragState.clickCount =
-      sameSpot && withinWindow ? dragState.clickCount + 1 : 1;
-    dragState.lastClickAt = now;
-    dragState.lastClickX = e.x;
-    dragState.lastClickY = e.y;
-
-    if (dragState.clickCount === 2) {
-      // Double-click: select the word at the anchor.
-      const wordSel = selectWordAt(docStore.get(), anchor);
-      if (wordSel) {
-        selStore.set(wordSel);
-        dragState.fixed = wordSel.anchor;
-        dragState.active = false;
-        return;
-      }
-    } else if (dragState.clickCount >= 3) {
-      // Triple-click (or more): select the entire block.
-      const blockSel = selectBlockAt(docStore.get(), anchor);
-      if (blockSel) {
-        selStore.set(blockSel);
-        dragState.fixed = blockSel.anchor;
-        dragState.active = false;
-        dragState.clickCount = 3;
-        return;
-      }
-    }
-
-    // Single-click: collapse to caret + start drag selection.
-    selStore.set(caret(anchor));
-    dragState.fixed = anchor;
-    dragState.active = true;
-  };
-
-  // EditorView — root container, holds DocView + HiddenInput.
+  // EditorView — minimal contentEditable wrapper. The browser handles caret,
+  // drag-selection, IME composition, and the long-press OS context menu;
+  // attachNativeInput intercepts beforeinput and translates it into commands.
   const EditorView: PublicView<EditorViewProps, void> = view<EditorViewProps>(
     ({ props, use }) => {
       const doc = use(docStore);
 
       return {
         onMount() {
-          const ta = document.querySelector(
-            `textarea[data-creo-input="${editorId}"]`,
-          ) as HTMLTextAreaElement | null;
-          if (!ta) return;
-          pipeline = attachInputPipeline(
-            ta,
-            { docStore, selStore },
-            {
-              record: (tag) => history.record(tag),
-              undo: () => history.undo(),
-              redo: () => history.redo(),
-              selectAll: () => handleSelectAll(),
-              rootForMeasure: () =>
-                document.querySelector(
-                  `[data-creo-editor="${editorId}"]`,
-                ) as HTMLElement | null,
-            },
-          );
-          clipboard = attachClipboard(
-            ta,
-            { docStore, selStore },
-            { upload: opts.uploadImage },
-          );
           const root = document.querySelector(
             `[data-creo-editor="${editorId}"]`,
           ) as HTMLElement | null;
-          if (root) {
-            drop = attachDrop(root, { docStore, selStore }, opts.uploadImage);
-            viewport = attachVisualViewport(root, { docStore, selStore });
-            // Mouse/touch drag-select: while a drag is active, every
-            // pointermove updates the FOCUS side of the range. We listen
-            // on `window` (not the editor root) so a drag that wanders
-            // outside the editor still tracks correctly — same pattern as
-            // text-selection in any native editable.
-            const onWinMove = (e: PointerEvent) => {
-              if (!dragState.active || !dragState.fixed) return;
-              const r = root.getBoundingClientRect();
-              // Clamp the focus point to within the root so dragging into
-              // the toolbar / above the editor still produces a usable
-              // anchor at the editor edge.
-              const x = Math.max(r.left + 1, Math.min(r.right - 1, e.clientX));
-              const y = Math.max(r.top + 1, Math.min(r.bottom - 1, e.clientY));
-              const focusAnchor = pointToAnchor(docStore.get(), root, x, y);
-              if (!focusAnchor) return;
-              // If the drag focus is at the SAME position as the anchor
-              // (sub-pixel jitter during a click, or genuinely the same
-              // character), keep a `caret` selection. A range with
-              // anchor === focus is semantically a caret, but the overlay
-              // only paints its blinking cursor for `kind: "caret"` — so
-              // emitting a range here would silently hide the caret on
-              // every click that happened to coincide with a tiny
-              // pointermove. (User-visible bug: caret disappears after a
-              // click; typing still inserts at the right place.)
-              if (anchorsEqual(dragState.fixed, focusAnchor)) {
-                selStore.set({ kind: "caret", at: dragState.fixed });
-                return;
-              }
-              selStore.set({
-                kind: "range",
-                anchor: dragState.fixed,
-                focus: focusAnchor,
-              });
-            };
-            const onWinUp = () => {
-              dragState.active = false;
-            };
-            window.addEventListener("pointermove", onWinMove);
-            window.addEventListener("pointerup", onWinUp);
-            // Also listen for double / triple click directly via dblclick
-            // — some browsers don't reliably re-fire pointerdown on the
-            // 2nd / 3rd click of a chain.
-            root.addEventListener("dblclick", (ev) => {
-              const e = ev as MouseEvent;
-              const anchor = pointToAnchor(docStore.get(), root, e.clientX, e.clientY);
-              if (!anchor) return;
-              const wordSel = selectWordAt(docStore.get(), anchor);
-              if (wordSel) selStore.set(wordSel);
-            });
-            // Suppress the browser's default mousedown behaviour on the
-            // editor root: clicking a non-focusable element blurs the
-            // currently focused input by default — which would un-focus our
-            // textarea immediately after pointerdown focused it. Every
-            // serious editor (ProseMirror, CodeMirror, Slate) does this.
-            // We attach via a raw listener because Creo's event map only
-            // exposes pointerdown / click, not mousedown.
-            root.addEventListener("mousedown", (e) => {
-              if (e.target instanceof HTMLElement) {
-                const t = e.target.tagName;
-                // Don't preventDefault on real inputs / buttons that need
-                // native focus handling.
-                if (t === "INPUT" || t === "BUTTON" || t === "SELECT" || t === "TEXTAREA") {
-                  return;
-                }
-              }
-              e.preventDefault();
-              pipeline?.focus();
-            });
-          }
+          if (!root) return;
+          nativeInput = attachNativeInput(
+            root,
+            { docStore, selStore },
+            {
+              dispatch,
+              undo: () => history.undo(),
+              redo: () => history.redo(),
+              selectAll: () => handleSelectAll(),
+              uploadImage: opts.uploadImage,
+            },
+          );
+          drop = attachDrop(root, { docStore, selStore }, opts.uploadImage);
+          viewport = attachVisualViewport(root, { docStore, selStore });
         },
         render() {
           const modeCls =
@@ -786,18 +534,13 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             {
               class: cls,
               "data-creo-editor": editorId,
-              // `cursor: text` so hovering the editor shows the I-beam
-              // (standard text-editor UX). Image blocks override this in
-              // their own view to keep the default pointer arrow.
+              // `cursor: text` so hovering shows the I-beam. Image blocks
+              // override this to keep the default pointer arrow.
               //
-              // `white-space: pre-wrap` is REQUIRED for editor correctness:
-              // the default `white-space: normal` collapses trailing spaces
-              // visually, so typing space at end-of-line would advance the
-              // model offset but never show. The CSS property inherits, so
-              // every descendant block uses pre-wrap unless it overrides.
-              style:
-                "position:relative;cursor:text;white-space:pre-wrap;",
-              onPointerDown: handleRootPointerDown,
+              // `white-space: pre-wrap` is REQUIRED — the default `normal`
+              // collapses trailing spaces visually, so typing a space at
+              // end-of-line would advance the model offset but never render.
+              style: "position:relative;cursor:text;white-space:pre-wrap;",
             },
             () => {
               if (opts.virtualized) {
@@ -809,20 +552,6 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               } else {
                 DocView({ doc: doc.get() });
               }
-              CaretOverlay({ editorId, selStore, docStore });
-              SelectionHandles({ editorId, selStore, docStore });
-              MobileToolbar({
-                editorId,
-                selStore,
-                docStore,
-                onCopy: handleCopy,
-                onCut: handleCut,
-                onPaste: handlePaste,
-                onSelectAll: handleSelectAll,
-                onBold: () => dispatch({ t: "toggleMark", mark: "b" }),
-                onItalic: () => dispatch({ t: "toggleMark", mark: "i" }),
-              });
-              HiddenInput({ editorId });
             },
           );
           void _;

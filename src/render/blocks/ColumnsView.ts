@@ -22,6 +22,7 @@ export const ColumnsView = view<{ block: ColumnsBlock }>(({ props }) => ({
     div(
       {
         "data-block-id": b.id,
+        "data-block-kind": "columns",
         class: "ce-block ce-columns",
         style: `display:grid;grid-template-columns:repeat(${b.cols},1fr);gap:16px;`,
       },

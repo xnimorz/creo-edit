@@ -18,19 +18,35 @@ function mountWith(text: string) {
     initial: { blocks: [{ id, type: "p", runs: [{ text }] }] },
   });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-  const ta = root.querySelector(
-    "textarea[data-creo-input]",
-  ) as HTMLTextAreaElement;
-  return {
-    root,
-    editor,
-    ta,
-    id,
-    press: (key: string) =>
-      ta.dispatchEvent(
-        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-      ),
+  const editorRoot = root.querySelector(
+    "[data-creo-editor]",
+  ) as HTMLElement;
+  // Map editing keys to their corresponding `beforeinput` inputType — under
+  // contentEditable the browser fires beforeinput, not keydown, for these.
+  const press = (key: string) => {
+    const inputType =
+      key === "Enter"
+        ? "insertParagraph"
+        : key === "Backspace"
+        ? "deleteContentBackward"
+        : key === "Delete"
+        ? "deleteContentForward"
+        : null;
+    if (inputType) {
+      const ev = new (globalThis as { Event: typeof Event }).Event(
+        "beforeinput",
+        { bubbles: true, cancelable: true },
+      );
+      Object.defineProperty(ev, "inputType", { value: inputType });
+      Object.defineProperty(ev, "data", { value: null });
+      editorRoot.dispatchEvent(ev);
+      return;
+    }
+    editorRoot.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
   };
+  return { root, editor, editorRoot, id, press };
 }
 
 describe("Structural commands", () => {
@@ -73,17 +89,17 @@ describe("Structural commands", () => {
       initial: { blocks: [{ id, type: "h2", runs: [{ text: "Heading" }] }] },
     });
     createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
+    const editorRoot = root.querySelector(
+      "[data-creo-editor]",
+    ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(id, "Heading".length) });
-    ta.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Enter",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(ev, "inputType", { value: "insertParagraph" });
+    Object.defineProperty(ev, "data", { value: null });
+    editorRoot.dispatchEvent(ev);
     const doc = editor.docStore.get();
     expect(doc.order.length).toBe(2);
     expect(doc.byId.get(doc.order[0]!)!.type).toBe("h2");
@@ -160,16 +176,16 @@ describe("Structural commands", () => {
       anchor: caretAt(ids[0]!, 3),
       focus: caretAt(ids[2]!, 2),
     });
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
-    ta.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Backspace",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    const editorRoot = root.querySelector(
+      "[data-creo-editor]",
+    ) as HTMLElement;
+    const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(ev, "inputType", { value: "deleteContentBackward" });
+    Object.defineProperty(ev, "data", { value: null });
+    editorRoot.dispatchEvent(ev);
     const doc = editor.docStore.get();
     expect(doc.order.length).toBe(1);
     const merged = doc.byId.get(doc.order[0]!)!;

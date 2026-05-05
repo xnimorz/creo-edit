@@ -181,3 +181,84 @@ export function tableRemoveCol(stores: Stores): boolean {
 export function isInTable(doc: DocState, sel: Selection): boolean {
   return currentTable(doc, sel) !== null;
 }
+
+// ---------------------------------------------------------------------------
+// Arrow-key cell navigation
+//
+// Browsers' native contentEditable handling DOES NOT cross `<td>` boundaries
+// on arrow keys — pressing ArrowRight at the end of a cell's text leaves the
+// caret stuck in that cell. These helpers implement the expected "navigate
+// between cells" UX. Each returns true when it handled the key (caller
+// should preventDefault), false to fall through to the browser default
+// (within-cell character motion).
+// ---------------------------------------------------------------------------
+
+function cellTextLength(block: TableBlock, row: number, col: number): number {
+  const runs = block.cells[row]?.[col] ?? [];
+  return runs.reduce((n, r) => n + r.text.length, 0);
+}
+
+/** ArrowLeft: at offset 0 of a cell, jump to end of previous cell. */
+export function tableArrowLeft(stores: Stores): boolean {
+  const ctx = currentTable(stores.docStore.get(), stores.selStore.get());
+  if (!ctx) return false;
+  if (ctx.off !== 0) return false;
+  const { block, row, col } = ctx;
+  let nr = row, nc = col - 1;
+  if (nc < 0) {
+    nc = block.cols - 1;
+    nr -= 1;
+  }
+  if (nr < 0) return false;
+  const off = cellTextLength(block, nr, nc);
+  stores.selStore.set(
+    caret({ blockId: block.id, path: [nr, nc, off], offset: off }),
+  );
+  return true;
+}
+
+/** ArrowRight: at end of cell, jump to start of next cell. */
+export function tableArrowRight(stores: Stores): boolean {
+  const ctx = currentTable(stores.docStore.get(), stores.selStore.get());
+  if (!ctx) return false;
+  const len = cellTextLength(ctx.block, ctx.row, ctx.col);
+  if (ctx.off !== len) return false;
+  const { block, row, col } = ctx;
+  let nr = row, nc = col + 1;
+  if (nc >= block.cols) {
+    nc = 0;
+    nr += 1;
+  }
+  if (nr >= block.rows) return false;
+  stores.selStore.set(
+    caret({ blockId: block.id, path: [nr, nc, 0], offset: 0 }),
+  );
+  return true;
+}
+
+/** ArrowUp: from any position in a row, jump to the cell directly above
+ *  (preserving column), placing the caret at end-of-text in that cell.
+ *  Returns false at the top row, letting the browser try to escape natively. */
+export function tableArrowUp(stores: Stores): boolean {
+  const ctx = currentTable(stores.docStore.get(), stores.selStore.get());
+  if (!ctx) return false;
+  if (ctx.row === 0) return false;
+  const nr = ctx.row - 1;
+  const off = cellTextLength(ctx.block, nr, ctx.col);
+  stores.selStore.set(
+    caret({ blockId: ctx.block.id, path: [nr, ctx.col, off], offset: off }),
+  );
+  return true;
+}
+
+/** ArrowDown: jump to the cell directly below (same column), caret at start. */
+export function tableArrowDown(stores: Stores): boolean {
+  const ctx = currentTable(stores.docStore.get(), stores.selStore.get());
+  if (!ctx) return false;
+  if (ctx.row >= ctx.block.rows - 1) return false;
+  const nr = ctx.row + 1;
+  stores.selStore.set(
+    caret({ blockId: ctx.block.id, path: [nr, ctx.col, 0], offset: 0 }),
+  );
+  return true;
+}

@@ -156,8 +156,32 @@ export function removeBlock(doc: DocState, id: BlockId): DocState {
 }
 
 /**
+ * Remove multiple blocks in one pass. Single allocation of the new order
+ * array — avoids the O(M*N) cost of calling removeBlock M times in a loop.
+ */
+export function removeBlocks(doc: DocState, ids: Iterable<BlockId>): DocState {
+  const removeSet = new Set<BlockId>();
+  for (const id of ids) {
+    if (doc.byId.has(id)) removeSet.add(id);
+  }
+  if (removeSet.size === 0) return doc;
+  const byId = new Map(doc.byId);
+  for (const id of removeSet) byId.delete(id);
+  const order: BlockId[] = [];
+  for (const id of doc.order) {
+    if (!removeSet.has(id)) order.push(id);
+  }
+  return { byId, order };
+}
+
+/**
  * Bulk-insert: drop `n` new blocks evenly spaced into the gap before `pos`.
  * Faster than calling insertAt repeatedly because we compute all keys at once.
+ *
+ * Builds the new `order` array in a single pass (O(N + M) where N = current
+ * doc size, M = inserted block count) instead of splicing in a loop. Splicing
+ * inside a loop is O(N) per call → O(M*N) overall, which hurts catastrophically
+ * for large pastes (e.g. ~10k paragraphs from a long document).
  */
 export function insertManyAt(
   doc: DocState,
@@ -173,14 +197,21 @@ export function insertManyAt(
       : doc.byId.get(doc.order[pos]!)!.index;
   const indices = generateN(before, after, blocks.length);
   const byId = new Map(doc.byId);
-  const order = doc.order.slice();
+  // Single-allocation order rebuild — avoid O(N) splice per block.
+  const insertedIds: BlockId[] = new Array(blocks.length);
   for (let i = 0; i < blocks.length; i++) {
     const b = { ...blocks[i]!, index: indices[i]! } as Block;
     if (byId.has(b.id)) {
       throw new Error(`insertManyAt: duplicate block id ${b.id}`);
     }
     byId.set(b.id, b);
-    order.splice(pos + i, 0, b.id);
+    insertedIds[i] = b.id;
+  }
+  const order: BlockId[] = new Array(doc.order.length + blocks.length);
+  for (let i = 0; i < pos; i++) order[i] = doc.order[i]!;
+  for (let i = 0; i < blocks.length; i++) order[pos + i] = insertedIds[i]!;
+  for (let i = pos; i < doc.order.length; i++) {
+    order[i + blocks.length] = doc.order[i]!;
   }
   return { byId, order };
 }

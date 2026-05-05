@@ -12,6 +12,7 @@ import {
   insertManyAt,
   newBlockId,
   removeBlock,
+  removeBlocks,
   updateBlock,
 } from "../model/doc";
 import {
@@ -434,9 +435,9 @@ function collapseRange(stores: Stores): boolean {
     ...(startBlock as TBB),
     runs: merged,
   } as Block);
-  for (let i = endI; i > startI; i--) {
-    working = removeBlock(working, doc.order[i]!);
-  }
+  const idsToRemove: string[] = [];
+  for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
+  working = removeBlocks(working, idsToRemove);
   stores.docStore.set(working);
   stores.selStore.set(caret(caretAt(start.blockId, sOff)));
   return true;

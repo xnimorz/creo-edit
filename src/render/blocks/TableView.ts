@@ -23,6 +23,7 @@ export const TableView = view<{ block: TableBlock }>(({ props }) => ({
     table(
       {
         "data-block-id": b.id,
+        "data-block-kind": "table",
         class: "ce-block ce-table",
       },
       () => {

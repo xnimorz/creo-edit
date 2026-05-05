@@ -12,7 +12,7 @@ export const HeadingView = view<{ block: HeadingBlock }>(({ props }) => ({
     const b = props().block;
     const tag = TAG[b.type];
     tag(
-      { "data-block-id": b.id, class: `ce-block ce-${b.type}` },
+      { "data-block-id": b.id, "data-block-kind": b.type, class: `ce-block ce-${b.type}` },
       () => {
         InlineRunsView({ runs: b.runs });
       },

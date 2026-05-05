@@ -15,6 +15,7 @@ const __urlMode = (() => {
 
 export const editor = createEditor({
   mode: __urlMode,
+  virtualized: true,
   initial: {
     blocks: [
       { type: "h1", runs: [{ text: "Welcome to Creo Editor" }] },

@@ -19,10 +19,10 @@ function setupWithText(text: string) {
     initial: { blocks: [{ id, type: "p", runs: [{ text }] }] },
   });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-  const ta = root.querySelector(
-    "textarea[data-creo-input]",
-  ) as HTMLTextAreaElement;
-  return { root, editor, id, ta };
+  const editorRoot = root.querySelector(
+    "[data-creo-editor]",
+  ) as HTMLElement;
+  return { root, editor, id, ta: editorRoot };
 }
 
 function getRuns(editor: ReturnType<typeof createEditor>, id: string): InlineRun[] {

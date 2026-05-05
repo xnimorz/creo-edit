@@ -44,6 +44,7 @@ export const CodeBlockView = view<{ block: CodeBlock }>(({ props }) => ({
     pre(
       {
         "data-block-id": b.id,
+        "data-block-kind": "code",
         class: "ce-block ce-code-block",
         ...(b.lang ? { "data-lang": b.lang } : {}),
       },

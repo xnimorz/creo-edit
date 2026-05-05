@@ -557,9 +557,7 @@ test.describe("Range replace on type", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector(
-        "textarea[data-creo-input]",
-      ) as HTMLTextAreaElement;
+      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
       const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
       Object.defineProperty(ev, "data", { value: "X" });
       Object.defineProperty(ev, "inputType", { value: "insertText" });
@@ -611,9 +609,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector(
-        "textarea[data-creo-input]",
-      ) as HTMLTextAreaElement;
+      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
       for (const c of "abc") {
         const ev = new Event("beforeinput", {
           bubbles: true,
@@ -663,9 +659,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector(
-        "textarea[data-creo-input]",
-      ) as HTMLTextAreaElement;
+      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
       const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
       Object.defineProperty(ev, "data", { value: "RIGHT" });
       Object.defineProperty(ev, "inputType", { value: "insertText" });
@@ -721,9 +715,7 @@ test.describe("Trailing whitespace", () => {
     // Type three spaces via beforeinput (page.keyboard.type triggers the
     // same input pipeline path).
     await page.evaluate(() => {
-      const ta = document.querySelector(
-        "textarea[data-creo-input]",
-      ) as HTMLTextAreaElement;
+      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
       for (let i = 0; i < 3; i++) {
         const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
         Object.defineProperty(ev, "data", { value: " " });

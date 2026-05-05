@@ -102,14 +102,14 @@ describe("List commands", () => {
     const { ids, blocks } = multi(["a"]);
     const editor = createEditor({ initial: { blocks } });
     createApp(() => editor.EditorView(), new HtmlRender(root), SYNC).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
+    const editorRoot = root.querySelector(
+      "[data-creo-editor]",
+    ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 0) });
     editor.dispatch({ t: "toggleList", ordered: false });
 
     const press = (key: string, shift = false) =>
-      ta.dispatchEvent(
+      editorRoot.dispatchEvent(
         new KeyboardEvent("keydown", {
           key,
           bubbles: true,
@@ -139,18 +139,18 @@ describe("List commands", () => {
     const { ids, blocks } = multi(["item one"]);
     const editor = createEditor({ initial: { blocks } });
     createApp(() => editor.EditorView(), new HtmlRender(root), SYNC).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
+    const editorRoot = root.querySelector(
+      "[data-creo-editor]",
+    ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 8) });
     editor.dispatch({ t: "toggleList", ordered: true });
-    ta.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Enter",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(ev, "inputType", { value: "insertParagraph" });
+    Object.defineProperty(ev, "data", { value: null });
+    editorRoot.dispatchEvent(ev);
     const doc = editor.docStore.get();
     expect(doc.order.length).toBe(2);
     const a = doc.byId.get(doc.order[0]!) as ListItemBlock;

@@ -14,6 +14,13 @@ export const ImageView = view<{ block: ImageBlock; selected?: boolean }>(
       div(
         {
           "data-block-id": b.id,
+          "data-block-kind": "img",
+          // Atomic to native caret — under contentEditable the browser must
+          // skip OVER the img rather than placing the caret inside it.
+          // contenteditable="false" inside an editable root creates exactly
+          // that "non-editable island" behaviour. Harmless when the editor
+          // is not contenteditable (textarea-driven path ignores the attr).
+          contenteditable: "false",
           class: sel ? "ce-block ce-img ce-img-selected" : "ce-block ce-img",
           // Override the editor root's `cursor: text` so hovering an image
           // shows the default arrow, not the I-beam.

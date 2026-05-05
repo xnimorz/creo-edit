@@ -89,16 +89,14 @@ describe("Image insertion + deletion", () => {
       SYNC_SCHEDULER,
     ).mount();
     editor.selStore.set({ kind: "caret", at: { blockId: id, path: [0], offset: 0 } });
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
-    ta.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Backspace",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    const ta = root.querySelector("[data-creo-editor]") as HTMLElement;
+    const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(ev, "inputType", { value: "deleteContentBackward" });
+    Object.defineProperty(ev, "data", { value: null });
+    ta.dispatchEvent(ev);
     expect(editor.docStore.get().byId.has(id)).toBe(false);
   });
 
@@ -111,9 +109,7 @@ describe("Image insertion + deletion", () => {
       new HtmlRender(root),
       SYNC_SCHEDULER,
     ).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
+    const ta = root.querySelector("[data-creo-editor]") as HTMLElement;
 
     const blob = new Blob(["fake-bytes"], { type: "image/png" });
     const file = new File([blob], "pic.png", { type: "image/png" });
@@ -151,9 +147,7 @@ describe("Image insertion + deletion", () => {
       new HtmlRender(root),
       SYNC_SCHEDULER,
     ).mount();
-    const ta = root.querySelector(
-      "textarea[data-creo-input]",
-    ) as HTMLTextAreaElement;
+    const ta = root.querySelector("[data-creo-editor]") as HTMLElement;
     const blob = new Blob(["xyz"], { type: "image/jpeg" });
     const file = new File([blob], "photo.jpg", { type: "image/jpeg" });
     const dt = new DataTransfer();

@@ -11,6 +11,7 @@ export const ListItemView = view<{ block: ListItemBlock }>(({ props }) => ({
     li(
       {
         "data-block-id": b.id,
+        "data-block-kind": "li",
         class: `ce-block ce-li ce-li-d${b.depth}`,
         "data-depth": String(b.depth),
       },

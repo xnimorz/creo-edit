@@ -1,15 +1,15 @@
 # creo-editor
 
-Row-based, no-`contentEditable` rich-text editor for the [Creo](https://github.com/xnim/creo) UI framework.
+A text editor framework, based on [Creo](https://github.com/xnim/creo). Row-based rich-text editing on a controlled `contentEditable`. Mountable inside any framework that gives you a DOM ref (React, Vue, Svelte, Solid) — see [Hosting inside other frameworks](#hosting-inside-other-frameworks).
 
 ## Highlights
 
 - **Cursor lives outside the document state** — typing into a block doesn't dirty selection subscribers, and vice versa.
 - **CRDT-friendly row ordering** via base-62 fractional indexing — insert-between is O(log n), no renumber.
-- **No `contentEditable`** — a hidden `<textarea>` captures keystrokes, IME composition, mobile soft keyboards, and clipboard.
+- **Controlled `contentEditable`** — native browser selection and IME, with every `beforeinput` intercepted and translated into a command. The model is the source of truth.
 - **Per-keystroke render cost is O(1) blocks** — block immutability + `shouldUpdate` identity checks make the keyed reconciler skip every untouched block.
 - **Optional virtualization** — only blocks intersecting the viewport are mounted; documents with hundreds of thousands of blocks remain responsive.
-- **First-class mobile UX** — caret-following hidden input, visual-viewport tracking, tap/scroll/long-press classifier, custom selection handles, and a floating mobile toolbar.
+- **First-class mobile support** — native long-press OS menu, native selection handles, IME composition reconciled into a single undo step, `visualViewport`-aware caret-keeping.
 
 ## Install
 
@@ -37,6 +37,56 @@ createApp(
   new HtmlRender(document.querySelector("#app")!),
 ).mount();
 ```
+
+## Hosting inside other frameworks
+
+The editor renders through Creo's `HtmlRender`, which mounts into any DOM element. Embed it inside a host framework by giving Creo a container element managed by that framework. There is no React/Vue/Svelte wrapper package — you write the ten-line bridge once.
+
+**React**
+
+```tsx
+import { useEffect, useRef } from "react";
+import { createApp, HtmlRender } from "creo";
+import { createEditor } from "creo-editor";
+
+export function CreoEditor() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const editor = createEditor();
+    const app = createApp(
+      () => editor.EditorView(),
+      new HtmlRender(ref.current),
+    ).mount();
+    return () => app.unmount?.();
+  }, []);
+  return <div ref={ref} />;
+}
+```
+
+**Vue 3**
+
+```vue
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount, ref } from "vue";
+import { createApp as creoApp, HtmlRender } from "creo";
+import { createEditor } from "creo-editor";
+
+const host = ref<HTMLElement | null>(null);
+let app: ReturnType<typeof creoApp> | null = null;
+onMounted(() => {
+  const editor = createEditor();
+  app = creoApp(() => editor.EditorView(), new HtmlRender(host.value!)).mount();
+});
+onBeforeUnmount(() => app?.unmount?.());
+</script>
+
+<template>
+  <div ref="host" />
+</template>
+```
+
+**Svelte 5 / Solid / anything with a DOM ref**: same pattern — wait for the container to be mounted, call `createApp(...).mount()`, call `app.unmount()` on teardown. The `editor` handle (`createEditor()` return value) is plain JS; exposing `editor.dispatch`, `editor.toJSON`, `editor.docStore`, etc. from inside a hook / composable is straightforward.
 
 ## Editor API
 
@@ -108,7 +158,7 @@ Without `uploadImage`, dropped/pasted images use `URL.createObjectURL`.
 
 ### Mobile
 
-`creo-editor` is mobile-first. The hidden textarea is positioned at the caret (so iOS scroll-into-view targets the right place), `font-size:16px` guards against iOS auto-zoom, the `visualViewport` API keeps the caret visible when the soft keyboard opens, and a custom toolbar replaces the action menu lost by not being `contentEditable`.
+`creo-editor` ships first-class mobile support. The editor root is a `contentEditable`, so the OS long-press menu, native selection handles, IME composition, and autocorrect work out of the box. `visualViewport` tracking exposes `--creo-vv-height` and `--creo-vv-top` as CSS custom properties so host pages can position floating UI above the soft keyboard, and scrolls the caret into the upper third of visible space when the keyboard opens.
 
 ## Architecture
 

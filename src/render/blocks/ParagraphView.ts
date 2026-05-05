@@ -8,7 +8,7 @@ export const ParagraphView = view<{ block: ParagraphBlock }>(({ props }) => ({
   },
   render() {
     const b = props().block;
-    p({ "data-block-id": b.id, class: "ce-block ce-p" }, () => {
+    p({ "data-block-id": b.id, "data-block-kind": "p", class: "ce-block ce-p" }, () => {
       InlineRunsView({ runs: b.runs });
     });
   },

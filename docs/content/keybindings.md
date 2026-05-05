@@ -62,6 +62,6 @@ Listening at your shell — not at `window` — keeps the binding scoped to the 
 
 ## Disabling defaults
 
-Same answer as above — the editor doesn't expose a "remove this binding" knob. If you want different behavior for, say, `Tab`, add a listener that calls `e.stopPropagation()` (or `e.preventDefault()`) before the editor's pipeline sees it. The pipeline registers on the hidden textarea, so its handler runs only when the textarea is focused — your wrapper listener can run first if attached to a parent in capture phase.
+Same answer as above — the editor doesn't expose a "remove this binding" knob. If you want different behavior for, say, `Tab`, add a listener that calls `e.stopPropagation()` (or `e.preventDefault()`) before the editor's pipeline sees it. The pipeline registers `keydown` and `beforeinput` on the editor root (the `contentEditable` element), so a wrapper listener attached to a parent in capture phase can run first.
 
 For most apps the defaults are enough. The shortcut surface is intentionally minimal: anything richer (slash menus, autocomplete, link popovers) is built on top by listening to `selStore` and dispatching commands.

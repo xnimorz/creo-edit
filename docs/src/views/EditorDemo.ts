@@ -79,7 +79,11 @@ export const EditorDemo = view<EditorDemoProps>(({ props }) => {
   const initial = props().initial ?? DEFAULT_INITIAL;
   const mode = props().mode ?? "regular";
 
-  const editor = createEditor({ initial, mode });
+  // virtualized: true keeps the editor responsive when the doc gets large
+  // (paste of an entire long-form document, etc). Only blocks intersecting
+  // the viewport are mounted; the rest are absorbed by spacer divs. Cost on
+  // small docs is negligible.
+  const editor = createEditor({ initial, mode, virtualized: true });
 
   const onTypeChange = (e: InputEventData) => {
     const v = e.value as (typeof blockTypes)[number]["v"];
