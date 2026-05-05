@@ -13,8 +13,17 @@ export const navSections: NavSection[] = [
     title: "API",
     items: [
       { title: "Editor API", slug: "editor-api" },
+      { title: "Block format", slug: "block-format" },
+      { title: "Editing modes", slug: "editing-modes" },
       { title: "Commands", slug: "commands" },
       { title: "Keybindings", slug: "keybindings" },
+    ],
+  },
+  {
+    title: "Plugins",
+    items: [
+      { title: "Authoring plugins", slug: "plugin-authoring" },
+      { title: "Built-in plugins", slug: "built-in-plugins" },
     ],
   },
   {

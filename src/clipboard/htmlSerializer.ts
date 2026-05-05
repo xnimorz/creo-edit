@@ -1,3 +1,12 @@
+// ---------------------------------------------------------------------------
+// HTML serialization — plugin-driven per-block, with list grouping handled
+// here because <ul>/<ol> open/close spans across multiple `li` blocks.
+//
+// Per-block serializeHTML lives in the BlockDef the plugin registered. We
+// look it up via getHtmlSerializer(block.type) and prepend a list-open or
+// list-close prefix as needed.
+// ---------------------------------------------------------------------------
+
 import { iterBlocks } from "../model/doc";
 import {
   blockTextLength,
@@ -9,53 +18,19 @@ import {
   anchorOffset,
   orderedRange,
 } from "../controller/selection";
+import { getHtmlSerializer } from "../plugin/htmlCodec";
 import type {
   Block,
+  ColumnsBlock,
   DocState,
   InlineRun,
   ListItemBlock,
-  Mark,
   Selection,
   TableBlock,
 } from "../model/types";
 
-const MARK_TAGS: Record<Mark, string> = {
-  b: "strong",
-  i: "em",
-  u: "u",
-  s: "s",
-  code: "code",
-};
-
-const MARK_ORDER: Mark[] = ["code", "b", "i", "u", "s"];
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function escapePlain(s: string): string {
   return s.replace(/​/g, "");
-}
-
-function runsToHtml(runs: InlineRun[]): string {
-  let out = "";
-  for (const r of runs) {
-    let inner = escapeHtml(r.text);
-    if (r.marks && r.marks.size) {
-      // Wrap inside-out using MARK_ORDER (matches the renderer).
-      for (const m of MARK_ORDER) {
-        if (!r.marks.has(m)) continue;
-        const tag = MARK_TAGS[m];
-        inner = `<${tag}>${inner}</${tag}>`;
-      }
-    }
-    out += inner;
-  }
-  return out;
 }
 
 function blockToHtml(block: Block, listOpen: { tag: string | null }): string {
@@ -72,65 +47,9 @@ function blockToHtml(block: Block, listOpen: { tag: string | null }): string {
     prefix += `</${listOpen.tag}>`;
     listOpen.tag = null;
   }
-
-  switch (block.type) {
-    case "p":
-      return prefix + `<p>${runsToHtml(block.runs)}</p>`;
-    case "h1":
-    case "h2":
-    case "h3":
-    case "h4":
-    case "h5":
-    case "h6":
-      return prefix + `<${block.type}>${runsToHtml(block.runs)}</${block.type}>`;
-    case "li": {
-      const li = block as ListItemBlock;
-      return (
-        prefix +
-        `<li data-depth="${li.depth}">${runsToHtml(li.runs)}</li>`
-      );
-    }
-    case "code": {
-      // Single multi-line region. Serialize as <pre><code> so other apps
-      // (and our own parser) recognize it. Lang is preserved as a class.
-      const langCls = block.lang ? ` class="language-${escapeHtml(block.lang)}"` : "";
-      return (
-        prefix +
-        `<pre><code${langCls}>${runsToHtml(block.runs)}</code></pre>`
-      );
-    }
-    case "img": {
-      const attrs: string[] = [`src="${escapeHtml(block.src)}"`];
-      if (block.alt) attrs.push(`alt="${escapeHtml(block.alt)}"`);
-      if (block.width) attrs.push(`width="${block.width}"`);
-      if (block.height) attrs.push(`height="${block.height}"`);
-      return prefix + `<img ${attrs.join(" ")}/>`;
-    }
-    case "table": {
-      const t = block as TableBlock;
-      let s = prefix + "<table><tbody>";
-      for (let r = 0; r < t.rows; r++) {
-        s += "<tr>";
-        for (let c = 0; c < t.cols; c++) {
-          s += `<td>${runsToHtml(t.cells[r]?.[c] ?? [])}</td>`;
-        }
-        s += "</tr>";
-      }
-      s += "</tbody></table>";
-      return s;
-    }
-    case "columns": {
-      // Best-effort HTML serialization — round-trips into a flex-like grid.
-      // External pasters won't recognize the data-creo-columns marker but
-      // the col text content is preserved.
-      let s = prefix + `<div data-creo-columns="${block.cols}" style="display:grid;grid-template-columns:repeat(${block.cols},1fr);gap:16px;">`;
-      for (let c = 0; c < block.cols; c++) {
-        s += `<div data-col="${c}">${runsToHtml(block.cells[c] ?? [])}</div>`;
-      }
-      s += "</div>";
-      return s;
-    }
-  }
+  const ser = getHtmlSerializer(block.type);
+  if (!ser) return prefix;
+  return prefix + ser(block);
 }
 
 /** Whole-doc serialization (used by toJSON-ish helpers and copy-all). */
@@ -159,9 +78,10 @@ export function docToPlain(doc: DocState): string {
         lines.push(cols.join("\t"));
       }
     } else if (b.type === "columns") {
+      const cb = b as ColumnsBlock;
       const cols: string[] = [];
-      for (let c = 0; c < b.cols; c++) {
-        cols.push(escapePlain(runsText(b.cells[c] ?? [])));
+      for (let c = 0; c < cb.cols; c++) {
+        cols.push(escapePlain(runsText(cb.cells[c] ?? [])));
       }
       lines.push(cols.join("\t"));
     }
@@ -190,15 +110,12 @@ export function selectionToClipboard(
 ): ClipboardPayload {
   if (sel.kind === "caret") return { html: "", plain: "" };
   const { start, end } = orderedRange(doc, sel);
-  // Build the relevant block slices. For a single block, slice the runs;
-  // for multiple, the start block keeps its tail, the end block keeps its
-  // head, and the middle blocks are full.
   if (start.blockId === end.blockId) {
     const block = doc.byId.get(start.blockId);
     if (!block || !isTextBearing(block)) return { html: "", plain: "" };
     const sOff = anchorOffset(start);
     const eOff = anchorOffset(end);
-    const [_l, midRight] = splitRunsAt(
+    const [, midRight] = splitRunsAt(
       (block as TextBearingBlock).runs,
       sOff,
     );

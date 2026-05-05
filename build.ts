@@ -24,6 +24,11 @@ if (!result.success) {
 
 await $`bunx tsc -p tsconfig.build.json`;
 
+// Copy the optional plugin stylesheet so consumers can
+//   import "creo-editor/dist/plugins/styles.css";
+await $`mkdir -p ${resolve(outDir, "plugins")}`;
+await $`cp ${resolve(root, "src/plugins/styles.css")} ${resolve(outDir, "plugins/styles.css")}`;
+
 console.log("\n✓ Build complete → dist/");
 const stat = Bun.file(resolve(outDir, "index.js"));
 console.log(`  index.js  ${(stat.size / 1024).toFixed(1)} KB`);

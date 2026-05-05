@@ -1,0 +1,121 @@
+/* ---------------------------------------------------------------------------
+   Default stylesheet for first-party creo-editor plugins.
+
+   This file ships with the package but is NOT auto-loaded — consumers
+   import it explicitly:
+
+     import "creo-editor/dist/plugins/styles.css";
+
+   …or copy these rules into their own stylesheet to customize. The plugin
+   code only sets the minimum styles required for layout/positioning;
+   appearance is fully overridable here.
+
+   Class reference:
+     .creo-slash, .creo-slash-item, .creo-slash-item.is-active,
+     .creo-slash-item-title, .creo-slash-item-desc, .creo-slash-empty
+     .ce-decorations
+     .ce-deco, .ce-deco-{plugin-id}, .ce-deco-layer-{layer}
+     .ce-drag-btn, .ce-drag-btn.is-visible, .ce-drag-ghost,
+     .ce-drag-indicator
+     .ce-add-block-btn, .ce-add-block-btn.is-visible
+   --------------------------------------------------------------------------- */
+
+/* ============= Slash menu ============= */
+.creo-slash {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+}
+.creo-slash-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.creo-slash-item.is-active {
+  background: #eef4ff;
+}
+.creo-slash-item-title {
+  font-weight: 500;
+}
+.creo-slash-item-desc {
+  color: #666;
+  font-size: 12px;
+}
+.creo-slash-empty {
+  padding: 8px;
+  color: #888;
+}
+
+/* ============= Decorations layer ============= */
+.ce-decorations {
+  /* Functional positioning is set by the manager; nothing else needed. */
+}
+
+/* ============= Drag handle ============= */
+.ce-drag-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #aaa;
+  font-size: 16px;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.ce-drag-btn.is-visible {
+  opacity: 1;
+}
+.ce-drag-btn:hover {
+  color: #555;
+}
+.ce-drag-ghost {
+  opacity: 0.85;
+  background: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  transform: rotate(-1deg);
+  cursor: grabbing;
+}
+.ce-drag-indicator {
+  height: 3px;
+  background: #3b82f6;
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
+}
+.ce-drag-indicator.is-vertical {
+  /* When the indicator marks a side-drop (left/right) the manager sets
+     `width` empty and `height` to the block height; we just need a fixed
+     bar width to make the line visible. */
+  width: 3px;
+  height: auto;
+}
+
+/* ============= Add-block button ============= */
+.ce-add-block-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.ce-add-block-btn.is-visible {
+  opacity: 1;
+}
+.ce-add-block-btn:hover {
+  color: #333;
+}

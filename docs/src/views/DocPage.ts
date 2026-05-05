@@ -3,6 +3,7 @@ import { EditorPage } from "./EditorPage";
 import type { CompiledDoc } from "../markdown/types";
 import { prevNext } from "../nav";
 import { consumePendingAnchor, scrollToAnchor } from "../anchor";
+import { createEditor } from "creo-editor";
 
 let anchorListenerAttached = false;
 
@@ -47,6 +48,9 @@ const onDocMount = () => {
 };
 
 export const DocPage = view<{ doc: CompiledDoc; slug: string }>(({ props }) => {
+  const editor = createEditor(
+    
+  );
   return {
     onMount: onDocMount,
     render() {
@@ -80,7 +84,7 @@ export const DocPage = view<{ doc: CompiledDoc; slug: string }>(({ props }) => {
         });
 
         // Right-side TOC — outside the editor.
-        if (doc.headings.length > 1) {
+        if (doc.headings.length > 1) {          
           aside({ class: "doc-toc" }, () => {
             div({ class: "toc-title" }, "On this page");
             ul({ class: "toc-list" }, () => {

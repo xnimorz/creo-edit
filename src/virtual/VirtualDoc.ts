@@ -4,12 +4,7 @@ import type { Store } from "creo";
 import type { BlockId, DocState, Selection } from "../model/types";
 import { findPos } from "../model/doc";
 import { selectionStart } from "../controller/selection";
-import { ParagraphView } from "../render/blocks/ParagraphView";
-import { HeadingView } from "../render/blocks/HeadingView";
-import { ListItemView } from "../render/blocks/ListItemView";
-import { CodeBlockView } from "../render/blocks/CodeBlockView";
-import { ImageView } from "../render/blocks/ImageView";
-import { TableView } from "../render/blocks/TableView";
+import { getView } from "../plugin/registry";
 import { HeightIndex } from "./heightIndex";
 
 /**
@@ -167,34 +162,11 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
           for (let i = startIdx; i <= endIdx; i++) {
             const id = d.order[i]!;
             const block = d.byId.get(id)!;
-            // Capture mounted elements so we can measure them. We piggy-back
-            // on a Mount-time querySelector inside onUpdateAfter; it's cheap
-            // because we only scan visible blocks.
-            switch (block.type) {
-              case "p":
-                ParagraphView({ block, key: id });
-                break;
-              case "h1":
-              case "h2":
-              case "h3":
-              case "h4":
-              case "h5":
-              case "h6":
-                HeadingView({ block, key: id });
-                break;
-              case "li":
-                ListItemView({ block, key: id });
-                break;
-              case "code":
-                CodeBlockView({ block, key: id });
-                break;
-              case "img":
-                ImageView({ block, key: id });
-                break;
-              case "table":
-                TableView({ block, key: id });
-                break;
-            }
+            // Resolve the view via the plugin registry — same dispatch as
+            // DocView, so plugin-registered block kinds render identically
+            // when virtualized.
+            const v = getView(block.type);
+            if (v) v({ block, key: id });
           }
           if (bottomSpacer > 0) {
             div({

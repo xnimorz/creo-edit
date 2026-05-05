@@ -25,7 +25,7 @@ import type {
   Selection,
   Mark,
 } from "../model/types";
-import type { Command } from "../createEditor";
+import type { DispatchableCommand } from "../createEditor";
 import { caret as caretSel, range as rangeSel } from "../controller/selection";
 import { matchKeymap } from "./keymap";
 import { anchorToDom, domToAnchor, findBlockElementById } from "../dom/anchorMap";
@@ -36,16 +36,12 @@ import {
   insertImageFiles,
   type UploadFn,
 } from "../commands/imageCommands";
-import {
-  isInTable,
-  tableArrowDown,
-  tableArrowLeft,
-  tableArrowRight,
-  tableArrowUp,
-  tableNextCell,
-  tablePrevCell,
-} from "../commands/tableCommands";
 import { deleteSelectedImage } from "../commands/imageCommands";
+import { lookupAnchorCodec } from "../plugin/anchorCodec";
+import { runsLengthAt } from "../plugin/runsAt";
+import { matchPluginKeymap } from "../plugin/keymapMatch";
+import type { Registry } from "../plugin/registry";
+import type { TriggerManager } from "../plugin/triggers";
 
 const ZWSP = "​";
 
@@ -69,12 +65,17 @@ export type NativeInputStores = {
 };
 
 export type NativeInputOptions = {
-  dispatch: (cmd: Command) => void;
+  dispatch: (cmd: DispatchableCommand) => void;
   undo: () => void;
   redo: () => void;
   selectAll: () => void;
   /** Optional upload hook for pasted / dropped image files. */
   uploadImage?: UploadFn;
+  /** Plugin registry — keymap matching, command dispatch for plugin chords. */
+  registry: Registry;
+  /** Trigger manager — watches text insertion + key events for plugin
+   *  triggers (slash commands, mentions, etc.). */
+  triggers: TriggerManager;
 };
 
 export type NativeInputHandle = {
@@ -389,7 +390,13 @@ export function attachNativeInput(
 
     switch (t) {
       case "insertText": {
-        if (e.data) options.dispatch({ t: "insertText", text: e.data });
+        if (e.data) {
+          options.dispatch({ t: "insertText", text: e.data });
+          // Notify trigger manager AFTER the text has been spliced into
+          // the model — slash menus / mentions match against the just-
+          // inserted character(s).
+          options.triggers.onTextInserted(e.data);
+        }
         return;
       }
       case "insertParagraph":
@@ -491,65 +498,49 @@ export function attachNativeInput(
   // -------------------------------------------------------------------------
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    // Arrow-key cell navigation. Browser-native contentEditable does NOT
-    // cross <td> boundaries on arrow keys, so we handle it ourselves when
-    // the caret is inside a table. Each helper short-circuits to false when
-    // the key isn't an "edge" press (e.g. ArrowRight inside cell text); in
-    // that case we let the browser handle within-cell motion natively.
-    if (
-      isInTable(docStore.get(), selStore.get()) &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey
-    ) {
-      let handled = false;
-      switch (e.key) {
-        case "ArrowLeft":
-          handled = tableArrowLeft({ docStore, selStore });
-          break;
-        case "ArrowRight":
-          handled = tableArrowRight({ docStore, selStore });
-          break;
-        case "ArrowUp":
-          handled = tableArrowUp({ docStore, selStore });
-          break;
-        case "ArrowDown":
-          handled = tableArrowDown({ docStore, selStore });
-          break;
-      }
-      if (handled) {
+    // Active trigger (slash menu, @-mention, etc.) consumes keys first —
+    // arrow nav, Enter pick, Escape cancel are all owned by the trigger UI.
+    if (options.triggers.handleKeyDown(e)) return;
+
+    // Plugin keymap entries get the next shot — table cell navigation and
+    // any user-registered chord. The matcher checks chord + `when`
+    // predicate; the command may still no-op (return false), in which case
+    // we fall through to the built-in keymap and browser default.
+    const ctx = { docStore, selStore };
+    const hit = matchPluginKeymap(e, options.registry.keymap, ctx);
+    if (hit) {
+      const ok = options.registry.runCommand(
+        hit.command.t,
+        hit.command.payload,
+        ctx,
+      );
+      if (ok) {
         e.preventDefault();
         return;
       }
+      // Plugin command was a no-op (e.g. ArrowLeft at start of cell with
+      // no previous cell) — fall through so the browser handles natively.
+      // We intentionally do NOT preventDefault here.
     }
-    const hit = matchKeymap(e);
-    if (!hit) return;
-    switch (hit.kind) {
+
+    const builtin = matchKeymap(e);
+    if (!builtin) return;
+    switch (builtin.kind) {
       case "toggleMark":
         e.preventDefault();
-        options.dispatch({ t: "toggleMark", mark: hit.mark as Mark });
+        options.dispatch({ t: "toggleMark", mark: builtin.mark as Mark });
         return;
       case "setBlockType":
         e.preventDefault();
-        options.dispatch({ t: "setBlockType", payload: hit.payload });
+        options.dispatch({ t: "setBlockType", payload: builtin.payload });
         return;
       case "indent":
         e.preventDefault();
-        // Tab inside a table moves to the next cell; outside it indents
-        // the current list item (no-op for non-list blocks).
-        if (isInTable(docStore.get(), selStore.get())) {
-          tableNextCell({ docStore, selStore });
-        } else {
-          options.dispatch({ t: "indentList" });
-        }
+        options.dispatch({ t: "indentList" });
         return;
       case "outdent":
         e.preventDefault();
-        if (isInTable(docStore.get(), selStore.get())) {
-          tablePrevCell({ docStore, selStore });
-        } else {
-          options.dispatch({ t: "outdentList" });
-        }
+        options.dispatch({ t: "outdentList" });
         return;
       case "undo":
         e.preventDefault();
@@ -567,9 +558,8 @@ export function attachNativeInput(
       case "moveLineEdge":
       case "moveDocEdge":
         // Let the browser handle these natively; selectionchange syncs to
-        // selStore. In Phase 1+2 we trust the browser's word-boundary and
-        // line-edge logic to match reasonably. Phase 6 will revisit if
-        // platform inconsistencies bite.
+        // selStore. We trust the browser's word-boundary and line-edge
+        // logic to match the platform.
         return;
     }
   };
@@ -592,47 +582,27 @@ export function attachNativeInput(
   // caret in a known state. Edge-case for v1; matches Slate / ProseMirror.
   // -------------------------------------------------------------------------
 
-  /** Length of the model text that owns `anchor` (block / cell / column). */
+  /** Length of the model text that owns `anchor` (block / cell / column).
+   *  Routed through the plugin runsAt registry so blocks with nested runs
+   *  containers (table cells, columns cells, future plugin blocks) work
+   *  without per-kind branches here. */
   const modelScopeLength = (a: Anchor): number | null => {
     const block = docStore.get().byId.get(a.blockId);
     if (!block) return null;
-    if (block.type === "table") {
-      const r = a.path[0] ?? 0;
-      const c = a.path[1] ?? 0;
-      const runs = block.cells[r]?.[c] ?? [];
-      return runs.reduce((n, r) => n + r.text.length, 0);
-    }
-    if (block.type === "columns") {
-      const ci = a.path[0] ?? 0;
-      const runs = block.cells[ci] ?? [];
-      return runs.reduce((n, r) => n + r.text.length, 0);
-    }
-    if ("runs" in block) {
-      return block.runs.reduce((n, r) => n + r.text.length, 0);
-    }
-    return null;
+    return runsLengthAt(block, a);
   };
 
-  /** DOM scope (element + visible textContent) for the given anchor. */
+  /** DOM scope (element + visible textContent) for the given anchor.
+   *  Pulls the scope via the AnchorCodec.domScope hook (table → <td>,
+   *  columns → <div data-col>, default → block element itself). */
   const domScope = (
     a: Anchor,
   ): { scope: HTMLElement; text: string } | null => {
     const blockEl = findBlockElementById(root, a.blockId);
     if (!blockEl) return null;
-    const kind = blockEl.getAttribute("data-block-kind");
-    let scope: HTMLElement = blockEl;
-    if (kind === "table") {
-      const r = a.path[0] ?? 0;
-      const c = a.path[1] ?? 0;
-      const td = blockEl.querySelector<HTMLElement>(
-        `td[data-cell="${r}:${c}"]`,
-      );
-      if (td) scope = td;
-    } else if (kind === "columns") {
-      const ci = a.path[0] ?? 0;
-      const colEl = blockEl.querySelector<HTMLElement>(`[data-col="${ci}"]`);
-      if (colEl) scope = colEl;
-    }
+    const kind = blockEl.getAttribute("data-block-kind") ?? "";
+    const codec = lookupAnchorCodec(kind);
+    const scope = codec?.domScope?.(blockEl, a) ?? blockEl;
     const text = (scope.textContent ?? "").replace(new RegExp(ZWSP, "g"), "");
     return { scope, text };
   };

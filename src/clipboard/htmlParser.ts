@@ -1,4 +1,22 @@
+// ---------------------------------------------------------------------------
+// HTML parser — sanitize + walk into BlockSpec[] for `setDocFromHTML` and
+// paste handling.
+//
+// Per-block tag parsers live in plugins (registered via `BlockDef.htmlCodec`).
+// This file owns:
+//  - sanitization (strip script/style/on* attrs, neutralize javascript:)
+//  - structural walking (recurse into block-element wrappers like
+//    <div>/<section>/<article>, group <li> by their <ul>/<ol> ancestor and
+//    track nested-list depth)
+//  - the bare-text-into-paragraph fallback so unknown HTML still produces
+//    something usable
+//
+// Note: <ul>/<ol> handling stays here because depth + ordered-flag are
+// derived from ancestor list elements, not from the <li> alone.
+// ---------------------------------------------------------------------------
+
 import { newBlockId } from "../model/doc";
+import { getHtmlParserForTag } from "../plugin/htmlCodec";
 import type { BlockSpec, InlineRun, Mark } from "../model/types";
 
 /**
@@ -11,7 +29,8 @@ import type { BlockSpec, InlineRun, Mark } from "../model/types";
  *  - Unknown elements become inline (their text content is preserved, marks
  *    of any ancestor mark elements still apply).
  *  - Block elements outside our model (article, section, etc.) become
- *    paragraphs.
+ *    paragraphs (recursing into their children when those are themselves
+ *    block-level).
  *
  * Falls back to a single paragraph if no block-level structure is present.
  */
@@ -24,8 +43,6 @@ export function parseHTML(html: string): BlockSpec[] {
   for (const node of Array.from(frag.childNodes)) {
     walkBlock(node, [], out);
   }
-  // If we ended up with nothing, but the input had visible text, emit it as
-  // a single paragraph.
   if (out.length === 0) {
     const text = collectText(frag);
     if (text.trim().length) {
@@ -45,23 +62,30 @@ export function parseHTML(html: string): BlockSpec[] {
 
 function sanitize(html: string): string {
   let s = html;
-  // Drop script/style/link/meta blocks (incl. their inner content).
   s = s.replace(/<\s*(script|style|link|meta)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
   s = s.replace(/<\s*(script|style|link|meta)\b[^>]*\/?>/gi, "");
-  // Strip on* attributes.
   s = s.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Neutralize javascript: URLs.
   s = s.replace(/(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi, "$1=\"#\"");
   return s;
 }
 
 // ---------------------------------------------------------------------------
-// Block walker
+// Block walker — delegates per-tag work to plugin-registered parsers.
 // ---------------------------------------------------------------------------
+
+const PARAGRAPH_WRAPPER_TAGS = new Set([
+  "div",
+  "section",
+  "article",
+  "aside",
+  "header",
+  "footer",
+  "main",
+  "blockquote",
+]);
 
 function walkBlock(node: Node, marks: Mark[], out: BlockSpec[]): void {
   if (node.nodeType === 3) {
-    // Text outside any block container — wrap into a paragraph.
     const t = (node as Text).data;
     if (t.trim().length === 0) return;
     out.push({
@@ -75,114 +99,46 @@ function walkBlock(node: Node, marks: Mark[], out: BlockSpec[]): void {
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
 
-  switch (tag) {
-    case "p":
-    case "div":
-    case "section":
-    case "article":
-    case "aside":
-    case "header":
-    case "footer":
-    case "main":
-    case "blockquote": {
-      const runs = collectRuns(el, marks);
-      if (runs.length === 0 && el.childElementCount === 0) return;
-      // If the container only has block-level children, recurse instead.
-      if (hasBlockChild(el)) {
-        for (const c of Array.from(el.childNodes)) walkBlock(c, marks, out);
-        return;
-      }
-      out.push({
-        id: newBlockId(),
-        type: "p",
-        runs: runs.length ? runs : [],
-      });
-      return;
-    }
-
-    case "h1":
-    case "h2":
-    case "h3":
-    case "h4":
-    case "h5":
-    case "h6": {
-      const runs = collectRuns(el, marks);
-      out.push({
-        id: newBlockId(),
-        type: tag as "h1" | "h2" | "h3" | "h4" | "h5" | "h6",
-        runs,
-      });
-      return;
-    }
-
-    case "ul":
-    case "ol": {
-      const ordered = tag === "ol";
-      walkList(el, ordered, 0, marks, out);
-      return;
-    }
-
-    case "li": {
-      // Stray <li> outside <ul>/<ol> — treat as a paragraph.
-      const runs = collectRuns(el, marks);
-      out.push({ id: newBlockId(), type: "p", runs });
-      return;
-    }
-
-    case "img": {
-      const src = el.getAttribute("src") ?? "";
-      if (!src) return;
-      const alt = el.getAttribute("alt") ?? undefined;
-      const w = numAttr(el, "width");
-      const h = numAttr(el, "height");
-      out.push({
-        id: newBlockId(),
-        type: "img",
-        src,
-        alt,
-        width: w,
-        height: h,
-      });
-      return;
-    }
-
-    case "table": {
-      const block = parseTable(el, marks);
-      if (block) out.push(block);
-      return;
-    }
-
-    case "pre": {
-      // <pre> — typically holds a single <code> element. We treat the inner
-      // text content as the code block's text (preserving \n exactly), and
-      // pull a `language-foo` class off the <code> if present.
-      const codeEl = el.querySelector("code");
-      const text = (codeEl ?? el).textContent ?? "";
-      const langMatch = codeEl?.className.match(/language-(\S+)/);
-      out.push({
-        id: newBlockId(),
-        type: "code",
-        runs: text ? [{ text }] : [],
-        ...(langMatch ? { lang: langMatch[1] } : {}),
-      });
-      return;
-    }
-
-    case "br":
-      // A bare <br/> outside a block becomes an empty paragraph break.
-      out.push({ id: newBlockId(), type: "p", runs: [] });
-      return;
-
-    default: {
-      // Unknown block — flatten into runs and emit as a paragraph.
-      if (hasBlockChild(el)) {
-        for (const c of Array.from(el.childNodes)) walkBlock(c, marks, out);
-        return;
-      }
-      const runs = collectRuns(el, marks);
-      if (runs.length) out.push({ id: newBlockId(), type: "p", runs });
-    }
+  // List handling — ul/ol drive the walker recursively, accumulating depth.
+  if (tag === "ul" || tag === "ol") {
+    walkList(el, tag === "ol", 0, marks, out);
+    return;
   }
+
+  // Bare <br/> outside any block — empty paragraph.
+  if (tag === "br") {
+    out.push({ id: newBlockId(), type: "p", runs: [] });
+    return;
+  }
+
+  // Plugin-registered parser for this tag wins.
+  const parser = getHtmlParserForTag(tag);
+  if (parser) {
+    const block = parser(el, { marks });
+    if (block) out.push(block);
+    return;
+  }
+
+  // Unknown wrapper — recurse into block children, otherwise flatten as a
+  // paragraph.
+  if (PARAGRAPH_WRAPPER_TAGS.has(tag) || tag === "html" || tag === "body") {
+    if (hasBlockChild(el)) {
+      for (const c of Array.from(el.childNodes)) walkBlock(c, marks, out);
+      return;
+    }
+    const runs = collectRuns(el, marks);
+    if (runs.length === 0 && el.childElementCount === 0) return;
+    out.push({ id: newBlockId(), type: "p", runs: runs.length ? runs : [] });
+    return;
+  }
+
+  // Truly unknown element with mixed content — flatten or recurse.
+  if (hasBlockChild(el)) {
+    for (const c of Array.from(el.childNodes)) walkBlock(c, marks, out);
+    return;
+  }
+  const runs = collectRuns(el, marks);
+  if (runs.length) out.push({ id: newBlockId(), type: "p", runs });
 }
 
 function walkList(
@@ -195,13 +151,11 @@ function walkList(
   for (const child of Array.from(listEl.children)) {
     if (child.tagName.toLowerCase() !== "li") continue;
     const li = child as HTMLElement;
-    // Each <li> is parsed as runs of its non-list children + nested
-    // sub-lists become deeper li blocks.
     const runs: InlineRun[] = [];
     for (const c of Array.from(li.childNodes)) {
       if (c.nodeType === 1) {
-        const tag = (c as HTMLElement).tagName.toLowerCase();
-        if (tag === "ul" || tag === "ol") continue;
+        const t = (c as HTMLElement).tagName.toLowerCase();
+        if (t === "ul" || t === "ol") continue;
       }
       runs.push(...runsFor(c, marks));
     }
@@ -212,12 +166,11 @@ function walkList(
       depth,
       runs,
     });
-    // Nested lists.
     for (const c of Array.from(li.children)) {
-      const tag = c.tagName.toLowerCase();
-      if (tag === "ul" || tag === "ol") {
-        const nested = (c as HTMLElement);
-        const nestedOrdered = tag === "ol";
+      const t = c.tagName.toLowerCase();
+      if (t === "ul" || t === "ol") {
+        const nested = c as HTMLElement;
+        const nestedOrdered = t === "ol";
         const nextDepth = (Math.min(3, depth + 1) as 0 | 1 | 2 | 3);
         walkList(nested, nestedOrdered, nextDepth, marks, out);
       }
@@ -225,39 +178,9 @@ function walkList(
   }
 }
 
-function parseTable(tableEl: HTMLElement, marks: Mark[]): BlockSpec | null {
-  const rowsEls: HTMLElement[] = [];
-  for (const tr of Array.from(tableEl.querySelectorAll("tr"))) {
-    rowsEls.push(tr as HTMLElement);
-  }
-  if (rowsEls.length === 0) return null;
-  const cells: InlineRun[][][] = [];
-  let cols = 0;
-  for (const tr of rowsEls) {
-    const row: InlineRun[][] = [];
-    for (const td of Array.from(tr.children)) {
-      const tag = td.tagName.toLowerCase();
-      if (tag !== "td" && tag !== "th") continue;
-      row.push(collectRuns(td as HTMLElement, marks));
-    }
-    cells.push(row);
-    if (row.length > cols) cols = row.length;
-  }
-  // Pad short rows so every row has `cols` cells.
-  for (const row of cells) {
-    while (row.length < cols) row.push([]);
-  }
-  return {
-    id: newBlockId(),
-    type: "table",
-    rows: cells.length,
-    cols,
-    cells,
-  };
-}
-
 // ---------------------------------------------------------------------------
-// Inline-runs collection
+// Inline-runs collection — kept here so the structural walker (lists,
+// fallbacks) can build runs without going through the plugin registry.
 // ---------------------------------------------------------------------------
 
 const MARK_TAGS: Record<string, Mark> = {
@@ -287,8 +210,6 @@ function runsFor(node: Node, marks: Mark[]): InlineRun[] {
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
   if (tag === "br") {
-    // Inline newline — preserved as a literal newline character so consumers
-    // can split if they care; our editor renders it as a single paragraph.
     return [{ text: "\n", ...(marks.length ? { marks: new Set(marks) } : {}) }];
   }
   const additional = MARK_TAGS[tag];
@@ -346,19 +267,11 @@ function hasBlockChild(el: HTMLElement): boolean {
   return false;
 }
 
-function numAttr(el: HTMLElement, name: string): number | undefined {
-  const v = el.getAttribute(name);
-  if (v == null) return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
 // ---------------------------------------------------------------------------
 // Plain text → blocks
 // ---------------------------------------------------------------------------
 
 export function parsePlainText(text: string): BlockSpec[] {
-  // Treat blank lines as paragraph separators; collapse runs of \r\n.
   const normalized = text.replace(/\r\n?/g, "\n");
   const paragraphs = normalized.split(/\n+/);
   return paragraphs.map((para) => ({

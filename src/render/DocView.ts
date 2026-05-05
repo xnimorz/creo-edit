@@ -1,16 +1,12 @@
 import { _ } from "creo";
 import { ol, ul, view } from "creo";
 import type { Block, DocState, ListItemBlock } from "../model/types";
-import { CodeBlockView } from "./blocks/CodeBlockView";
-import { ColumnsView } from "./blocks/ColumnsView";
-import { HeadingView } from "./blocks/HeadingView";
-import { ImageView } from "./blocks/ImageView";
-import { ListItemView } from "./blocks/ListItemView";
-import { ParagraphView } from "./blocks/ParagraphView";
-import { TableView } from "./blocks/TableView";
+import { getView } from "../plugin/registry";
 
 /**
- * BlockView — single dispatch view, switches on block.type.
+ * BlockView — single dispatch view, looks the renderer up by `block.type`
+ * in the plugin view registry. The previous switch statement is gone;
+ * registering a new block kind is a `registerView` call from a plugin.
  *
  * `shouldUpdate` is an identity check on `block`. Because doc updates produce
  * a fresh top-level DocState but reuse references for unchanged blocks, this
@@ -22,34 +18,9 @@ const BlockView = view<{ block: Block }>(({ props }) => ({
   },
   render() {
     const b = props().block;
-    switch (b.type) {
-      case "p":
-        ParagraphView({ block: b, key: b.id });
-        return;
-      case "h1":
-      case "h2":
-      case "h3":
-      case "h4":
-      case "h5":
-      case "h6":
-        HeadingView({ block: b, key: b.id });
-        return;
-      case "li":
-        ListItemView({ block: b, key: b.id });
-        return;
-      case "code":
-        CodeBlockView({ block: b, key: b.id });
-        return;
-      case "table":
-        TableView({ block: b, key: b.id });
-        return;
-      case "columns":
-        ColumnsView({ block: b, key: b.id });
-        return;
-      case "img":
-        ImageView({ block: b, key: b.id });
-        return;
-    }
+    const v = getView(b.type);
+    if (!v) return; // Unknown block kind — silently skip; plugin missing.
+    v({ block: b, key: b.id });
   },
 }));
 

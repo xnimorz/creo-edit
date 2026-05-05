@@ -2,12 +2,6 @@ import { _ } from "creo";
 import { div, store, view } from "creo";
 import type { PublicView, Store } from "creo";
 import { moveTo } from "./commands/navigationCommands";
-import {
-  tableInsertCol as cmdTableInsertCol,
-  tableInsertRow as cmdTableInsertRow,
-  tableRemoveCol as cmdTableRemoveCol,
-  tableRemoveRow as cmdTableRemoveRow,
-} from "./commands/tableCommands";
 import { attachDrop, type DropHandle } from "./clipboard/drop";
 import { parseHTML } from "./clipboard/htmlParser";
 import {
@@ -48,6 +42,7 @@ import {
 import { docFromBlocks, emptyDoc, newBlockId } from "./model/doc";
 import type {
   Anchor,
+  Block,
   BlockSpec,
   DocState,
   InlineRun,
@@ -56,6 +51,15 @@ import type {
 } from "./model/types";
 import { DocView } from "./render/DocView";
 import { VirtualDoc } from "./virtual/VirtualDoc";
+import { defaultPlugins } from "./plugin/builtin";
+import { Registry } from "./plugin/registry";
+import {
+  deserializeBlock as registryDeserializeBlock,
+  serializeBlock as registrySerializeBlock,
+} from "./plugin/serializeCodec";
+import { TriggerManager } from "./plugin/triggers";
+import { DecorationManager } from "./plugin/decorations";
+import type { EditorPlugin } from "./plugin/types";
 
 let __editorIdCounter = 0;
 
@@ -68,6 +72,14 @@ export type SerializedRun = {
   marks?: string[]; // mark identifiers
 };
 
+/**
+ * SerializedBlock — wire shape the editor reads from `setDoc()` and emits
+ * from `toJSON()`. Built-in block types are listed exhaustively here so the
+ * compiler still catches typos in user code. Plugins that introduce new
+ * block types extend the runtime serialize codec registry without changing
+ * this type — their entries appear as the catch-all `Record<string, unknown>`
+ * branch.
+ */
 export type SerializedBlock =
   | { id?: string; type: "p"; runs: SerializedRun[] }
   | { id?: string; type: "h1" | "h2" | "h3" | "h4" | "h5" | "h6"; runs: SerializedRun[] }
@@ -106,6 +118,18 @@ export type SerializedBlock =
       cells: SerializedRun[][];
     };
 
+/**
+ * Catch-all shape for plugin-introduced block types. Plugins serializing
+ * outside the built-in union should cast through this when constructing
+ * `SerializedDoc.blocks` — the runtime serialize codec registry handles
+ * dispatch by `type` and ignores extra fields.
+ */
+export type ExternalSerializedBlock = {
+  id?: string;
+  type: string;
+  [k: string]: unknown;
+};
+
 export type SerializedDoc = {
   blocks: SerializedBlock[];
 };
@@ -114,6 +138,11 @@ export type EditorViewProps = {
   class?: string;
 };
 
+/**
+ * Built-in command shape. Plugin commands dispatch through the same
+ * `dispatch()` entry point using the `{ t: string; payload?: unknown }`
+ * fallback shape — see `Editor.dispatch` below.
+ */
 export type Command =
   | { t: "noop" }
   | { t: "insertText"; text: string }
@@ -142,7 +171,24 @@ export type Command =
   | { t: "tableRemoveCol" }
   | { t: "moveCursor"; to: Anchor; extend?: boolean };
 
-export type EditorMode = "regular" | "mono";
+/** Anything dispatchable — the typed `Command` union for built-ins, plus the
+ *  open `{ t: string; payload?: unknown }` shape for plugin commands. */
+export type DispatchableCommand =
+  | Command
+  | { t: string; payload?: unknown };
+
+/**
+ * Editing mode.
+ *
+ *  - `"wysiwyg"`: rich-text editor with all blocks rendered visually.
+ *  - `"md"`: raw markdown source view (the doc is serialized to markdown
+ *    and edited as plain text); markdown-shortcut input rules also active
+ *    when the user re-enters wysiwyg via mdShortcutsPlugin.
+ *
+ * Replaces the older `"regular" | "mono"` cosmetic flag — host apps that
+ * want a monospaced editor should add their own CSS class.
+ */
+export type EditorMode = "wysiwyg" | "md";
 
 export type EditorOptions = {
   initial?: SerializedDoc;
@@ -156,18 +202,24 @@ export type EditorOptions = {
   /** Estimated block height (px) when virtualized — default 32. */
   virtualEstimatedHeight?: number;
   /**
-   * "regular" → system sans-serif body font, headings/blocks styled normally.
-   * "mono"    → monospaced font on every block (good for code editors,
-   *             markdown source, log inspection). Affects font-family on
-   *             the editor root via the `creo-editor-mono` class.
+   * Initial editing mode — see `EditorMode`. Defaults to `"wysiwyg"`.
+   * Toggle at runtime via `editor.setMode(...)`.
    */
   mode?: EditorMode;
+  /**
+   * Plugins to install in addition to the default set (paragraph, heading,
+   * list, code-block, image, cells). Registered AFTER built-ins so plugin
+   * codecs can override built-in HTML matchers by registering more specific
+   * tag matchers.
+   */
+  plugins?: EditorPlugin[];
 };
 
 export type Editor = {
   docStore: Store<DocState>;
   selStore: Store<Selection>;
-  dispatch: (cmd: Command) => void;
+  /** Dispatch any registered command — typed built-ins or plugin commands. */
+  dispatch: (cmd: DispatchableCommand) => void;
   undo: () => void;
   redo: () => void;
   EditorView: PublicView<EditorViewProps, void>;
@@ -183,153 +235,36 @@ export type Editor = {
   // Imperative focus / blur — wired in M3+.
   focus: () => void;
   blur: () => void;
+  /** Read or change the editing mode (wysiwyg ↔ md). */
+  getMode: () => EditorMode;
+  setMode: (mode: EditorMode) => void;
+  /** Plugin registry for this editor instance — exposed for advanced
+   *  consumers (devtools, the M3 trigger manager, etc.). */
+  registry: Registry;
 };
 
 // ---------------------------------------------------------------------------
-// Serialization helpers
+// Serialization helpers — registry-driven per-block.
 // ---------------------------------------------------------------------------
 
-function deserializeRun(r: SerializedRun): InlineRun {
-  if (!r.marks || r.marks.length === 0) return { text: r.text };
-  // Filter to known marks.
-  const allowed = new Set(["b", "i", "u", "s", "code"]);
-  const marks = new Set<InlineRun extends { marks?: ReadonlySet<infer M> }
-    ? M
-    : never>();
-  for (const m of r.marks) {
-    if (allowed.has(m)) marks.add(m as never);
-  }
-  return marks.size === 0 ? { text: r.text } : { text: r.text, marks };
-}
-
 function deserializeDoc(s: SerializedDoc): DocState {
-  const blocks: BlockSpec[] = s.blocks.map((sb) => {
+  const blocks: BlockSpec[] = [];
+  for (const sb of s.blocks) {
     const id = sb.id ?? newBlockId();
-    switch (sb.type) {
-      case "p":
-      case "h1":
-      case "h2":
-      case "h3":
-      case "h4":
-      case "h5":
-      case "h6":
-        return {
-          id,
-          type: sb.type,
-          runs: sb.runs.map(deserializeRun),
-        } as BlockSpec;
-      case "li":
-        return {
-          id,
-          type: "li",
-          ordered: sb.ordered,
-          depth: sb.depth ?? 0,
-          runs: sb.runs.map(deserializeRun),
-        } as BlockSpec;
-      case "code":
-        return {
-          id,
-          type: "code",
-          runs: sb.runs.map(deserializeRun),
-          ...(sb.lang ? { lang: sb.lang } : {}),
-        } as BlockSpec;
-      case "img":
-        return {
-          id,
-          type: "img",
-          src: sb.src,
-          alt: sb.alt,
-          width: sb.width,
-          height: sb.height,
-        } as BlockSpec;
-      case "table":
-        return {
-          id,
-          type: "table",
-          rows: sb.rows,
-          cols: sb.cols,
-          cells: sb.cells.map((row) =>
-            row.map((cell) => cell.map(deserializeRun)),
-          ),
-        } as BlockSpec;
-      case "columns":
-        return {
-          id,
-          type: "columns",
-          cols: sb.cols,
-          cells: sb.cells.map((cell) => cell.map(deserializeRun)),
-        } as BlockSpec;
-    }
-  });
+    const decoded = registryDeserializeBlock(sb.type, sb, id);
+    if (decoded) blocks.push(decoded);
+    // Unknown block types are silently dropped — same posture the old
+    // exhaustive switch took for unrecognized variants.
+  }
   return docFromBlocks(blocks);
-}
-
-function serializeRun(r: InlineRun): SerializedRun {
-  if (!r.marks || r.marks.size === 0) return { text: r.text };
-  return { text: r.text, marks: [...r.marks] };
 }
 
 function serializeDoc(doc: DocState): SerializedDoc {
   const blocks: SerializedBlock[] = [];
   for (const id of doc.order) {
     const b = doc.byId.get(id)!;
-    switch (b.type) {
-      case "p":
-      case "h1":
-      case "h2":
-      case "h3":
-      case "h4":
-      case "h5":
-      case "h6":
-        blocks.push({ id: b.id, type: b.type, runs: b.runs.map(serializeRun) });
-        break;
-      case "li":
-        blocks.push({
-          id: b.id,
-          type: "li",
-          ordered: b.ordered,
-          depth: b.depth,
-          runs: b.runs.map(serializeRun),
-        });
-        break;
-      case "code":
-        blocks.push({
-          id: b.id,
-          type: "code",
-          runs: b.runs.map(serializeRun),
-          ...(b.lang ? { lang: b.lang } : {}),
-        });
-        break;
-      case "img":
-        blocks.push({
-          id: b.id,
-          type: "img",
-          src: b.src,
-          alt: b.alt,
-          width: b.width,
-          height: b.height,
-        });
-        break;
-      case "columns":
-        blocks.push({
-          id: b.id,
-          type: "columns",
-          cols: b.cols,
-          cells: b.cells.map((cell) => cell.map(serializeRun)),
-        });
-        break;
-      case "table":
-        blocks.push({
-          id: b.id,
-          type: "table",
-          rows: b.rows,
-          cols: b.cols,
-          cells: b.cells.map((row) =>
-            row.map((cell) => cell.map(serializeRun)),
-          ),
-        });
-        break;
-    }
+    const enc = registrySerializeBlock(b);
+    if (enc) blocks.push(enc as SerializedBlock);
   }
   return { blocks };
 }
@@ -338,9 +273,8 @@ function serializeDoc(doc: DocState): SerializedDoc {
 // createEditor
 // ---------------------------------------------------------------------------
 
-function historyTagFor(cmd: Command): string {
+function historyTagFor(cmd: DispatchableCommand): string {
   switch (cmd.t) {
-    // Coalesce-eligible groups — same prefix → merged into one undo step.
     case "insertText":
       return "text:insert";
     case "deleteBackward":
@@ -359,6 +293,12 @@ function defaultSelection(doc: DocState): Selection {
 export function createEditor(opts: EditorOptions = {}): Editor {
   const editorId = `creo-editor-${++__editorIdCounter}`;
 
+  // Install plugins BEFORE we touch any block-bearing state so the
+  // serialize codec, anchor codecs, and view registry are ready.
+  const registry = new Registry();
+  for (const p of defaultPlugins) registry.install(p);
+  if (opts.plugins) for (const p of opts.plugins) registry.install(p);
+
   const initialDoc = opts.initial
     ? deserializeDoc(opts.initial)
     : seedEmpty();
@@ -371,9 +311,11 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   let nativeInput: NativeInputHandle | null = null;
   let drop: DropHandle | null = null;
   let viewport: ViewportHandle | null = null;
+  let decorations: DecorationManager | null = null;
   void nativeInput;
   void drop;
   void viewport;
+  void decorations;
 
   const history: History = createHistory({ docStore, selStore });
   // Microtask rebalance — keeps fractional indices short under adversarial
@@ -381,77 +323,101 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // outgrown the soft threshold.
   attachAutoRebalance(docStore);
 
-  const dispatch = (cmd: Command): void => {
+  const ctx = { docStore, selStore };
+
+  // Trigger manager — needs `dispatch` for plugin trigger callbacks. Defined
+  // before dispatch so the dispatch closure can reference it; the manager
+  // gets the dispatch fn injected by closure rather than via `this`.
+  let dispatchRef: ((cmd: DispatchableCommand) => void) | null = null;
+  const triggers = new TriggerManager({
+    registry,
+    docStore,
+    selStore,
+    dispatch: (cmd) => dispatchRef?.(cmd),
+  });
+
+  const dispatch = (cmd: DispatchableCommand): void => {
     // Snapshot for undo BEFORE mutating. Tag drives coalescing.
     history.record(historyTagFor(cmd));
     switch (cmd.t) {
       case "noop":
         return;
       case "insertText":
-        cmdInsertText({ docStore, selStore }, cmd.text);
+        cmdInsertText(ctx, (cmd as Extract<Command, { t: "insertText" }>).text);
         return;
       case "deleteBackward":
-        cmdDeleteBackward({ docStore, selStore });
+        cmdDeleteBackward(ctx);
         return;
       case "deleteForward":
-        cmdDeleteForward({ docStore, selStore });
+        cmdDeleteForward(ctx);
         return;
       case "splitBlock":
-        cmdSplitBlock({ docStore, selStore });
+        cmdSplitBlock(ctx);
         return;
       case "mergeBackward":
-        cmdMergeBackward({ docStore, selStore });
+        cmdMergeBackward(ctx);
         return;
       case "mergeForward":
-        cmdMergeForward({ docStore, selStore });
+        cmdMergeForward(ctx);
         return;
       case "setBlockType":
-        cmdSetBlockType({ docStore, selStore }, cmd.payload);
+        cmdSetBlockType(ctx, (cmd as Extract<Command, { t: "setBlockType" }>).payload);
         return;
       case "toggleMark":
-        cmdToggleMark({ docStore, selStore }, cmd.mark);
+        cmdToggleMark(ctx, (cmd as Extract<Command, { t: "toggleMark" }>).mark);
         return;
       case "toggleList":
-        cmdToggleList({ docStore, selStore }, cmd.ordered);
+        cmdToggleList(ctx, (cmd as Extract<Command, { t: "toggleList" }>).ordered);
         return;
       case "indentList":
-        cmdIndentList({ docStore, selStore });
+        cmdIndentList(ctx);
         return;
       case "outdentList":
-        cmdOutdentList({ docStore, selStore });
+        cmdOutdentList(ctx);
         return;
-      case "insertImage":
-        cmdInsertImage(
-          { docStore, selStore },
-          { src: cmd.src, alt: cmd.alt, width: cmd.width, height: cmd.height },
-        );
+      case "insertImage": {
+        const c = cmd as Extract<Command, { t: "insertImage" }>;
+        cmdInsertImage(ctx, { src: c.src, alt: c.alt, width: c.width, height: c.height });
         return;
-      case "insertTable":
-        cmdInsertTable(
-          { docStore, selStore },
-          { rows: cmd.rows, cols: cmd.cols },
-        );
+      }
+      case "insertTable": {
+        const c = cmd as Extract<Command, { t: "insertTable" }>;
+        cmdInsertTable(ctx, { rows: c.rows, cols: c.cols });
         return;
-      case "insertColumns":
-        cmdInsertColumns({ docStore, selStore }, { cols: cmd.cols });
+      }
+      case "insertColumns": {
+        const c = cmd as Extract<Command, { t: "insertColumns" }>;
+        cmdInsertColumns(ctx, { cols: c.cols });
         return;
+      }
       case "tableInsertRow":
-        cmdTableInsertRow({ docStore, selStore }, cmd.where);
+        registry.runCommand("tableInsertRow", { where: (cmd as Extract<Command, { t: "tableInsertRow" }>).where }, ctx);
         return;
       case "tableInsertCol":
-        cmdTableInsertCol({ docStore, selStore }, cmd.where);
+        registry.runCommand("tableInsertCol", { where: (cmd as Extract<Command, { t: "tableInsertCol" }>).where }, ctx);
         return;
       case "tableRemoveRow":
-        cmdTableRemoveRow({ docStore, selStore });
+        registry.runCommand("tableRemoveRow", undefined, ctx);
         return;
       case "tableRemoveCol":
-        cmdTableRemoveCol({ docStore, selStore });
+        registry.runCommand("tableRemoveCol", undefined, ctx);
         return;
-      case "moveCursor":
-        moveTo({ docStore, selStore }, cmd.to, cmd.extend === true);
+      case "moveCursor": {
+        const c = cmd as Extract<Command, { t: "moveCursor" }>;
+        moveTo(ctx, c.to, c.extend === true);
         return;
+      }
+      default: {
+        // Plugin command — route through the registry. Payload shape is
+        // plugin-defined; built-ins handled above don't reach this branch.
+        const payload = (cmd as { payload?: unknown }).payload;
+        registry.runCommand(cmd.t, payload, ctx);
+        return;
+      }
     }
   };
+
+  dispatchRef = dispatch;
 
   const undo = (): void => {
     history.undo();
@@ -475,6 +441,15 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   };
 
   const toJSON = (): SerializedDoc => serializeDoc(docStore.get());
+
+  // Mode state — held in a creo store so the EditorView re-renders when it
+  // changes. Default "wysiwyg" matches the legacy non-mode behavior.
+  const modeStore = store.new<EditorMode>(opts.mode ?? "wysiwyg");
+  const getMode = (): EditorMode => modeStore.get();
+  const setMode = (m: EditorMode): void => {
+    if (modeStore.get() === m) return;
+    modeStore.set(m);
+  };
 
   const focus = (): void => {
     const root = document.querySelector(
@@ -502,6 +477,9 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   const EditorView: PublicView<EditorViewProps, void> = view<EditorViewProps>(
     ({ props, use }) => {
       const doc = use(docStore);
+      // Subscribe to mode changes so the wrapper re-renders (and CSS class
+      // updates).
+      void use(modeStore);
 
       return {
         onMount() {
@@ -509,6 +487,15 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             `[data-creo-editor="${editorId}"]`,
           ) as HTMLElement | null;
           if (!root) return;
+          // Expose the editor stores on the root so decoration plugins
+          // (drag handle, add-block) can access docStore/selStore without
+          // an explicit handle argument. Marked as a hidden property so
+          // it doesn't clutter the DOM inspector.
+          (root as unknown as { __creoEditor?: unknown }).__creoEditor = {
+            docStore,
+            selStore,
+            dispatch,
+          };
           nativeInput = attachNativeInput(
             root,
             { docStore, selStore },
@@ -518,14 +505,26 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               redo: () => history.redo(),
               selectAll: () => handleSelectAll(),
               uploadImage: opts.uploadImage,
+              registry,
+              triggers,
             },
           );
           drop = attachDrop(root, { docStore, selStore }, opts.uploadImage);
           viewport = attachVisualViewport(root, { docStore, selStore });
+          // Decoration manager — only mounts a layer if at least one
+          // plugin contributes a decoration. Cheap to instantiate either
+          // way; the layer is empty when there are no decorations.
+          if (registry.decorations.length > 0) {
+            decorations = new DecorationManager({
+              registry,
+              docStore,
+              editorRoot: root,
+            });
+          }
         },
         render() {
-          const modeCls =
-            opts.mode === "mono" ? " creo-editor-mono" : " creo-editor-regular";
+          const mode = modeStore.get();
+          const modeCls = mode === "md" ? " creo-editor-md" : " creo-editor-wysiwyg";
           const cls =
             (props()?.class
               ? `creo-editor ${props()!.class}`
@@ -572,6 +571,9 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     toJSON,
     focus,
     blur,
+    getMode,
+    setMode,
+    registry,
   };
 }
 
@@ -592,3 +594,7 @@ function seedEmpty(): DocState {
 
 // Re-export emptyDoc for convenience.
 export { emptyDoc };
+
+// Avoid an unused-import warning on Block in some downstream typings.
+void (null as unknown as Block);
+void (null as unknown as InlineRun);

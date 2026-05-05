@@ -12,7 +12,8 @@ const editor = createEditor({
   uploadImage: async (file) => "/uploads/" + file.name,
   virtualized: true,
   virtualEstimatedHeight: 32,
-  mode: "regular",
+  mode: "wysiwyg",
+  plugins: [],
 });
 ```
 
@@ -20,11 +21,12 @@ const editor = createEditor({
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `initial` | `SerializedDoc` | one empty `p` | Starting document. See `SerializedDoc` below. |
+| `initial` | `SerializedDoc` | one empty `p` | Starting document. See [Block format](#/block-format). |
 | `uploadImage` | `(File) => Promise<string>` | `URL.createObjectURL` | Called when the user pastes / drops an image. Returns the URL to store in the model. Without it, a temporary `blob:` URL is used. |
 | `virtualized` | `boolean` | `false` | If `true`, only viewport-intersecting blocks are mounted. See [Virtualization](#/virtualization). |
 | `virtualEstimatedHeight` | `number` | `32` | Estimated block height (px) used before measurement. Tune to your typical block size. |
-| `mode` | `"regular" \| "mono"` | `"regular"` | `"mono"` applies a monospaced font to the editor root via the `creo-editor-mono` class — useful for code/markdown source. |
+| `mode` | `"wysiwyg" \| "md"` | `"wysiwyg"` | Editing mode. `"md"` pairs with `mdShortcutsPlugin` for markdown typing rules. See [Editing modes](#/editing-modes). |
+| `plugins` | `EditorPlugin[]` | `[]` | Plugins to install in addition to the built-in defaults (paragraph, heading, list, code-block, image, cells). See [Authoring plugins](#/plugin-authoring). |
 
 ## The `Editor` handle
 
@@ -32,14 +34,18 @@ const editor = createEditor({
 type Editor = {
   docStore: Store<DocState>;
   selStore: Store<Selection>;
-  dispatch: (cmd: Command) => void;
+  dispatch: (cmd: DispatchableCommand) => void;
   undo: () => void;
   redo: () => void;
   EditorView: PublicView<EditorViewProps, void>;
+  setDoc: (doc: SerializedDoc) => void;
   setDocFromHTML: (html: string) => void;
   toJSON: () => SerializedDoc;
   focus: () => void;
   blur: () => void;
+  getMode: () => EditorMode;
+  setMode: (mode: EditorMode) => void;
+  registry: Registry;        // plugin registry (introspection)
 };
 ```
 
