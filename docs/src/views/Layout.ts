@@ -43,8 +43,8 @@ export const Layout = view(({ slot, use }) => {
                 span({ class: "brand-bracket" }, "[");
                 span({ class: "brand-c" }, "C");
                 span({ class: "brand-tail" }, "reo");
-                span({ class: "brand-slash" }, "/");
-                span({ class: "brand-tail" }, "editor");
+                span({ class: "brand-slash" }, "-");
+                span({ class: "brand-tail" }, "edit");
                 span({ class: "brand-bracket" }, "]");
               });
             });

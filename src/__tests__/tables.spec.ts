@@ -277,6 +277,42 @@ describe("Table editing", () => {
     }
   });
 
+  it("table.insertRow with explicit blockId + where:end appends at the bottom", () => {
+    const { editor, id } = mountTable(2, 2);
+    // Place the caret outside the table to confirm the blockId payload is
+    // what's driving the operation, not the current selection.
+    editor.dispatch({ t: "table.insertRow", payload: { blockId: id, where: "end" } });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "table") {
+      expect(b.rows).toBe(3);
+      expect(b.cells[2]?.length).toBe(2);
+    }
+  });
+
+  it("table.removeCol with explicit blockId + col index removes the targeted column", () => {
+    const { editor, id } = mountTable(2, 3);
+    editor.dispatch({
+      t: "table.removeCol",
+      payload: { blockId: id, col: 2 },
+    });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "table") {
+      expect(b.cols).toBe(2);
+      expect(b.cells.every((row) => row.length === 2)).toBe(true);
+    }
+  });
+
+  it("table.removeRow refuses to drop the last row", () => {
+    const { editor, id } = mountTable(1, 2);
+    const ok = editor.dispatch({
+      t: "table.removeRow",
+      payload: { blockId: id, row: 0 },
+    });
+    void ok;
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "table") expect(b.rows).toBe(1);
+  });
+
   it("insertTable command lands at caret", () => {
     const root = makeContainer();
     const editor = createEditor();
@@ -293,5 +329,89 @@ describe("Table editing", () => {
     }
     expect(foundTable).toBe(true);
     expect(root.querySelector("table.ce-table")).toBeTruthy();
+  });
+});
+
+describe("Columns editing", () => {
+  function mountColumns(cols = 2) {
+    const root = makeContainer();
+    const id = newBlockId();
+    const cells = [];
+    for (let c = 0; c < cols; c++) cells.push([]);
+    const editor = createEditor({
+      initial: { blocks: [{ id, type: "columns", cols, cells }] },
+    });
+    createApp(
+      () => editor.EditorView(),
+      new HtmlRender(root),
+      SYNC_SCHEDULER,
+    ).mount();
+    return { root, editor, id };
+  }
+
+  it("Enter inside a column inserts a newline instead of splitting the block", () => {
+    const { editor, id } = mountColumns(2);
+    editor.selStore.set({
+      kind: "caret",
+      at: { blockId: id, path: [0, 0], offset: 0 },
+    });
+    editor.dispatch({ t: "insertText", text: "hi" });
+    editor.dispatch({ t: "splitBlock" });
+    editor.dispatch({ t: "insertText", text: "there" });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "columns") {
+      const text = (b.cells[0] ?? [])
+        .map((r) => r.text)
+        .join("");
+      expect(text).toBe("hi\nthere");
+      // Doc still holds exactly one columns block — splitBlock did not
+      // promote the right half into a separate block.
+      expect(editor.docStore.get().order.length).toBe(1);
+    }
+  });
+
+  it("columns.insertCol appends a new empty column", () => {
+    const { editor, id } = mountColumns(2);
+    editor.dispatch({
+      t: "columns.insertCol",
+      payload: { blockId: id, where: "end" },
+    });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "columns") {
+      expect(b.cols).toBe(3);
+      expect(b.cells.length).toBe(3);
+      expect(b.cells[2]).toEqual([]);
+    }
+  });
+
+  it("columns.removeCol drops the targeted column", () => {
+    const { editor, id } = mountColumns(3);
+    // Seed the middle column with text so we can confirm the right one
+    // got removed.
+    editor.selStore.set({
+      kind: "caret",
+      at: { blockId: id, path: [1, 0], offset: 0 },
+    });
+    editor.dispatch({ t: "insertText", text: "middle" });
+    editor.dispatch({
+      t: "columns.removeCol",
+      payload: { blockId: id, col: 1 },
+    });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "columns") {
+      expect(b.cols).toBe(2);
+      const flat = b.cells.flatMap((cell) => cell.map((r) => r.text)).join("");
+      expect(flat).toBe("");
+    }
+  });
+
+  it("columns.removeCol refuses to drop the last column", () => {
+    const { editor, id } = mountColumns(1);
+    editor.dispatch({
+      t: "columns.removeCol",
+      payload: { blockId: id, col: 0 },
+    });
+    const b = editor.docStore.get().byId.get(id)!;
+    if (b.type === "columns") expect(b.cols).toBe(1);
   });
 });

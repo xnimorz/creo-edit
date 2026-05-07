@@ -37,6 +37,7 @@ import {
 } from "./htmlCodec";
 import { ColumnsViewPlugin, TableViewPlugin } from "./views";
 import { isInColumns, isInTable, tableCommandDefs } from "./commands";
+import { columnsControlsDecoration, tableControlsDecoration } from "./controls";
 
 const ALLOWED_MARKS = new Set<Mark>(["b", "i", "u", "s", "code"]);
 
@@ -195,6 +196,7 @@ export const cellsPlugin: EditorPlugin = {
   blocks: [tableDef as BlockDef<Block>, columnsDef as BlockDef<Block>],
   commands: [...tableCommandDefs, ...backcompatAliases],
   keymap: cellsKeymap,
+  decorations: [tableControlsDecoration, columnsControlsDecoration],
 };
 
 export { isInTable } from "./commands";

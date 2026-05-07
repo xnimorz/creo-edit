@@ -8,6 +8,7 @@ import {
   splitRunsAt,
   type TextBearingBlock,
 } from "../model/blockText";
+import { runsAt } from "../model/cellAccess";
 import {
   findPos,
   getBlock,
@@ -65,8 +66,22 @@ export function splitBlock({ docStore, selStore }: Stores): boolean {
   if (!isCaret(cur)) return false;
 
   const block = getBlock(doc, cur.at.blockId);
-  if (!block || !isTextBearing(block)) return false;
+  if (!block) return false;
   const off = anchorOffset(cur.at);
+
+  // Columns cells behave like code blocks for Enter — the column is a single
+  // multi-line region holding inline runs, so Enter inserts a newline into
+  // the targeted column's runs rather than splitting the columns block.
+  if (block.type === "columns") {
+    const ctx = runsAt(block, cur.at);
+    if (!ctx) return false;
+    const newRuns = insertTextRuns(ctx.runs, off, "\n");
+    docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+    selStore.set(caret(withCharOffset(cur.at, off + 1)));
+    return true;
+  }
+
+  if (!isTextBearing(block)) return false;
 
   // Code blocks are single multi-line regions — Enter inserts a newline
   // character instead of splitting into two blocks. The block keeps any

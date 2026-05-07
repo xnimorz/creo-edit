@@ -38,9 +38,12 @@ function mountWith(plugins: Parameters<typeof createEditor>[0] extends infer T
 describe("decoration manager", () => {
   it("registers decoration plugins on the editor's registry", () => {
     const { editor } = mountWith([addBlockPlugin(), dragHandlePlugin()]);
-    expect(editor.registry.decorations.length).toBe(2);
     const ids = editor.registry.decorations.map((d) => d.id).sort();
-    expect(ids).toEqual(["add-block", "drag-handle"]);
+    // Built-in cellsPlugin contributes table/columns control decorations
+    // alongside the user-supplied ones.
+    expect(ids).toEqual(
+      ["add-block", "columns-controls", "drag-handle", "table-controls"],
+    );
   });
 
   it("mounts one decoration element per matching block per plugin", async () => {

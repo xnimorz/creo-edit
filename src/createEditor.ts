@@ -514,7 +514,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
           // Decoration manager — only mounts a layer if at least one
           // plugin contributes a decoration. Cheap to instantiate either
           // way; the layer is empty when there are no decorations.
+          // Guard against repeated onMount invocations (Creo re-mounts the
+          // view when its props identity changes, e.g. on plugin toggles in
+          // the demo): tear down the previous instance before creating a
+          // new one so we don't accumulate orphan layers + listeners.
           if (registry.decorations.length > 0) {
+            decorations?.destroy();
             decorations = new DecorationManager({
               registry,
               docStore,

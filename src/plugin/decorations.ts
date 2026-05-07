@@ -40,6 +40,7 @@ export class DecorationManager {
   private layer: HTMLElement;
   private mounted = new Map<string, Mounted>();
   private rafQueued = false;
+  private rafSyncRequested = false;
   private unsub: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   /** Hovered block id — surfaced to decorations via dataset on the layer
@@ -102,33 +103,38 @@ export class DecorationManager {
   // Sync — reconcile mounted vs. desired set.
   // -------------------------------------------------------------------------
 
+  // Scheduling: a single queued frame coalesces both `position` and `sync`
+  // requests. `rafSyncRequested` upgrades the queued frame from a plain
+  // reposition to a full sync (mount/unmount + reposition). Without this
+  // upgrade a `schedulePosition` from a scroll/resize landing right before a
+  // doc change would consume the frame, dropping the doc change's sync.
   private scheduleSync = (): void => {
+    this.rafSyncRequested = true;
     if (this.rafQueued) return;
     this.rafQueued = true;
-    const cb = () => {
-      this.rafQueued = false;
-      this.sync();
-    };
-    if (typeof requestAnimationFrame !== "undefined") {
-      requestAnimationFrame(cb);
-    } else {
-      queueMicrotask(cb);
-    }
+    this.queueFlush();
   };
 
   private schedulePosition = (): void => {
     if (this.rafQueued) return;
     this.rafQueued = true;
+    this.queueFlush();
+  };
+
+  private queueFlush(): void {
     const cb = () => {
       this.rafQueued = false;
-      this.position();
+      const wantSync = this.rafSyncRequested;
+      this.rafSyncRequested = false;
+      if (wantSync) this.sync();
+      else this.position();
     };
     if (typeof requestAnimationFrame !== "undefined") {
       requestAnimationFrame(cb);
     } else {
       queueMicrotask(cb);
     }
-  };
+  }
 
   private sync(): void {
     const doc = this.opts.docStore.get();

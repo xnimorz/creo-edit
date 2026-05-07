@@ -83,7 +83,9 @@ export const ColumnsViewPlugin = view<{ block: ColumnsBlock }>(({ props }) => ({
               class: "ce-col",
               "data-block-id": b.id,
               "data-col": String(c),
-              style: "min-width:0;",
+              // pre-wrap so `\n` characters in the column's runs render as
+              // visible line breaks (Enter inside a column inserts \n).
+              style: "min-width:0;white-space:pre-wrap;",
             },
             () => {
               InlineRunsView({ runs });

@@ -36,6 +36,27 @@ function currentTable(
   };
 }
 
+/**
+ * Resolve the table to operate on. If `blockId` is given, look it up directly
+ * and default the row/col to 0 (used by hover toolbars that target a specific
+ * table without moving the caret). Otherwise fall back to whichever table
+ * contains the current selection.
+ */
+function resolveTable(
+  doc: DocState,
+  sel: Selection,
+  blockId?: string,
+): { block: TableBlock; row: number; col: number } | null {
+  if (blockId) {
+    const b = getBlock(doc, blockId);
+    if (!b || b.type !== "table") return null;
+    return { block: b as TableBlock, row: 0, col: 0 };
+  }
+  const c = currentTable(doc, sel);
+  if (!c) return null;
+  return { block: c.block, row: c.row, col: c.col };
+}
+
 function emptyRow(cols: number): InlineRun[][] {
   const row: InlineRun[][] = [];
   for (let i = 0; i < cols; i++) row.push([]);
@@ -110,6 +131,73 @@ function columnsArrowRight(ctx: CommandCtx): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Columns insert / remove
+// ---------------------------------------------------------------------------
+
+function findColumnsBlock(
+  doc: DocState,
+  sel: Selection,
+  blockId?: string,
+): { block: ColumnsBlock; col: number } | null {
+  if (blockId) {
+    const b = getBlock(doc, blockId);
+    if (!b || b.type !== "columns") return null;
+    return { block: b as ColumnsBlock, col: 0 };
+  }
+  const inSel = currentColumns(doc, sel);
+  if (!inSel) return null;
+  return { block: inSel.block, col: inSel.col };
+}
+
+type ColumnsTarget = { blockId?: string; where?: "before" | "after" | "end" };
+
+function columnsInsertCol(ctx: CommandCtx, p: ColumnsTarget): boolean {
+  const doc = ctx.docStore.get();
+  const sel = ctx.selStore.get();
+  const c = findColumnsBlock(doc, sel, p.blockId);
+  if (!c) return false;
+  const { block } = c;
+  const where = p.where ?? "after";
+  const insertAt =
+    where === "end"
+      ? block.cols
+      : where === "before"
+        ? c.col
+        : c.col + 1;
+  const cells = [
+    ...block.cells.slice(0, insertAt),
+    [] as InlineRun[],
+    ...block.cells.slice(insertAt),
+  ];
+  const next: ColumnsBlock = { ...block, cols: block.cols + 1, cells };
+  ctx.docStore.set(updateBlock(doc, next as Block));
+  ctx.selStore.set(caret({ blockId: block.id, path: [insertAt, 0], offset: 0 }));
+  return true;
+}
+
+function columnsRemoveCol(
+  ctx: CommandCtx,
+  p: { blockId?: string; col?: number },
+): boolean {
+  const doc = ctx.docStore.get();
+  const sel = ctx.selStore.get();
+  const c = findColumnsBlock(doc, sel, p.blockId);
+  if (!c) return false;
+  const { block } = c;
+  const target = p.col ?? c.col;
+  if (target < 0 || target >= block.cols) return false;
+
+  if (block.cols <= 1) return false;
+
+  const cells = block.cells.filter((_, i) => i !== target);
+  const next: ColumnsBlock = { ...block, cols: block.cols - 1, cells };
+  ctx.docStore.set(updateBlock(doc, next as Block));
+  const newCol = Math.min(target, next.cols - 1);
+  ctx.selStore.set(caret({ blockId: block.id, path: [newCol, 0], offset: 0 }));
+  return true;
+}
+
 function cellTextLength(b: TableBlock, row: number, col: number): number {
   const runs = b.cells[row]?.[col] ?? [];
   return runs.reduce((n, r) => n + r.text.length, 0);
@@ -119,62 +207,87 @@ function cellTextLength(b: TableBlock, row: number, col: number): number {
 // Insert / remove
 // ---------------------------------------------------------------------------
 
-function insertRow(ctx: CommandCtx, where: "above" | "below", moveTo = false): boolean {
-  const c = currentTable(ctx.docStore.get(), ctx.selStore.get());
-  if (!c) return false;
-  const { block, row } = c;
-  const insertAt = where === "above" ? row : row + 1;
+type TableTarget = { blockId?: string; row?: number; col?: number };
+
+function insertRow(
+  ctx: CommandCtx,
+  where: "above" | "below" | "end",
+  blockId?: string,
+  rowHint?: number,
+  moveTo = false,
+): boolean {
+  const doc = ctx.docStore.get();
+  const t = resolveTable(doc, ctx.selStore.get(), blockId);
+  if (!t) return false;
+  const { block } = t;
+  const row = rowHint ?? t.row;
+  const insertAt =
+    where === "end" ? block.rows : where === "above" ? row : row + 1;
   const cells = [
     ...block.cells.slice(0, insertAt),
     emptyRow(block.cols),
     ...block.cells.slice(insertAt),
   ];
   const next: TableBlock = { ...block, rows: block.rows + 1, cells };
-  ctx.docStore.set(updateBlock(ctx.docStore.get(), next as Block));
+  ctx.docStore.set(updateBlock(doc, next as Block));
   if (moveTo) {
     ctx.selStore.set(caret({ blockId: block.id, path: [insertAt, 0, 0], offset: 0 }));
   }
   return true;
 }
 
-function insertCol(ctx: CommandCtx, where: "before" | "after"): boolean {
-  const c = currentTable(ctx.docStore.get(), ctx.selStore.get());
-  if (!c) return false;
-  const { block, col } = c;
-  const insertAt = where === "before" ? col : col + 1;
+function insertCol(
+  ctx: CommandCtx,
+  where: "before" | "after" | "end",
+  blockId?: string,
+  colHint?: number,
+): boolean {
+  const doc = ctx.docStore.get();
+  const t = resolveTable(doc, ctx.selStore.get(), blockId);
+  if (!t) return false;
+  const { block } = t;
+  const col = colHint ?? t.col;
+  const insertAt =
+    where === "end" ? block.cols : where === "before" ? col : col + 1;
   const cells = block.cells.map((row) => [
     ...row.slice(0, insertAt),
     [] as InlineRun[],
     ...row.slice(insertAt),
   ]);
   const next: TableBlock = { ...block, cols: block.cols + 1, cells };
-  ctx.docStore.set(updateBlock(ctx.docStore.get(), next as Block));
+  ctx.docStore.set(updateBlock(doc, next as Block));
   return true;
 }
 
-function removeRow(ctx: CommandCtx): boolean {
-  const c = currentTable(ctx.docStore.get(), ctx.selStore.get());
-  if (!c) return false;
-  const { block, row } = c;
+function removeRow(ctx: CommandCtx, blockId?: string, rowHint?: number): boolean {
+  const doc = ctx.docStore.get();
+  const t = resolveTable(doc, ctx.selStore.get(), blockId);
+  if (!t) return false;
+  const { block } = t;
+  const row = rowHint ?? t.row;
   if (block.rows <= 1) return false;
+  if (row < 0 || row >= block.rows) return false;
   const cells = block.cells.filter((_, i) => i !== row);
   const next: TableBlock = { ...block, rows: block.rows - 1, cells };
-  ctx.docStore.set(updateBlock(ctx.docStore.get(), next as Block));
+  ctx.docStore.set(updateBlock(doc, next as Block));
   const newRow = Math.min(row, next.rows - 1);
-  ctx.selStore.set(caret({ blockId: block.id, path: [newRow, c.col, 0], offset: 0 }));
+  ctx.selStore.set(caret({ blockId: block.id, path: [newRow, t.col, 0], offset: 0 }));
   return true;
 }
 
-function removeCol(ctx: CommandCtx): boolean {
-  const c = currentTable(ctx.docStore.get(), ctx.selStore.get());
-  if (!c) return false;
-  const { block, col } = c;
+function removeCol(ctx: CommandCtx, blockId?: string, colHint?: number): boolean {
+  const doc = ctx.docStore.get();
+  const t = resolveTable(doc, ctx.selStore.get(), blockId);
+  if (!t) return false;
+  const { block } = t;
+  const col = colHint ?? t.col;
   if (block.cols <= 1) return false;
+  if (col < 0 || col >= block.cols) return false;
   const cells = block.cells.map((row) => row.filter((_, i) => i !== col));
   const next: TableBlock = { ...block, cols: block.cols - 1, cells };
-  ctx.docStore.set(updateBlock(ctx.docStore.get(), next as Block));
+  ctx.docStore.set(updateBlock(doc, next as Block));
   const newCol = Math.min(col, next.cols - 1);
-  ctx.selStore.set(caret({ blockId: block.id, path: [c.row, newCol, 0], offset: 0 }));
+  ctx.selStore.set(caret({ blockId: block.id, path: [t.row, newCol, 0], offset: 0 }));
   return true;
 }
 
@@ -194,7 +307,7 @@ function nextCell(ctx: CommandCtx): boolean {
   }
   if (nr >= block.rows) {
     // Auto-add a new row when tabbing past the last cell.
-    return insertRow(ctx, "below", true);
+    return insertRow(ctx, "below", undefined, undefined, true);
   }
   ctx.selStore.set(caret({ blockId: block.id, path: [nr, nc, 0], offset: 0 }));
   return true;
@@ -277,10 +390,38 @@ function arrowDown(ctx: CommandCtx): boolean {
 // ---------------------------------------------------------------------------
 
 export const tableCommandDefs: CommandDef<unknown>[] = [
-  { t: "table.insertRow", run: (ctx, p) => insertRow(ctx, p as "above" | "below") },
-  { t: "table.insertCol", run: (ctx, p) => insertCol(ctx, p as "before" | "after") },
-  { t: "table.removeRow", run: (ctx) => removeRow(ctx) },
-  { t: "table.removeCol", run: (ctx) => removeCol(ctx) },
+  {
+    t: "table.insertRow",
+    run: (ctx, p) => {
+      // Accept either a bare "above" | "below" string (legacy callers + the
+      // backcompat alias below) or a TableTarget object from controls UI.
+      if (typeof p === "string") return insertRow(ctx, p as "above" | "below");
+      const t = (p ?? {}) as TableTarget & { where?: "above" | "below" | "end" };
+      return insertRow(ctx, t.where ?? "below", t.blockId, t.row);
+    },
+  },
+  {
+    t: "table.insertCol",
+    run: (ctx, p) => {
+      if (typeof p === "string") return insertCol(ctx, p as "before" | "after");
+      const t = (p ?? {}) as TableTarget & { where?: "before" | "after" | "end" };
+      return insertCol(ctx, t.where ?? "after", t.blockId, t.col);
+    },
+  },
+  {
+    t: "table.removeRow",
+    run: (ctx, p) => {
+      const t = (p ?? {}) as TableTarget;
+      return removeRow(ctx, t.blockId, t.row);
+    },
+  },
+  {
+    t: "table.removeCol",
+    run: (ctx, p) => {
+      const t = (p ?? {}) as TableTarget;
+      return removeCol(ctx, t.blockId, t.col);
+    },
+  },
   { t: "table.nextCell", run: (ctx) => nextCell(ctx) },
   { t: "table.prevCell", run: (ctx) => prevCell(ctx) },
   { t: "table.arrowLeft", run: (ctx) => arrowLeft(ctx) },
@@ -292,4 +433,14 @@ export const tableCommandDefs: CommandDef<unknown>[] = [
   { t: "columns.prev", run: (ctx) => columnsPrev(ctx) },
   { t: "columns.arrowLeft", run: (ctx) => columnsArrowLeft(ctx) },
   { t: "columns.arrowRight", run: (ctx) => columnsArrowRight(ctx) },
+  // Columns insert / remove.
+  {
+    t: "columns.insertCol",
+    run: (ctx, p) => columnsInsertCol(ctx, (p ?? {}) as ColumnsTarget),
+  },
+  {
+    t: "columns.removeCol",
+    run: (ctx, p) =>
+      columnsRemoveCol(ctx, (p ?? {}) as { blockId?: string; col?: number }),
+  },
 ];
