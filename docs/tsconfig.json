@@ -9,7 +9,7 @@
     "lib": ["ESNext", "DOM"],
     "baseUrl": ".",
     "paths": {
-      "creo-editor": ["../src/index.ts"],
+      "creo-edit": ["../src/index.ts"],
       "creo": ["./node_modules/creo/dist/index.d.ts"]
     }
   },

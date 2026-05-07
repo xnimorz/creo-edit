@@ -14,8 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Sub-projects
 
-- **`docs/`** — Vite-built documentation site (markdown + hash router). Aliases `creo-editor` → `../src/index.ts` so it tracks editor source live, and aliases `creo` → its own `node_modules/creo/dist/index.js` so editor source's `import "creo"` resolves when Rollup walks into `../src/`. The landing page embeds a real `createEditor()` so users can try it without leaving the page; `/demo` is a full-bleed version. Deployed to GitHub Pages by `.github/workflows/deploy-docs.yml`. Run with `cd docs && bun run dev`.
-- **`examples/editor/`** — Vite + Playwright example app, primarily used for E2E tests (`bun run test`). Same alias setup as docs (`creo-editor` → local source, `creo` → local node_modules). Dev server on port 5183.
+- **`docs/`** — Vite-built documentation site (markdown + hash router). Aliases `creo-edit` → `../src/index.ts` so it tracks editor source live, and aliases `creo` → its own `node_modules/creo/dist/index.js` so editor source's `import "creo"` resolves when Rollup walks into `../src/`. The landing page embeds a real `createEditor()` so users can try it without leaving the page; `/demo` is a full-bleed version. Deployed to GitHub Pages by `.github/workflows/deploy-docs.yml`. Run with `cd docs && bun run dev`.
+- **`examples/editor/`** — Vite + Playwright example app, primarily used for E2E tests (`bun run test`). Same alias setup as docs (`creo-edit` → local source, `creo` → local node_modules). Dev server on port 5183.
 
 ## Architecture
 

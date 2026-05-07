@@ -20,7 +20,7 @@ function mountWithSlash() {
     new HtmlRender(root),
     SYNC_SCHEDULER,
   ).mount();
-  const editorRoot = root.querySelector("[data-creo-editor]") as HTMLElement;
+  const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
   return { root, editor, ta: editorRoot };
 }
 

@@ -3,19 +3,19 @@
 ## Install
 
 ```bash
-bun add creo creo-editor
-# or: npm install creo creo-editor
-# or: pnpm add creo creo-editor
-# or: yarn add creo creo-editor
+bun add creo creo-edit
+# or: npm install creo creo-edit
+# or: pnpm add creo creo-edit
+# or: yarn add creo creo-edit
 ```
 
-`creo-editor` has a peer dependency on `creo` (≥ 0.2.6). No other runtime dependencies. Ships as ESM with TypeScript types.
+`creo-edit` has a peer dependency on `creo` (≥ 0.2.6). No other runtime dependencies. Ships as ESM with TypeScript types.
 
 ## Minimal app
 
 ```ts
 import { createApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const editor = createEditor();
 
@@ -36,9 +36,9 @@ The editor renders through Creo's `HtmlRender`, which mounts into any DOM elemen
 ```tsx
 import { useEffect, useRef } from "react";
 import { createApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
-export function CreoEditor() {
+export function CreoEdit() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current) return;
@@ -59,7 +59,7 @@ export function CreoEditor() {
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { createApp as creoApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const host = ref<HTMLElement | null>(null);
 let app: ReturnType<typeof creoApp> | null = null;
@@ -172,7 +172,7 @@ Undo coalescing groups consecutive same-tag commands into a single step (so a st
 
 ## Styles
 
-The editor produces a small set of class names (`.creo-editor`, `.ce-block`, `.ce-h1` …). It does not ship CSS — you style them yourself. The simplest starting point is to copy the `ed-demo` and `.ce-*` rules from this docs site's [`docs/src/styles.css`](https://github.com/xnimorz/creo-editor/blob/main/docs/src/styles.css) into your own stylesheet and adjust.
+The editor produces a small set of class names (`.creo-edit`, `.ce-block`, `.ce-h1` …). It does not ship CSS — you style them yourself. The simplest starting point is to copy the `ed-demo` and `.ce-*` rules from this docs site's [`docs/src/styles.css`](https://github.com/xnimorz/creo-editor/blob/main/docs/src/styles.css) into your own stylesheet and adjust.
 
 Two CSS rules are non-negotiable on the editor root, set automatically by the editor:
 

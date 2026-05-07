@@ -21,7 +21,7 @@ Image blocks render as `contenteditable="false"` islands so the native caret ski
 The package exports a small helper:
 
 ```ts
-import { isCoarsePointer } from "creo-editor";
+import { isCoarsePointer } from "creo-edit";
 
 if (isCoarsePointer()) {
   // mobile / touch-first UX — show your toolbar's mobile variant, etc.
@@ -45,7 +45,7 @@ The editor handles input. Layout is on you:
 ```ts
 const editor = createEditor({ ... });
 // after the editor mounts:
-const root = document.querySelector("[data-creo-editor]");
+const root = document.querySelector("[data-creo-edit]");
 root?.setAttribute("spellcheck", "true");
 ```
 

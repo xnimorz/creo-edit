@@ -27,7 +27,7 @@ function mount(blocks: BlockSpec[]): {
   };
   const editor = createEditor({ initial });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-  const editorRoot = root.querySelector("[data-creo-editor]") as HTMLElement;
+  const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
   return { root, editorRoot, editor, ids };
 }
 
@@ -89,7 +89,7 @@ describe("nativeInput — mount surface", () => {
     const root = makeContainer();
     const editor = createEditor();
     createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-    const editorRoot = root.querySelector("[data-creo-editor]") as HTMLElement;
+    const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
     expect(editorRoot.getAttribute("contenteditable")).toBe("true");
     expect(
       editorRoot.querySelector("textarea[data-creo-input]"),

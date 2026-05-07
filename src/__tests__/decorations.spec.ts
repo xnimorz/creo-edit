@@ -64,13 +64,13 @@ describe("decoration manager", () => {
     expect(addBtns.length).toBe(3);
     expect(document.querySelector(".creo-slash")).toBeFalsy();
     const btn = addBtns[1] as HTMLElement;
-    // Sanity: __creoEditor wired up + closest() finds editor root.
+    // Sanity: __creoEdit wired up + closest() finds editor root.
     const editorRoot = document.querySelector(
-      "[data-creo-editor]",
+      "[data-creo-edit]",
     ) as HTMLElement | null;
     expect(editorRoot).toBeTruthy();
     expect(
-      (editorRoot as unknown as { __creoEditor?: unknown }).__creoEditor,
+      (editorRoot as unknown as { __creoEdit?: unknown }).__creoEdit,
     ).toBeTruthy();
     btn.dispatchEvent(
       new MouseEvent("click", { bubbles: true, cancelable: true }),

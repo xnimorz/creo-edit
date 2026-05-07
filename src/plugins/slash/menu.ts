@@ -7,7 +7,7 @@
 //   - items get the `creo-slash-item` class
 // All cosmetic styling (colors, borders, padding, fonts) lives in the
 // consumer's stylesheet. A reference stylesheet is shipped at
-// `creo-editor/src/plugins/styles.css` for hosts that want defaults.
+// `creo-edit/src/plugins/styles.css` for hosts that want defaults.
 // ---------------------------------------------------------------------------
 
 import type { SlashItem } from "./items";

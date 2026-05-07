@@ -291,7 +291,7 @@ function defaultSelection(doc: DocState): Selection {
 }
 
 export function createEditor(opts: EditorOptions = {}): Editor {
-  const editorId = `creo-editor-${++__editorIdCounter}`;
+  const editorId = `creo-edit-${++__editorIdCounter}`;
 
   // Install plugins BEFORE we touch any block-bearing state so the
   // serialize codec, anchor codecs, and view registry are ready.
@@ -453,13 +453,13 @@ export function createEditor(opts: EditorOptions = {}): Editor {
 
   const focus = (): void => {
     const root = document.querySelector(
-      `[data-creo-editor="${editorId}"]`,
+      `[data-creo-edit="${editorId}"]`,
     ) as HTMLElement | null;
     root?.focus();
   };
   const blur = (): void => {
     const root = document.querySelector(
-      `[data-creo-editor="${editorId}"]`,
+      `[data-creo-edit="${editorId}"]`,
     ) as HTMLElement | null;
     root?.blur();
   };
@@ -484,14 +484,14 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       return {
         onMount() {
           const root = document.querySelector(
-            `[data-creo-editor="${editorId}"]`,
+            `[data-creo-edit="${editorId}"]`,
           ) as HTMLElement | null;
           if (!root) return;
           // Expose the editor stores on the root so decoration plugins
           // (drag handle, add-block) can access docStore/selStore without
           // an explicit handle argument. Marked as a hidden property so
           // it doesn't clutter the DOM inspector.
-          (root as unknown as { __creoEditor?: unknown }).__creoEditor = {
+          (root as unknown as { __creoEdit?: unknown }).__creoEdit = {
             docStore,
             selStore,
             dispatch,
@@ -524,15 +524,15 @@ export function createEditor(opts: EditorOptions = {}): Editor {
         },
         render() {
           const mode = modeStore.get();
-          const modeCls = mode === "md" ? " creo-editor-md" : " creo-editor-wysiwyg";
+          const modeCls = mode === "md" ? " creo-edit-md" : " creo-edit-wysiwyg";
           const cls =
             (props()?.class
-              ? `creo-editor ${props()!.class}`
-              : "creo-editor") + modeCls;
+              ? `creo-edit ${props()!.class}`
+              : "creo-edit") + modeCls;
           div(
             {
               class: cls,
-              "data-creo-editor": editorId,
+              "data-creo-edit": editorId,
               // `cursor: text` so hovering shows the I-beam. Image blocks
               // override this to keep the default pointer arrow.
               //

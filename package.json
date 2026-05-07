@@ -1,5 +1,5 @@
 {
-  "name": "creo-editor",
+  "name": "creo-edit",
   "version": "0.2.5",
   "type": "module",
   "main": "dist/index.js",

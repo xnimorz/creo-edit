@@ -26,7 +26,7 @@ import {
   type SerializedDoc,
   type SlashItem,
   type SlashMenuHandle,
-} from "creo-editor";
+} from "creo-edit";
 import { markdownToDoc } from "../markdown/toEditorDoc";
 
 /**
@@ -147,7 +147,7 @@ const DEFAULT_INITIAL: SerializedDoc = {
         {
           text:
             'import { createApp, HtmlRender } from "creo";\n' +
-            'import { createEditor } from "creo-editor";\n' +
+            'import { createEditor } from "creo-edit";\n' +
             "\n" +
             "const editor = createEditor();\n" +
             "\n" +
@@ -317,17 +317,31 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
   const setMode = (m: EditorMode) => () => {
     if (settings.get().mode === m) return;
     if (m === "md") {
-      // Switching INTO MD: serialize the current doc to markdown and store
-      // it in mdText. The textarea reads from there on render.
-      mdText.set(docToMarkdown(editorStore.get().toJSON()));
+      // Switching INTO MD: serialize the current doc to markdown.
+      const md = docToMarkdown(editorStore.get().toJSON());
+      mdText.set(md);
       settings.update((s) => ({ ...s, mode: m }));
+      // The textarea is uncontrolled — push the initial markdown into it
+      // after the render commits. Subsequent edits stay inside the
+      // textarea (no re-render on every keystroke).
+      queueMicrotask(() => {
+        const ta = document.querySelector(
+          ".ed-md-source",
+        ) as HTMLTextAreaElement | null;
+        if (ta) ta.value = md;
+      });
       return;
     }
-    // Switching BACK to wysiwyg: parse the markdown text into a SerializedDoc
-    // and replace the editor's content.
+    // Switching BACK to wysiwyg: read the textarea's current value (since
+    // we don't sync it back to mdText on every keystroke) and parse.
+    const ta = document.querySelector(
+      ".ed-md-source",
+    ) as HTMLTextAreaElement | null;
+    const liveText = ta?.value ?? mdText.get();
+    mdText.set(liveText);
     let parsed: SerializedDoc;
     try {
-      parsed = markdownToDoc(mdText.get());
+      parsed = markdownToDoc(liveText);
     } catch {
       parsed = editorStore.get().toJSON();
     }
@@ -496,12 +510,14 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
           // Slash menu in MD mode: when the slash plugin is enabled, typing
           // "/" opens a popover that inserts the corresponding markdown
           // syntax at the cursor. Reuses the same `mountSlashMenu` UI.
+          // Uncontrolled textarea — no `value` binding. The textarea owns
+          // its own state; mdText is only resynced on mode-out. This keeps
+          // input on large markdown documents fast (no creo reconciliation
+          // per keystroke).
           textarea(
             {
               class: "ed-md-source",
-              value: mdText.get(),
-              onInput: (e: InputEventData) => {
-                mdText.set(e.value as string);
+              onInput: (_e: InputEventData) => {
                 if (!s.slash) return;
                 const ta = document.querySelector(
                   ".ed-md-source",

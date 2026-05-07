@@ -64,7 +64,7 @@ These are no-ops if the selection isn't inside a table cell.
 |---|---|
 | `{ t: "moveCursor", to, extend? }` | Move the caret to an `Anchor`. With `extend: true`, the existing selection's `anchor` is held and `focus` becomes `to` (Shift+arrow behavior). |
 
-For selection construction, the model exports helpers like `endOfDoc(doc)` from `creo-editor`'s public surface — see [Editor API](#/editor-api).
+For selection construction, the model exports helpers like `endOfDoc(doc)` from `creo-edit`'s public surface — see [Editor API](#/editor-api).
 
 ## History and coalescing
 

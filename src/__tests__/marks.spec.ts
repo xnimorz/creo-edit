@@ -20,7 +20,7 @@ function setupWithText(text: string) {
   });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
   const editorRoot = root.querySelector(
-    "[data-creo-editor]",
+    "[data-creo-edit]",
   ) as HTMLElement;
   return { root, editor, id, ta: editorRoot };
 }

@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Editor handle — wraps a Page with editor-specific helpers so tests don't
- * have to know about `data-creo-input` / `.creo-editor` selectors.
+ * have to know about `data-creo-input` / `.creo-edit` selectors.
  */
 export class EditorHarness {
   /** Set after open() — true when the page's `navigator.platform` looks Mac-ish. */
@@ -24,7 +24,7 @@ export class EditorHarness {
   }
 
   get editor(): Locator {
-    return this.page.locator(".creo-editor");
+    return this.page.locator(".creo-edit");
   }
 
   get textarea(): Locator {

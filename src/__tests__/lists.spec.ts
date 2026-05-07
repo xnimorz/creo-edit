@@ -103,7 +103,7 @@ describe("List commands", () => {
     const editor = createEditor({ initial: { blocks } });
     createApp(() => editor.EditorView(), new HtmlRender(root), SYNC).mount();
     const editorRoot = root.querySelector(
-      "[data-creo-editor]",
+      "[data-creo-edit]",
     ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 0) });
     editor.dispatch({ t: "toggleList", ordered: false });
@@ -140,7 +140,7 @@ describe("List commands", () => {
     const editor = createEditor({ initial: { blocks } });
     createApp(() => editor.EditorView(), new HtmlRender(root), SYNC).mount();
     const editorRoot = root.querySelector(
-      "[data-creo-editor]",
+      "[data-creo-edit]",
     ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 8) });
     editor.dispatch({ t: "toggleList", ordered: true });

@@ -75,7 +75,7 @@ export function markdownPlugin(): Plugin {
   let contentDir: string;
 
   return {
-    name: "creo-editor-docs-markdown",
+    name: "creo-edit-docs-markdown",
     enforce: "pre",
     configResolved(cfg) {
       contentDir = path.resolve(cfg.root, "content");

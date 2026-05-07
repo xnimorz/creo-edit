@@ -68,7 +68,7 @@ Virtualization isn't free. Block heights vary, measurement happens on mount, and
 If you want to read or change the height index directly (e.g. to seed measurements from server-stored data), `HeightIndex` is exported from the package:
 
 ```ts
-import { HeightIndex } from "creo-editor";
+import { HeightIndex } from "creo-edit";
 ```
 
 It's a plain Fenwick tree with `insert(at, h)`, `remove(at)`, `set(at, h)`, `prefixSum(i)`, and `findIndex(offset)`. See `src/virtual/heightIndex.ts` for the full surface.

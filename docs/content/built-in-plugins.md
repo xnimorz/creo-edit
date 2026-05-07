@@ -30,7 +30,7 @@ Opting out — drop a default plugin by passing `plugins: defaultPlugins.filter(
 Slash menu (`/` trigger) with a default list of insert-block actions (paragraph, headings, list, code, table, columns). Pass your own items to extend or replace.
 
 ```ts
-import { slashCommandsPlugin } from "creo-editor";
+import { slashCommandsPlugin } from "creo-edit";
 
 const editor = createEditor({
   plugins: [
@@ -54,7 +54,7 @@ const editor = createEditor({
 Markdown typing shortcuts. See [editing-modes](#/editing-modes) for the full list of patterns.
 
 ```ts
-import { mdShortcutsPlugin } from "creo-editor";
+import { mdShortcutsPlugin } from "creo-edit";
 
 createEditor({ plugins: [mdShortcutsPlugin()] });
 ```
@@ -64,7 +64,7 @@ createEditor({ plugins: [mdShortcutsPlugin()] });
 Notion-style drag handle (`⋮⋮`) in the left gutter. Drag a block to reorder via fractional-index mutation.
 
 ```ts
-import { dragHandlePlugin } from "creo-editor";
+import { dragHandlePlugin } from "creo-edit";
 
 createEditor({ plugins: [dragHandlePlugin()] });
 // Or always-visible:
@@ -76,7 +76,7 @@ createEditor({ plugins: [dragHandlePlugin({ hoverOnly: false })] });
 `+` button in the left gutter. Click inserts an empty paragraph above the hovered block.
 
 ```ts
-import { addBlockPlugin, slashCommandsPlugin } from "creo-editor";
+import { addBlockPlugin, slashCommandsPlugin } from "creo-edit";
 
 createEditor({
   plugins: [

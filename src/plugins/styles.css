@@ -1,10 +1,10 @@
 /* ---------------------------------------------------------------------------
-   Default stylesheet for first-party creo-editor plugins.
+   Default stylesheet for first-party creo-edit plugins.
 
    This file ships with the package but is NOT auto-loaded — consumers
    import it explicitly:
 
-     import "creo-editor/dist/plugins/styles.css";
+     import "creo-edit/dist/plugins/styles.css";
 
    …or copy these rules into their own stylesheet to customize. The plugin
    code only sets the minimum styles required for layout/positioning;

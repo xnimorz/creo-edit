@@ -23,7 +23,7 @@ The result is an editor where the model is always the source of truth, every key
 
 ```ts
 import { createApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const editor = createEditor({
   initial: {

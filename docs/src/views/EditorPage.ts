@@ -1,5 +1,5 @@
 import { view, div, _ } from "creo";
-import { createEditor, type Editor } from "creo-editor";
+import { createEditor, type Editor } from "creo-edit";
 import type { CompiledDoc } from "../markdown/types";
 
 let hostUidCounter = 0;

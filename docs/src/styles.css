@@ -412,7 +412,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
    Editor-rendered doc page.
 
    Each documentation route is a real `createEditor()` instance loaded
-   with the page content. The editor's class names (`.creo-editor`,
+   with the page content. The editor's class names (`.creo-edit`,
    `.ce-h1`, `.ce-list`, …) are the same as in the demo, but for doc
    pages we want them to LOOK like prose, not like a boxed editor.
    These rules scope a "prose look" to `.editor-page-host` so they
@@ -425,7 +425,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   scroll-margin-top: calc(var(--header-h) + 16px);
 }
 
-.editor-page-host .creo-editor {
+.editor-page-host .creo-edit {
   /* No border, no card — the editor is the page body. */
   background: transparent;
   padding: 0;
@@ -435,7 +435,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   color: var(--text);
   min-height: 50vh;
 }
-.editor-page-host .creo-editor:focus-within {
+.editor-page-host .creo-edit:focus-within {
   outline: none;
 }
 
@@ -489,7 +489,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 
 /* Inline `code` mark — in prose context, paint each code-marked run with
    the bg/border treatment used for inline code in .markdown-body. */
-.editor-page-host .creo-editor code {
+.editor-page-host .creo-edit code {
   font-family: var(--mono);
   font-size: 0.88em;
   background: var(--bg-code);
@@ -535,7 +535,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   max-width: 720px;
 }
 .demo-editor { min-height: 70vh; }
-.demo-editor .ed-creo-editor { min-height: 60vh; }
+.demo-editor .ed-creo-edit { min-height: 60vh; }
 
 /* ---------------------------------------------------------------- 404 page */
 
@@ -549,7 +549,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 /* =========================================================================
    Editor demo (used by Landing hero + /demo route).
    The editor itself ships with no styles — it relies on a small set of
-   class names produced by render/blocks/* and the .creo-editor root. These
+   class names produced by render/blocks/* and the .creo-edit root. These
    rules give the demo a polished default look. App authors copy and adapt
    them as needed.
    ========================================================================= */
@@ -619,9 +619,14 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
   background: #fdfdfd;
   color: var(--text);
+  /* Same flex stretch as the WYSIWYG editor — the textarea fills the
+     remaining vertical space in the .ed-demo column. */
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .ed-toolbar {
@@ -646,20 +651,26 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 .ed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .ed-sep { width: 1px; background: var(--border); margin: 0 4px; }
 
-.ed-demo .creo-editor {
+.ed-demo .creo-edit {
   padding: 24px;
   min-height: 320px;
   line-height: 1.5;
   font-size: 16px;
   color: var(--text);
   background: #fff;
+  /* Stretch to fill the remaining vertical space inside the .ed-demo
+     flex column so the editor uses the whole demo container, not just
+     the height of its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
-.ed-demo .creo-editor:focus-within {
+.ed-demo .creo-edit:focus-within {
   outline: 2px solid var(--accent-bg);
   outline-offset: -2px;
 }
-.creo-editor-regular { font-family: var(--sans); }
-.creo-editor-mono {
+.creo-edit-regular { font-family: var(--sans); }
+.creo-edit-mono {
   font-family: var(--mono);
   font-size: 14px;
   line-height: 1.6;
@@ -700,7 +711,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   min-height: 24px;
 }
 
-.ed-demo .creo-editor code {
+.ed-demo .creo-edit code {
   background: var(--bg-code);
   padding: 1px 4px;
   border-radius: 3px;
@@ -718,7 +729,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
    white-space:pre keeps leading indent visible per line (inherited into
    each .ce-code-line); mono font; muted boxed background to distinguish
    from inline `code` mark, which is just a per-run pill. */
-.creo-editor .ce-code-block {
+.creo-edit .ce-code-block {
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.55;
@@ -731,13 +742,13 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   overflow-x: auto;
   color: var(--text);
 }
-.creo-editor .ce-code-line {
+.creo-edit .ce-code-line {
   display: block;
   /* Empty line still gets a full line-height box for caret measurement. */
   min-height: 1.55em;
 }
 /* No background pills inside a code block — the block itself owns the bg. */
-.creo-editor .ce-code-block code {
+.creo-edit .ce-code-block code {
   background: transparent;
   border: 0;
   padding: 0;

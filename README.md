@@ -1,4 +1,4 @@
-# creo-editor
+# creo-edit
 
 A text editor framework, based on [Creo](https://github.com/xnim/creo). Row-based rich-text editing on a controlled `contentEditable`. Mountable inside any framework that gives you a DOM ref (React, Vue, Svelte, Solid) — see [Hosting inside other frameworks](#hosting-inside-other-frameworks).
 
@@ -14,14 +14,14 @@ A text editor framework, based on [Creo](https://github.com/xnim/creo). Row-base
 ## Install
 
 ```bash
-bun add creo creo-editor
+bun add creo creo-edit
 ```
 
 ## Quick start
 
 ```ts
 import { createApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const editor = createEditor({
   initial: {
@@ -47,9 +47,9 @@ The editor renders through Creo's `HtmlRender`, which mounts into any DOM elemen
 ```tsx
 import { useEffect, useRef } from "react";
 import { createApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
-export function CreoEditor() {
+export function CreoEdit() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current) return;
@@ -70,7 +70,7 @@ export function CreoEditor() {
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { createApp as creoApp, HtmlRender } from "creo";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const host = ref<HTMLElement | null>(null);
 let app: ReturnType<typeof creoApp> | null = null;
@@ -158,7 +158,7 @@ Without `uploadImage`, dropped/pasted images use `URL.createObjectURL`.
 
 ### Mobile
 
-`creo-editor` ships first-class mobile support. The editor root is a `contentEditable`, so the OS long-press menu, native selection handles, IME composition, and autocorrect work out of the box. `visualViewport` tracking exposes `--creo-vv-height` and `--creo-vv-top` as CSS custom properties so host pages can position floating UI above the soft keyboard, and scrolls the caret into the upper third of visible space when the keyboard opens.
+`creo-edit` ships first-class mobile support. The editor root is a `contentEditable`, so the OS long-press menu, native selection handles, IME composition, and autocorrect work out of the box. `visualViewport` tracking exposes `--creo-vv-height` and `--creo-vv-top` as CSS custom properties so host pages can position floating UI above the soft keyboard, and scrolls the caret into the upper third of visible space when the keyboard opens.
 
 ## Architecture
 

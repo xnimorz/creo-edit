@@ -103,16 +103,16 @@ function openAddMenu(
   // The block element captured at mount may have been replaced by a
   // creo re-render; fall back to a fresh document-level lookup so the
   // editor reference stays reachable.
-  let editorRoot = blockEl.closest("[data-creo-editor]") as HTMLElement | null;
+  let editorRoot = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
   if (!editorRoot) {
-    editorRoot = document.querySelector("[data-creo-editor]") as HTMLElement | null;
+    editorRoot = document.querySelector("[data-creo-edit]") as HTMLElement | null;
   }
   if (!editorRoot) return;
-  const editor = (editorRoot as unknown as { __creoEditor?: {
+  const editor = (editorRoot as unknown as { __creoEdit?: {
     docStore: { get: () => DocState; set: (d: DocState) => void };
     selStore: { set: (s: Selection) => void };
     dispatch: (cmd: DispatchableCommand) => void;
-  } }).__creoEditor;
+  } }).__creoEdit;
   if (!editor) return;
 
   const r = btn.getBoundingClientRect();

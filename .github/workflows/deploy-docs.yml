@@ -35,7 +35,7 @@ jobs:
 
       - name: Install root deps
         run: bun install --frozen-lockfile
-        # The docs site aliases `creo-editor` straight to ../src — no
+        # The docs site aliases `creo-edit` straight to ../src — no
         # editor build needed before we build the docs.
 
       - name: Install docs deps

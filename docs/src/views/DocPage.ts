@@ -3,7 +3,7 @@ import { EditorPage } from "./EditorPage";
 import type { CompiledDoc } from "../markdown/types";
 import { prevNext } from "../nav";
 import { consumePendingAnchor, scrollToAnchor } from "../anchor";
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 let anchorListenerAttached = false;
 

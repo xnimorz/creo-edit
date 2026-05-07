@@ -1,7 +1,7 @@
 import { _ } from "creo";
 import { button, div, option, select, view } from "creo";
 import type { InputEventData, PointerEventData } from "creo";
-import { createEditor, type Mark } from "creo-editor";
+import { createEditor, type Mark } from "creo-edit";
 
 // Mode + initial-doc are URL-driven so the same example app can demonstrate
 // both regular and mono editing without separate routes:

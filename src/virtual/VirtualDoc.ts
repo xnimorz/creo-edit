@@ -201,7 +201,7 @@ function currentRoot(): HTMLElement | null {
   // The VirtualDoc is mounted inside the editor root; we don't currently
   // pass that root in, so fall back to the first one in the document. Tests
   // mount one editor at a time, real apps too.
-  return document.querySelector("[data-creo-editor]") as HTMLElement | null;
+  return document.querySelector("[data-creo-edit]") as HTMLElement | null;
 }
 
 function scrollAncestor(el: HTMLElement): HTMLElement | null {

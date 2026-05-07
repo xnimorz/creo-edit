@@ -21,7 +21,7 @@ type EditorPlugin = {
 You install a plugin by passing it in `EditorOptions.plugins`:
 
 ```ts
-import { createEditor, slashCommandsPlugin } from "creo-editor";
+import { createEditor, slashCommandsPlugin } from "creo-edit";
 
 const editor = createEditor({
   plugins: [slashCommandsPlugin()],
@@ -35,7 +35,7 @@ User plugins are installed AFTER the built-ins (paragraph, heading, list, code, 
 A trigger watches text input for a pattern and opens UI when matched. Mentions are the canonical example: type `@`, get a popover of users, pick one, dispatch a command.
 
 ```ts
-import type { EditorPlugin, TriggerDef } from "creo-editor";
+import type { EditorPlugin, TriggerDef } from "creo-edit";
 
 const users = ["alice", "bob", "carol"];
 

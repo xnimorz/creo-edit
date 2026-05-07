@@ -671,7 +671,21 @@ export function attachNativeInput(
   // work unchanged.
   // -------------------------------------------------------------------------
 
+  /** True when the native selection (or its anchor/focus) lives inside our
+   *  editor root. Used to gate document-level clipboard listeners so we
+   *  don't intercept events targeted at other inputs on the page. */
+  const selectionInRoot = (): boolean => {
+    const sel = document.getSelection();
+    if (!sel) return false;
+    const a = sel.anchorNode;
+    const f = sel.focusNode;
+    if (a && root.contains(a)) return true;
+    if (f && root.contains(f)) return true;
+    return false;
+  };
+
   const onCopy = (e: ClipboardEvent): void => {
+    if (!selectionInRoot()) return;
     const sel = selStore.get();
     if (sel.kind === "caret") return;
     e.preventDefault();
@@ -681,6 +695,7 @@ export function attachNativeInput(
   };
 
   const onCut = (e: ClipboardEvent): void => {
+    if (!selectionInRoot()) return;
     const sel = selStore.get();
     if (sel.kind === "caret") return;
     e.preventDefault();
@@ -699,6 +714,7 @@ export function attachNativeInput(
   };
 
   const onPaste = (e: ClipboardEvent): void => {
+    if (!selectionInRoot()) return;
     const data = e.clipboardData;
     if (!data) return;
     e.preventDefault();
@@ -737,9 +753,15 @@ export function attachNativeInput(
     }
   };
 
-  root.addEventListener("copy", onCopy);
-  root.addEventListener("cut", onCut);
-  root.addEventListener("paste", onPaste);
+  // Listen at document level so clipboard events from the browser's
+  // OS context menu (right-click → Cut / Copy / Paste) reach us. The
+  // browser dispatches those on the document, not on the contenteditable
+  // root, so a root-level listener would miss them. The handlers gate by
+  // `selectionInRoot()` to ignore events targeted at other inputs on the
+  // page.
+  document.addEventListener("copy", onCopy);
+  document.addEventListener("cut", onCut);
+  document.addEventListener("paste", onPaste);
   root.addEventListener("keydown", onShiftKey, true);
   root.addEventListener("keyup", onShiftKey, true);
 
@@ -754,9 +776,9 @@ export function attachNativeInput(
       root.removeEventListener("keydown", onKeyDown);
       root.removeEventListener("compositionstart", onCompositionStart);
       root.removeEventListener("compositionend", onCompositionEnd);
-      root.removeEventListener("copy", onCopy);
-      root.removeEventListener("cut", onCut);
-      root.removeEventListener("paste", onPaste);
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("cut", onCut);
+      document.removeEventListener("paste", onPaste);
       root.removeEventListener("keydown", onShiftKey, true);
       root.removeEventListener("keyup", onShiftKey, true);
       unsubSel();

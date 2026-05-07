@@ -25,7 +25,7 @@ if (!result.success) {
 await $`bunx tsc -p tsconfig.build.json`;
 
 // Copy the optional plugin stylesheet so consumers can
-//   import "creo-editor/dist/plugins/styles.css";
+//   import "creo-edit/dist/plugins/styles.css";
 await $`mkdir -p ${resolve(outDir, "plugins")}`;
 await $`cp ${resolve(root, "src/plugins/styles.css")} ${resolve(outDir, "plugins/styles.css")}`;
 

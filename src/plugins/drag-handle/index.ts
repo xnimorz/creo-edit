@@ -150,7 +150,7 @@ export function dragHandlePlugin(
             e.preventDefault();
             moveGhost(e.clientX, e.clientY);
             // Find target block under the pointer.
-            const editorRoot = blockEl.closest("[data-creo-editor]") as HTMLElement | null;
+            const editorRoot = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
             if (!editorRoot) return;
             // Hide the ghost briefly so elementFromPoint sees the underlying
             // editor content, then restore.
@@ -248,12 +248,12 @@ function reorderTo(
   targetId: BlockId,
   pos: DropPos,
 ): void {
-  const editorRoot = blockEl.closest("[data-creo-editor]") as HTMLElement | null;
+  const editorRoot = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
   if (!editorRoot) return;
-  const editor = (editorRoot as unknown as { __creoEditor?: {
+  const editor = (editorRoot as unknown as { __creoEdit?: {
     docStore: { get: () => DocState; set: (d: DocState) => void };
     selStore?: { set: (s: Selection) => void };
-  } }).__creoEditor;
+  } }).__creoEdit;
   if (!editor) return;
   const doc = editor.docStore.get();
   const draggedBlock = doc.byId.get(draggedId);

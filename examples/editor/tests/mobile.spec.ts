@@ -74,7 +74,7 @@ test.describe("Mobile — tap to focus and type", () => {
     // Synthesize a beforeinput event since Playwright tap doesn't bring up
     // a soft keyboard in headless emulation.
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
       Object.defineProperty(ev, "data", { value: "hi" });
       Object.defineProperty(ev, "inputType", { value: "insertText" });
@@ -89,7 +89,7 @@ test.describe("Mobile — selection handles", () => {
     const h = await EditorHarness.open(page);
     await h.editor.tap();
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       // Type "hello" via beforeinput so the desktop-style page.keyboard.type
       // (which would synthesize keystrokes the textarea swallows) isn't
       // needed.
@@ -139,7 +139,7 @@ test.describe("Mobile — selection handles", () => {
     const h = await EditorHarness.open(page);
     await h.editor.tap();
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       for (const c of "hello") {
         const ev = new Event("beforeinput", {
           bubbles: true,

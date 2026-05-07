@@ -18,6 +18,7 @@ import type { Anchor, DocState, Selection } from "../model/types";
 import type {
   DispatchableCommand,
 } from "../createEditor";
+import { runsAt } from "./runsAt";
 import type {
   TriggerController,
   TriggerCtx,
@@ -42,34 +43,91 @@ type ActiveState = {
 export class TriggerManager {
   private active: ActiveState | null = null;
   private unsubSel: (() => void) | null = null;
+  private unsubDoc: (() => void) | null = null;
 
   constructor(private opts: TriggerManagerOptions) {
-    // Auto-close when caret moves out of the trigger block — covers click
-    // away, arrow up/down, etc. Inside-block motion (typing query chars,
-    // arrow left/right within the query) doesn't trigger close.
-    this.unsubSel = opts.selStore.subscribe(() => {
-      if (!this.active) return;
-      const sel = opts.selStore.get();
-      const a = sel.kind === "caret" ? sel.at : sel.anchor;
-      if (a.blockId !== this.active.start.blockId) {
-        this.close();
-      }
-    });
+    // Auto-close when caret moves out of the trigger block, OR moves
+    // before the trigger char (e.g. arrow-left past the "/").
+    this.unsubSel = opts.selStore.subscribe(() => this.reconcile());
+    // Auto-close when the trigger char itself is deleted (backspace), or
+    // when the doc otherwise mutates such that the typed query no longer
+    // makes sense. Also recompute the live query string from the doc so
+    // backspace inside the query updates the menu's filter.
+    this.unsubDoc = opts.docStore.subscribe(() => this.reconcile());
   }
 
   destroy(): void {
     this.close();
     this.unsubSel?.();
+    this.unsubDoc?.();
     this.unsubSel = null;
+    this.unsubDoc = null;
+  }
+
+  /**
+   * Re-derive the active trigger's state from the current doc + selection.
+   * Closes the menu if any of:
+   *   - caret left the trigger's block
+   *   - caret moved before the trigger char position
+   *   - the trigger char at the start position is no longer there
+   * Otherwise, recomputes the live query string and notifies the controller.
+   */
+  private reconcile(): void {
+    if (!this.active) return;
+    const sel = this.opts.selStore.get();
+    const a = sel.kind === "caret" ? sel.at : sel.anchor;
+    if (a.blockId !== this.active.start.blockId) {
+      this.close();
+      return;
+    }
+    const startOff = lastPathEntry(this.active.start);
+    const curOff = lastPathEntry(a);
+    // Caret moved before/onto the trigger position → trigger char is gone
+    // or about to be (close on equality so the user can't backspace into
+    // the trigger char itself).
+    if (curOff < startOff) {
+      this.close();
+      return;
+    }
+    // Read the runs slot at the trigger anchor and check the trigger char
+    // is still present at offset (startOff - 1).
+    const block = this.opts.docStore.get().byId.get(a.blockId);
+    if (!block) {
+      this.close();
+      return;
+    }
+    const ctx = runsAt(block, this.active.start);
+    if (!ctx) {
+      this.close();
+      return;
+    }
+    const text = runsToText(ctx.runs);
+    const triggerCharPos = startOff - 1;
+    if (triggerCharPos < 0 || triggerCharPos >= text.length) {
+      this.close();
+      return;
+    }
+    const triggerChar = text[triggerCharPos];
+    const def = this.active.def;
+    const expected = typeof def.match === "string" ? def.match : null;
+    if (expected !== null && triggerChar !== expected) {
+      this.close();
+      return;
+    }
+    // Recompute the query: text from the trigger anchor (after the trigger
+    // char) up to the current caret position.
+    const newQuery = text.slice(startOff, curOff);
+    if (newQuery !== this.active.query) {
+      this.active.query = newQuery;
+      this.active.ctrl.onTextChange?.(newQuery);
+    }
   }
 
   /** Called by nativeInput AFTER a successful insertText dispatch. */
   onTextInserted(text: string): void {
-    if (this.active) {
-      this.active.query += text;
-      this.active.ctrl.onTextChange?.(this.active.query);
-      return;
-    }
+    // While a trigger is active, the docStore subscriber's reconcile has
+    // already updated the query — no extra work needed here.
+    if (this.active) return;
     const sel = this.opts.selStore.get();
     if (sel.kind !== "caret") return;
     for (const def of this.opts.registry.triggers) {
@@ -131,6 +189,16 @@ export class TriggerManager {
 function matchesTrigger(def: TriggerDef, text: string): boolean {
   if (typeof def.match === "string") return text === def.match;
   return def.match.test(text);
+}
+
+function lastPathEntry(a: Anchor): number {
+  return a.path[a.path.length - 1] ?? 0;
+}
+
+function runsToText(runs: import("../model/types").InlineRun[]): string {
+  let s = "";
+  for (const r of runs) s += r.text;
+  return s;
 }
 
 function caretRect(): DOMRect | null {

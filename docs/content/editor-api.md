@@ -5,7 +5,7 @@
 ## `createEditor(options?)`
 
 ```ts
-import { createEditor } from "creo-editor";
+import { createEditor } from "creo-edit";
 
 const editor = createEditor({
   initial: { blocks: [/* ... */] },

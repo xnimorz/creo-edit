@@ -38,7 +38,7 @@ export const Layout = view(({ slot, use }) => {
       div({ class: layoutClass }, () => {
         header({ class: "site-header" }, () => {
           div({ class: "header-inner" }, () => {
-            a({ href: "#/", class: "brand", "aria-label": "creo-editor" }, () => {
+            a({ href: "#/", class: "brand", "aria-label": "creo-edit" }, () => {
               span({ class: "brand-wordmark" }, () => {
                 span({ class: "brand-bracket" }, "[");
                 span({ class: "brand-c" }, "C");

@@ -30,7 +30,7 @@ function mount(blocks: BlockSpec[]): {
   };
   const editor = createEditor({ initial });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
-  const editorRoot = root.querySelector("[data-creo-editor]") as HTMLElement;
+  const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
   return { root, editorRoot, ids };
 }
 

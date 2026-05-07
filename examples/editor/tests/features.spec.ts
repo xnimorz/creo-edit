@@ -227,16 +227,16 @@ test.describe("Editor mode", () => {
   test("default editor is regular mode", async ({ page }) => {
     const h = await EditorHarness.open(page);
     const cls = await h.editor.evaluate((el) => el.className);
-    expect(cls).toContain("creo-editor-regular");
-    expect(cls).not.toContain("creo-editor-mono");
+    expect(cls).toContain("creo-edit-regular");
+    expect(cls).not.toContain("creo-edit-mono");
   });
 
   test("?mode=mono opens the editor in monospace mode", async ({ page }) => {
     await page.goto("/?mode=mono");
-    const editor = page.locator(".creo-editor");
+    const editor = page.locator(".creo-edit");
     await editor.waitFor();
     const cls = await editor.evaluate((el) => el.className);
-    expect(cls).toContain("creo-editor-mono");
+    expect(cls).toContain("creo-edit-mono");
     const fontFamily = await editor.evaluate(
       (el) => window.getComputedStyle(el).fontFamily,
     );
@@ -557,7 +557,7 @@ test.describe("Range replace on type", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
       Object.defineProperty(ev, "data", { value: "X" });
       Object.defineProperty(ev, "inputType", { value: "insertText" });
@@ -609,7 +609,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       for (const c of "abc") {
         const ev = new Event("beforeinput", {
           bubbles: true,
@@ -627,7 +627,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
         'td[data-cell="0:2"]',
       ) as HTMLElement;
       const root = document.querySelector(
-        "[data-creo-editor]",
+        "[data-creo-edit]",
       ) as HTMLElement;
       const caretAbs =
         (c ? parseFloat(c.style.left) : 0) +
@@ -659,7 +659,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
     });
     await h.focusKeepingSelection();
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
       Object.defineProperty(ev, "data", { value: "RIGHT" });
       Object.defineProperty(ev, "inputType", { value: "insertText" });
@@ -671,7 +671,7 @@ test.describe("Caret in nested cells (table / columns)", () => {
         '[data-col="2"]',
       ) as HTMLElement;
       const root = document.querySelector(
-        "[data-creo-editor]",
+        "[data-creo-edit]",
       ) as HTMLElement;
       const caretAbs =
         (c ? parseFloat(c.style.left) : 0) +
@@ -715,7 +715,7 @@ test.describe("Trailing whitespace", () => {
     // Type three spaces via beforeinput (page.keyboard.type triggers the
     // same input pipeline path).
     await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-editor]") as HTMLElement;
+      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
       for (let i = 0; i < 3; i++) {
         const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
         Object.defineProperty(ev, "data", { value: " " });
@@ -800,7 +800,7 @@ test.describe("Regression: Enter-Enter at end of heading", () => {
     await h.dispatch({ t: "splitBlock" });
     // Read the rendered block IDs in DOM order.
     const domOrder = await page.evaluate(() => {
-      const editor = document.querySelector(".creo-editor")!;
+      const editor = document.querySelector(".creo-edit")!;
       const out: string[] = [];
       const walk = (node: Element) => {
         const id = node.getAttribute("data-block-id");
@@ -821,7 +821,7 @@ test.describe("Regression: Enter-Enter at end of heading", () => {
     // list item — same as the model.
     expect(domOrder).toEqual(modelOrder);
     // Sanity: the heading still occurs exactly once (no section duplicate).
-    const headings = await page.locator(".creo-editor h2[data-block-id]").count();
+    const headings = await page.locator(".creo-edit h2[data-block-id]").count();
     expect(headings).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import type { SerializedDoc } from "creo-editor";
+import type { SerializedDoc } from "creo-edit";
 
 export type DocMeta = { title: string; slug: string };
 export type DocHeading = { level: number; text: string; slug: string };

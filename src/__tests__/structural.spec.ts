@@ -19,7 +19,7 @@ function mountWith(text: string) {
   });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
   const editorRoot = root.querySelector(
-    "[data-creo-editor]",
+    "[data-creo-edit]",
   ) as HTMLElement;
   // Map editing keys to their corresponding `beforeinput` inputType — under
   // contentEditable the browser fires beforeinput, not keydown, for these.
@@ -90,7 +90,7 @@ describe("Structural commands", () => {
     });
     createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
     const editorRoot = root.querySelector(
-      "[data-creo-editor]",
+      "[data-creo-edit]",
     ) as HTMLElement;
     editor.selStore.set({ kind: "caret", at: caretAt(id, "Heading".length) });
     const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
@@ -177,7 +177,7 @@ describe("Structural commands", () => {
       focus: caretAt(ids[2]!, 2),
     });
     const editorRoot = root.querySelector(
-      "[data-creo-editor]",
+      "[data-creo-edit]",
     ) as HTMLElement;
     const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
       bubbles: true,

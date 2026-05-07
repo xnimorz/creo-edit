@@ -22,7 +22,7 @@
 // blow up the build.
 
 import { Marked, type Token, type Tokens } from "marked";
-import type { SerializedBlock, SerializedDoc, SerializedRun } from "creo-editor";
+import type { SerializedBlock, SerializedDoc, SerializedRun } from "creo-edit";
 
 type Mark = "b" | "i" | "u" | "s" | "code";
 

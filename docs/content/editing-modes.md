@@ -45,7 +45,7 @@ editor.getMode(); // → "md"
 | `` `foo` ``  | Inline code mark             |
 
 ```ts
-import { createEditor, mdShortcutsPlugin } from "creo-editor";
+import { createEditor, mdShortcutsPlugin } from "creo-edit";
 
 const editor = createEditor({
   mode: "md",

@@ -57,7 +57,7 @@ describe("createEditor — minimal render", () => {
 
     createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
 
-    const editorRoot = root.querySelector("[data-creo-editor]") as HTMLElement;
+    const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
     expect(editorRoot).toBeTruthy();
     const ps = findParagraphs(editorRoot);
     expect(ps.length).toBe(5);

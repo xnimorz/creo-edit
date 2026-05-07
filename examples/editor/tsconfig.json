@@ -8,7 +8,7 @@
     "lib": ["ESNext", "DOM"],
     "types": ["vite/client"],
     "paths": {
-      "creo-editor": ["../../src/index.ts"]
+      "creo-edit": ["../../src/index.ts"]
     }
   },
   "include": ["src"]
