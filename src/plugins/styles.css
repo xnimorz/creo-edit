@@ -100,6 +100,16 @@
   height: auto;
 }
 
+/* ============= Column line layout =============
+   Columns render one .ce-col-line div per visual line so an empty trailing
+   line (e.g. right after pressing Enter) still has height for the caret to
+   land on. Without `min-height`, a trailing `\n` collapses to zero pixels
+   and pressing Enter once appears to do nothing. */
+.creo-edit .ce-col-line {
+  display: block;
+  min-height: 1.4em;
+}
+
 /* ============= Table / columns controls ============= */
 .ce-cells-toolbar {
   display: none;

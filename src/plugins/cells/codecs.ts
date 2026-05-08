@@ -118,26 +118,71 @@ function findOwningColEl(node: Node): HTMLElement | null {
   return null;
 }
 
+// Per-line traversal helpers — columns render one `.ce-col-line` div per
+// visual line (mirroring code blocks). The model treats `\n` as a real
+// char between lines, so we add 1 to the running offset between adjacent
+// line divs.
+
+function visibleLength(el: HTMLElement): number {
+  const ZWSP = "​";
+  let n = 0;
+  const walk = (node: Node): void => {
+    if (node.nodeType === 3) {
+      const t = (node as Text).data;
+      if (t !== ZWSP) n += t.length;
+      return;
+    }
+    for (const c of Array.from(node.childNodes)) walk(c);
+  };
+  walk(el);
+  return n;
+}
+
 export const columnsAnchorCodec: AnchorCodec = {
   domToAnchor(blockEl, hit, off) {
     const blockId = blockEl.getAttribute("data-block-id");
     if (!blockId) return null;
     const colEl = findOwningColEl(hit);
-    if (colEl) {
-      const ci = Number(colEl.getAttribute("data-col"));
-      if (Number.isFinite(ci)) {
-        const charOff = offsetWithinScope(colEl, hit, off);
-        return { blockId, path: [ci, charOff], offset: charOff };
-      }
+    if (!colEl) return { blockId, path: [0, 0], offset: 0 };
+    const ci = Number(colEl.getAttribute("data-col"));
+    if (!Number.isFinite(ci)) return { blockId, path: [0, 0], offset: 0 };
+    const lines = colEl.querySelectorAll<HTMLElement>(".ce-col-line");
+    if (lines.length === 0) {
+      const charOff = offsetWithinScope(colEl, hit, off);
+      return { blockId, path: [ci, charOff], offset: charOff };
     }
-    return { blockId, path: [0, 0], offset: 0 };
+    let total = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (line === hit || line.contains(hit)) {
+        const inLine = total + offsetWithinScope(line, hit, off);
+        return { blockId, path: [ci, inLine], offset: inLine };
+      }
+      total += visibleLength(line);
+      if (i < lines.length - 1) total += 1;
+    }
+    return { blockId, path: [ci, total], offset: total };
   },
   anchorToDom(blockEl, a) {
     const ci = a.path[0] ?? 0;
     const charOff = a.path[1] ?? 0;
     const colEl = blockEl.querySelector<HTMLElement>(`[data-col="${ci}"]`);
     if (!colEl) return null;
-    return findTextPoint(colEl, charOff);
+    const lines = colEl.querySelectorAll<HTMLElement>(".ce-col-line");
+    if (lines.length === 0) return findTextPoint(colEl, charOff);
+    let remaining = charOff;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const len = visibleLength(line);
+      if (remaining <= len) return findTextPoint(line, remaining);
+      remaining -= len;
+      if (i < lines.length - 1) {
+        if (remaining === 0) return findTextPoint(lines[i + 1]!, 0);
+        remaining -= 1;
+      }
+    }
+    const last = lines[lines.length - 1]!;
+    return findTextPoint(last, visibleLength(last));
   },
   domScope(blockEl, a) {
     const ci = a.path[0] ?? 0;
