@@ -32,3 +32,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+test-results
+examples/editor/playwright-report/index.html
+examples/editor/test-results/.last-run.json

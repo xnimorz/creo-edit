@@ -1,7 +1,8 @@
 import { _ } from "creo";
 import { button, div, option, select, view } from "creo";
 import type { InputEventData, PointerEventData } from "creo";
-import { createEditor, type Mark } from "creo-edit";
+import { calendarPlugin, createEditor, type Mark } from "creo-edit";
+import "../../../src/plugins/styles.css";
 
 // Mode + initial-doc are URL-driven so the same example app can demonstrate
 // both regular and mono editing without separate routes:
@@ -16,6 +17,7 @@ const __urlMode = (() => {
 export const editor = createEditor({
   mode: __urlMode,
   virtualized: true,
+  plugins: [calendarPlugin()],
   initial: {
     blocks: [
       { type: "h1", runs: [{ text: "Welcome to Creo Editor" }] },

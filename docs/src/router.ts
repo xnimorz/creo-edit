@@ -5,6 +5,7 @@ import { Landing } from "./views/Landing";
 import { NotFound } from "./views/NotFound";
 import { DocPage } from "./views/DocPage";
 import { Demo } from "./views/Demo";
+import { AtomicBlocksDemo } from "./views/AtomicBlocksDemo";
 import { navSections } from "./nav";
 
 const DocRoute = view<{ slug: string }>(({ props }) => ({
@@ -26,11 +27,13 @@ for (const k of Object.keys(docs)) slugs.add(k);
 const routes: { path: string; view: () => void }[] = [
   { path: "/", view: () => Landing() },
   { path: "/demo", view: () => Demo() },
+  { path: "/non-editable-blocks", view: () => AtomicBlocksDemo() },
 ];
 
+const STANDALONE_SLUGS = new Set(["demo", "non-editable-blocks"]);
 for (const slug of slugs) {
   if (!slug) continue;
-  if (slug === "demo") continue;
+  if (STANDALONE_SLUGS.has(slug)) continue;
   routes.push({ path: "/" + slug, view: () => DocRoute({ slug }) });
 }
 

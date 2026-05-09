@@ -122,6 +122,16 @@ export type BlockDef<B extends Block = Block> = {
    */
   isTextBearing?: boolean;
 
+  /**
+   * "Atomic" non-editable block — caret can only sit before (side 0) or
+   * after (side 1), never inside. Path encoding is `[side]`. The view should
+   * render the outer element with `contenteditable="false"` so the browser
+   * places the native caret around the block, not inside it. Backspace /
+   * Delete on the block deletes the whole block. Implies `isTextBearing:
+   * false` and uses `atomicCodec` by default if no `anchorCodec` is given.
+   */
+  isAtomic?: boolean;
+
   /** DOM ↔ anchor mapping. Optional — text-bearing blocks fall back to a
    *  shared default that walks visible text by character offset. */
   anchorCodec?: AnchorCodec;

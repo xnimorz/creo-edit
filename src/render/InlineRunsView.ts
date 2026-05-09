@@ -18,16 +18,25 @@ const MARK_ORDER: Mark[] = ["code", "b", "i", "u", "s"];
 
 const ZWSP = "​";
 
-const RunView = view<{ run: InlineRun; index: number }>(({ props }) => ({
+const RunView = view<{ run: InlineRun; index: number; empty?: boolean }>(({ props }) => ({
   shouldUpdate(next) {
     const cur = props();
-    return next.run !== cur.run || next.index !== cur.index;
+    return (
+      next.run !== cur.run ||
+      next.index !== cur.index ||
+      next.empty !== cur.empty
+    );
   },
   render() {
-    const { run, index } = props();
+    const { run, index, empty } = props();
     const t = run.text.length === 0 ? ZWSP : run.text;
+    // `data-empty` lets host CSS show a placeholder ("+ Write…") on empty
+    // paragraphs without the framework knowing about it. The flag is
+    // only on the synthetic placeholder run, never on real (even empty
+    // textually) runs the model stores.
+    const sentinelAttrs = empty ? { "data-empty": "true" } : {};
     let inner = () => {
-      span({ "data-run-index": String(index) }, t);
+      span({ "data-run-index": String(index), ...sentinelAttrs }, t);
     };
     if (run.marks && run.marks.size) {
       for (const m of MARK_ORDER) {
@@ -87,7 +96,7 @@ export const InlineRunsView = view<{ runs: InlineRun[] }>(({ props }) => ({
     // the placeholder span around forever instead of swapping it for the
     // RunView with the new text.
     if (runs.length === 0) {
-      RunView({ run: EMPTY_PLACEHOLDER_RUN, index: 0, key: 0 });
+      RunView({ run: EMPTY_PLACEHOLDER_RUN, index: 0, empty: true, key: 0 });
       return;
     }
     for (let i = 0; i < runs.length; i++) {

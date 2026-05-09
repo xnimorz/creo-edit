@@ -327,6 +327,7 @@ const imageDef: BlockDef<ImageBlock> = {
   type: "img",
   view: ImageView as PublicView<{ block: ImageBlock; key?: string }, void>,
   isTextBearing: false,
+  isAtomic: true,
   anchorCodec: imageCodec,
   htmlCodec: {
     matchHTML: ["img"],

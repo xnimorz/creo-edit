@@ -2,6 +2,7 @@ import type { Store } from "creo";
 import { insertImage as cmdInsertImage } from "./insertCommands";
 import { removeBlock } from "../model/doc";
 import { caret, isCaret } from "../controller/selection";
+import { isAtomicBlockType } from "../plugin/atomic";
 import type { DocState, Selection } from "../model/types";
 
 export type Stores = {
@@ -56,15 +57,18 @@ export async function insertImageFiles(
 }
 
 /**
- * Delete the image block currently under the caret (used by Backspace when
- * the caret sits on an image).
+ * Delete the atomic block currently under the caret. Backspace / Delete
+ * routes here whenever the caret sits on any atomic block (image, calendar,
+ * or any plugin block flagged `isAtomic`). The caret lands at the start of
+ * whatever block survives in that slot — preferring the next sibling, then
+ * the previous, then the first remaining block.
  */
-export function deleteSelectedImage(stores: Stores): boolean {
+export function deleteSelectedAtomic(stores: Stores): boolean {
   const sel = stores.selStore.get();
   if (!isCaret(sel)) return false;
   const doc = stores.docStore.get();
   const block = doc.byId.get(sel.at.blockId);
-  if (!block || block.type !== "img") return false;
+  if (!block || !isAtomicBlockType(block.type)) return false;
   // Find adjacent block to land caret on.
   const i = doc.order.indexOf(block.id);
   const next = removeBlock(doc, block.id);
@@ -77,3 +81,6 @@ export function deleteSelectedImage(stores: Stores): boolean {
   }
   return true;
 }
+
+/** Backwards-compatible alias — img used to be the only atomic block. */
+export const deleteSelectedImage = deleteSelectedAtomic;

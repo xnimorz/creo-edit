@@ -4,6 +4,7 @@ import {
   isTextBearing,
   type TextBearingBlock,
 } from "../model/blockText";
+import { isAtomicBlockType } from "../plugin/atomic";
 import type {
   Anchor,
   Block,
@@ -133,7 +134,7 @@ function clampAnchorInBlock(block: Block, a: Anchor): Anchor {
     const offset = Math.max(0, Math.min(max, anchorOffset(a)));
     return withCharOffset({ ...a, blockId: block.id }, offset);
   }
-  if (block.type === "img") {
+  if (isAtomicBlockType(block.type)) {
     const side = a.path[0] === 1 ? 1 : 0;
     return {
       blockId: block.id,
@@ -176,7 +177,7 @@ export function endOfDoc(doc: DocState): Anchor {
     const len = blockTextLength(last as TextBearingBlock);
     return caretAt(lastId, len);
   }
-  if (last.type === "img") {
+  if (isAtomicBlockType(last.type)) {
     return { blockId: lastId, path: [1], offset: 1 };
   }
   if (last.type === "columns") {

@@ -36,7 +36,8 @@ import {
   insertImageFiles,
   type UploadFn,
 } from "../commands/imageCommands";
-import { deleteSelectedImage } from "../commands/imageCommands";
+import { deleteSelectedAtomic } from "../commands/imageCommands";
+import { isAtomicBlockType } from "../plugin/atomic";
 import { lookupAnchorCodec } from "../plugin/anchorCodec";
 import { runsLengthAt } from "../plugin/runsAt";
 import { matchPluginKeymap } from "../plugin/keymapMatch";
@@ -326,10 +327,10 @@ export function attachNativeInput(
       return;
     }
     const at = sel.at;
-    // Caret on an image block: delete the image outright.
+    // Caret on an atomic (non-editable) block: delete the whole block.
     const block = docStore.get().byId.get(at.blockId);
-    if (block && block.type === "img") {
-      deleteSelectedImage({ docStore, selStore });
+    if (block && isAtomicBlockType(block.type)) {
+      deleteSelectedAtomic({ docStore, selStore });
       return;
     }
     const lastPathEntry = at.path[at.path.length - 1] ?? 0;
@@ -356,11 +357,17 @@ export function attachNativeInput(
       return;
     }
     const at = sel.at;
+    // Caret on an atomic block: forward-delete just removes the block.
+    const block = docStore.get().byId.get(at.blockId);
+    if (block && isAtomicBlockType(block.type)) {
+      deleteSelectedAtomic({ docStore, selStore });
+      return;
+    }
     if (at.path.length === 1) {
       const doc = docStore.get();
-      const block = doc.byId.get(at.blockId);
-      if (block && "runs" in block) {
-        const len = block.runs.reduce((n, r) => n + r.text.length, 0);
+      const tb = doc.byId.get(at.blockId);
+      if (tb && "runs" in tb) {
+        const len = tb.runs.reduce((n, r) => n + r.text.length, 0);
         const off = at.path[0] ?? 0;
         const idx = doc.order.indexOf(at.blockId);
         if (off === len && idx >= 0 && idx < doc.order.length - 1) {

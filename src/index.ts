@@ -10,6 +10,7 @@ export type {
   EditorViewProps,
   Command,
   DispatchableCommand,
+  BlockInsertInput,
   SerializedBlock,
   SerializedDoc,
   SerializedRun,
@@ -124,10 +125,12 @@ export {
 } from "./plugin/builtin";
 export { runsAt, runsLengthAt } from "./plugin/runsAt";
 export {
+  atomicCodec,
   defaultTextCodec,
   codeBlockCodec,
   imageCodec,
 } from "./plugin/anchorCodec";
+export { isAtomicBlockType, registerAtomic } from "./plugin/atomic";
 export { TriggerManager } from "./plugin/triggers";
 export { DecorationManager } from "./plugin/decorations";
 
@@ -149,6 +152,22 @@ export { addBlockPlugin, type AddBlockOptions } from "./plugins/add-block";
 // Markdown shortcut input rules — typing `# `, `**foo**`, `- `, etc.
 // auto-applies the matching block type or mark.
 export { mdShortcutsPlugin } from "./plugins/md-shortcuts";
+
+// Calendar plugin — example non-editable atomic block.
+export {
+  calendarPlugin,
+  calendarSlashItem,
+  CalendarView,
+  DateMarkerView,
+  calendarHelpers,
+} from "./plugins/calendar";
+
+// Infinite-scroll plugin — append/prepend blocks as the user scrolls.
+export {
+  infiniteScrollPlugin,
+  type InfiniteScrollEditor,
+  type InfiniteScrollOptions,
+} from "./plugins/infinite-scroll";
 
 // Markdown serializer — turn a SerializedDoc into a markdown string.
 // Used by the docs site's MD-mode raw-source view; useful in apps that

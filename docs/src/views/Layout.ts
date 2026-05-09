@@ -15,7 +15,9 @@ import { navSections } from "../nav";
 import { routeStore } from "../router";
 
 function isFullBleed(slug: string): boolean {
-  return slug === "" || slug === "demo";
+  return (
+    slug === "" || slug === "demo" || slug === "non-editable-blocks"
+  );
 }
 
 export const Layout = view(({ slot, use }) => {

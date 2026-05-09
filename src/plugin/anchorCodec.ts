@@ -164,9 +164,87 @@ export const codeBlockCodec: AnchorCodec = {
   },
 };
 
+// Generic atomic-block codec — used by any non-editable block whose only
+// valid caret positions are "before" (side 0) and "after" (side 1). The
+// block view should render `contenteditable="false"` so the browser places
+// the native caret around the block, not inside.
+//
+// Plugins can mark explicit before/after slots with sentinel elements
+// (`<span data-side="0">`/`<span data-side="1">`) — useful when you need
+// the browser to land the caret at a precise visual position, e.g. on a
+// new line below the block. When no sentinels are present we fall back to
+// "first half / second half" of the block bounds: hits where the offset is
+// past the midpoint of the block element become side 1, otherwise side 0.
+export const atomicCodec: AnchorCodec = {
+  domToAnchor(blockEl, node, offset) {
+    const blockId = blockEl.getAttribute("data-block-id");
+    if (!blockId) return null;
+    let side: 0 | 1 = 0;
+    // Walk up from the hit looking for an explicit data-side marker.
+    let cur: Node | null = node;
+    while (cur && cur !== blockEl) {
+      if (cur.nodeType === 1) {
+        const el = cur as HTMLElement;
+        const sideAttr = el.getAttribute("data-side");
+        if (sideAttr === "0" || sideAttr === "1") {
+          side = sideAttr === "1" ? 1 : 0;
+          return { blockId, path: [side], offset: side };
+        }
+      }
+      cur = cur.parentNode;
+    }
+    // Fallback: compare against block's child count midpoint when the hit
+    // is the block element itself, or sniff by getBoundingClientRect for
+    // hits inside child content (rare under contenteditable=false).
+    if (node === blockEl) {
+      const childCount = blockEl.childNodes.length;
+      side = offset >= Math.ceil(childCount / 2) ? 1 : 0;
+    } else {
+      // For hits inside the block, side is decided by which half of the
+      // block bounds the hit-node sits in. This handles cases where the
+      // browser places the selection on a child element.
+      try {
+        const blockRect = blockEl.getBoundingClientRect();
+        const targetEl =
+          node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+        if (targetEl) {
+          const r = targetEl.getBoundingClientRect();
+          const midY = blockRect.top + blockRect.height / 2;
+          side = r.top + r.height / 2 >= midY ? 1 : 0;
+        }
+      } catch {
+        // happy-dom / non-laid-out nodes — leave side at 0.
+      }
+    }
+    return { blockId, path: [side], offset: side };
+  },
+  anchorToDom(blockEl, a) {
+    const side = a.path[0] === 1 ? 1 : 0;
+    const marker = blockEl.querySelector<HTMLElement>(`[data-side="${side}"]`);
+    if (marker) return { node: marker, offset: 0 };
+    // Fallback: anchor outside the block (parent before/after the block).
+    // Putting the caret on `blockEl` itself with offset 0/childCount is
+    // less reliable because contenteditable=false blocks the caret from
+    // landing there in some browsers.
+    const parent = blockEl.parentNode;
+    if (parent) {
+      const idx = Array.from(parent.childNodes).indexOf(blockEl);
+      if (idx >= 0) return { node: parent, offset: side === 0 ? idx : idx + 1 };
+    }
+    return { node: blockEl, offset: side === 1 ? blockEl.childNodes.length : 0 };
+  },
+  domScope(blockEl, _a) {
+    return blockEl;
+  },
+};
+
 // Image codec — the caret only has two valid positions: side 0 (before)
 // or side 1 (after). The block element is contenteditable=false, so the
 // browser already declines to put the caret inside it.
+//
+// Kept as a separate export (instead of dropping into atomicCodec) because
+// ImageView doesn't emit data-side sentinels — the codec falls back to the
+// `<img>` tag's index in the block's child list.
 export const imageCodec: AnchorCodec = {
   domToAnchor(blockEl, node, offset) {
     const blockId = blockEl.getAttribute("data-block-id");

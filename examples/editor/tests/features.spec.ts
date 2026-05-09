@@ -75,6 +75,49 @@ test.describe("Mouse — drag select + double/triple click", () => {
     expect(Math.abs(end - start)).toBeGreaterThanOrEqual(4);
   });
 
+  test("click on an empty paragraph between filled ones lands the caret AND accepts typed text", async ({
+    page,
+  }) => {
+    // Regression for a class of "click puts cursor but typing is ignored"
+    // bugs we hit while building the journal/non-editable-blocks demo.
+    // Three paragraphs: filled / empty / filled. Click into the empty
+    // middle paragraph and type — the typed character must land in THAT
+    // paragraph, not in the previously-focused block.
+    const h = await EditorHarness.open(page);
+    await buildDoc(page, [
+      { type: "p", runs: [{ text: "before" }] },
+      { type: "p", runs: [] },
+      { type: "p", runs: [{ text: "after" }] },
+    ]);
+    // Move the editor's caret to the END of the doc first so the test
+    // doesn't trivially pass by happening to start with the caret already
+    // in the empty middle block.
+    await h.dispatch({
+      t: "moveCursor",
+      to: { blockId: "tb2", path: ["after".length], offset: "after".length },
+    });
+    // Click into the middle (empty) paragraph.
+    const empty = h.editor.locator('p[data-block-id="tb1"]');
+    const box = await empty.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    // Type a single character.
+    await page.keyboard.type("X");
+    const json = await h.toJSON();
+    expect(json.blocks[0]!.runs?.[0]?.text).toBe("before");
+    // The typed text MUST land in the middle (clicked) paragraph.
+    expect(json.blocks[1]!.runs?.[0]?.text).toBe("X");
+    // The trailing paragraph stays untouched.
+    expect(json.blocks[2]!.runs?.[0]?.text).toBe("after");
+    // selStore now points at the middle paragraph at offset 1.
+    const sel = await page.evaluate(() =>
+      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
+    );
+    expect((sel as { at: { blockId: string; offset: number } }).at.blockId).toBe(
+      "tb1",
+    );
+  });
+
   test("triple-click selects the entire block", async ({ page }) => {
     const h = await EditorHarness.open(page);
     await buildDoc(page, [{ type: "p", runs: [{ text: "the quick brown fox" }] }]);

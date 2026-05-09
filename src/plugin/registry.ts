@@ -12,7 +12,8 @@
 // the M3/M4 managers.
 // ---------------------------------------------------------------------------
 
-import { registerAnchorCodec } from "./anchorCodec";
+import { atomicCodec, registerAnchorCodec } from "./anchorCodec";
+import { registerAtomic } from "./atomic";
 import { registerHtmlBlockCodec } from "./htmlCodec";
 import { registerRunsAt } from "./runsAt";
 import { registerSerializeCodec } from "./serializeCodec";
@@ -39,7 +40,15 @@ export class Registry {
       for (const def of plugin.blocks) {
         this.knownBlockTypes.add(def.type);
         if (def.runsAt) registerRunsAt(def.type, def.runsAt as never);
-        if (def.anchorCodec) registerAnchorCodec(def.type, def.anchorCodec);
+        // Atomic blocks default to the generic atomicCodec when the plugin
+        // doesn't ship its own — covers the common case where a plugin just
+        // wants "non-editable rectangle".
+        if (def.anchorCodec) {
+          registerAnchorCodec(def.type, def.anchorCodec);
+        } else if (def.isAtomic) {
+          registerAnchorCodec(def.type, atomicCodec);
+        }
+        if (def.isAtomic) registerAtomic(def.type);
         if (def.htmlCodec) registerHtmlBlockCodec(def.type, def.htmlCodec);
         if (def.serializeCodec) registerSerializeCodec(def.type, def.serializeCodec);
         // Note: view registration lives in viewRegistry (./viewRegistry).

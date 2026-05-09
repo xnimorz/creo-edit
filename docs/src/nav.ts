@@ -24,6 +24,7 @@ export const navSections: NavSection[] = [
     items: [
       { title: "Authoring plugins", slug: "plugin-authoring" },
       { title: "Built-in plugins", slug: "built-in-plugins" },
+      { title: "Non-editable blocks", slug: "non-editable-blocks" },
     ],
   },
   {

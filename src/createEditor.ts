@@ -39,16 +39,27 @@ import {
   attachNativeInput,
   type NativeInputHandle,
 } from "./input/nativeInput";
-import { docFromBlocks, emptyDoc, newBlockId } from "./model/doc";
+import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
 import type {
   Anchor,
   Block,
+  BlockId,
   BlockSpec,
+  DistOmit,
   DocState,
   InlineRun,
   Mark,
   Selection,
 } from "./model/types";
+
+/**
+ * Input shape for `appendBlocks` / `prependBlocks` — same as `BlockSpec`
+ * but with `id` optional. The editor generates an id when missing so most
+ * callers can stay terse:
+ *
+ *   editor.appendBlocks([{ type: "p", runs: [] }]);
+ */
+export type BlockInsertInput = DistOmit<BlockSpec, "id"> & { id?: BlockId };
 import { DocView } from "./render/DocView";
 import { VirtualDoc } from "./virtual/VirtualDoc";
 import { defaultPlugins } from "./plugin/builtin";
@@ -116,6 +127,17 @@ export type SerializedBlock =
       type: "columns";
       cols: number;
       cells: SerializedRun[][];
+    }
+  | {
+      id?: string;
+      type: "calendar";
+      date: string;
+      days: number;
+    }
+  | {
+      id?: string;
+      type: "date-marker";
+      date: string;
     };
 
 /**
@@ -232,6 +254,24 @@ export type Editor = {
    */
   setDoc: (doc: SerializedDoc) => void;
   toJSON: () => SerializedDoc;
+  /**
+   * Append `specs` to the end of the doc. Preserves all existing block
+   * identities (no full rebuild) so existing renders stay; the renderer's
+   * identity-based shouldUpdate skips them. Returns the assigned block ids.
+   * Specs may omit `id`; an id is generated when missing. Selection is left
+   * untouched — callers move the caret separately if they want it on a new
+   * block.
+   */
+  appendBlocks: (specs: BlockInsertInput[]) => BlockId[];
+  /**
+   * Prepend `specs` to the start of the doc. Same identity-preserving
+   * mutation as `appendBlocks`. NOTE: prepending grows the doc upward; the
+   * viewport will jump unless the host re-anchors scrollTop. The
+   * `infiniteScrollPlugin` does this anchoring automatically; manual
+   * callers can capture `scrollHeight` + `scrollTop` before the call and
+   * adjust after the next animation frame.
+   */
+  prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
   // Imperative focus / blur — wired in M3+.
   focus: () => void;
   blur: () => void;
@@ -442,6 +482,31 @@ export function createEditor(opts: EditorOptions = {}): Editor {
 
   const toJSON = (): SerializedDoc => serializeDoc(docStore.get());
 
+  // ---------------------------------------------------------------------
+  // appendBlocks / prependBlocks — identity-preserving doc growth used by
+  // the infinite-scroll plugin and any host that wants to add blocks
+  // without disturbing existing block renders or the caret.
+  // ---------------------------------------------------------------------
+  const ensureIds = (specs: BlockInsertInput[]): BlockSpec[] => {
+    return specs.map(
+      (s) => (s.id ? s : { ...s, id: newBlockId() }) as BlockSpec,
+    );
+  };
+  const appendBlocks = (specs: BlockInsertInput[]): BlockId[] => {
+    if (specs.length === 0) return [];
+    const withIds = ensureIds(specs);
+    const doc = docStore.get();
+    docStore.set(insertManyAt(doc, doc.order.length, withIds));
+    return withIds.map((s) => s.id!);
+  };
+  const prependBlocks = (specs: BlockInsertInput[]): BlockId[] => {
+    if (specs.length === 0) return [];
+    const withIds = ensureIds(specs);
+    const doc = docStore.get();
+    docStore.set(insertManyAt(doc, 0, withIds));
+    return withIds.map((s) => s.id!);
+  };
+
   // Mode state — held in a creo store so the EditorView re-renders when it
   // changes. Default "wysiwyg" matches the legacy non-mode behavior.
   const modeStore = store.new<EditorMode>(opts.mode ?? "wysiwyg");
@@ -495,6 +560,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             docStore,
             selStore,
             dispatch,
+            appendBlocks,
+            prependBlocks,
           };
           nativeInput = attachNativeInput(
             root,
@@ -574,6 +641,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     setDocFromHTML,
     setDoc,
     toJSON,
+    appendBlocks,
+    prependBlocks,
     focus,
     blur,
     getMode,

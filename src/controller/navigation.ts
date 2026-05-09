@@ -4,6 +4,7 @@ import {
   type TextBearingBlock,
 } from "../model/blockText";
 import { findPos, getBlock } from "../model/doc";
+import { isAtomicBlockType } from "../plugin/atomic";
 import type {
   Anchor,
   ColumnsBlock,
@@ -22,7 +23,7 @@ function startAnchorOfBlock(doc: DocState, blockId: string): Anchor | null {
   const b = getBlock(doc, blockId);
   if (!b) return null;
   if (isTextBearing(b)) return caretAt(blockId, 0);
-  if (b.type === "img") return { blockId, path: [0], offset: 0 };
+  if (isAtomicBlockType(b.type)) return { blockId, path: [0], offset: 0 };
   if (b.type === "columns") return { blockId, path: [0, 0], offset: 0 };
   // table — top-left cell, offset 0
   return { blockId, path: [0, 0, 0], offset: 0 };
@@ -34,7 +35,7 @@ function endAnchorOfBlock(doc: DocState, blockId: string): Anchor | null {
   if (isTextBearing(b)) {
     return caretAt(blockId, blockTextLength(b as TextBearingBlock));
   }
-  if (b.type === "img") return { blockId, path: [1], offset: 1 };
+  if (isAtomicBlockType(b.type)) return { blockId, path: [1], offset: 1 };
   if (b.type === "columns") {
     const cb = b as ColumnsBlock;
     const c = cb.cols - 1;
@@ -55,7 +56,7 @@ function blockMaxOffset(doc: DocState, blockId: string): number {
   const b = getBlock(doc, blockId);
   if (!b) return 0;
   if (isTextBearing(b)) return blockTextLength(b as TextBearingBlock);
-  if (b.type === "img") return 1;
+  if (isAtomicBlockType(b.type)) return 1;
   // table cell offset extracted from path[2]
   return 0;
 }
@@ -76,9 +77,9 @@ export function nextAnchor(doc: DocState, a: Anchor): Anchor {
   if (block.type === "table") {
     return nextInTable(doc, block as TableBlock, a);
   }
-  if (block.type === "img") {
+  if (isAtomicBlockType(block.type)) {
     if (off === 0) return { blockId: a.blockId, path: [1], offset: 1 };
-    // past the image — step into next block
+    // past the atomic block — step into next block
     return stepIntoNextBlock(doc, a.blockId);
   }
   if (block.type === "columns") {
@@ -100,7 +101,7 @@ export function prevAnchor(doc: DocState, a: Anchor): Anchor {
   if (block.type === "table") {
     return prevInTable(doc, block as TableBlock, a);
   }
-  if (block.type === "img") {
+  if (isAtomicBlockType(block.type)) {
     if (off === 1) return { blockId: a.blockId, path: [0], offset: 0 };
     return stepIntoPrevBlock(doc, a.blockId);
   }

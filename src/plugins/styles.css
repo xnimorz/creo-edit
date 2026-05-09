@@ -100,6 +100,79 @@
   height: auto;
 }
 
+/* ============= Date marker (atomic block) =============
+   Slim one-line non-editable separator block. Used by journal-style
+   layouts where the user writes editable content between days. */
+.creo-edit .ce-date-marker {
+  display: block;
+  padding: 4px 0 6px;
+  margin: 12px 0 4px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ce-date-marker-fg, #1a1a1a);
+  cursor: default;
+  user-select: none;
+}
+.creo-edit .ce-date-marker.is-today {
+  color: var(--ce-date-marker-today-fg, #b54708);
+}
+
+/* ============= Calendar (atomic block) =============
+   Renders one row per day; the row matching today's local date gets the
+   `is-today` class for accent styling. Outer block uses pointer:default
+   because contenteditable=false should not show the I-beam from the
+   editor root. */
+.creo-edit .ce-calendar {
+  display: block;
+  border: 1px solid var(--ce-cal-border, #d6d6d6);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  cursor: default;
+  user-select: none;
+}
+.creo-edit .ce-calendar-header {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ce-cal-header, #888);
+  margin-bottom: 4px;
+}
+.creo-edit .ce-calendar-row {
+  display: flex;
+  gap: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.creo-edit .ce-calendar-row.is-today {
+  background: var(--ce-cal-today-bg, #fff7e6);
+  color: var(--ce-cal-today-fg, #b54708);
+  font-weight: 600;
+}
+.creo-edit .ce-calendar-dow {
+  width: 3.5em;
+  color: var(--ce-cal-dow, #666);
+}
+.creo-edit .ce-calendar-row.is-today .ce-calendar-dow {
+  color: inherit;
+}
+.creo-edit .ce-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ============= Column line layout =============
    Columns render one .ce-col-line div per visual line so an empty trailing
    line (e.g. right after pressing Enter) still has height for the caret to

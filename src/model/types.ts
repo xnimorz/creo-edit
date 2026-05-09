@@ -82,6 +82,35 @@ export type ColumnsBlock = {
   cells: InlineRun[][];
 };
 
+/**
+ * Calendar — non-editable atomic block. Renders one row per day starting
+ * at `date` for `days` consecutive days. Path encoding: `[side]` (0
+ * = before, 1 = after) like image. Built as a first-party demo of the
+ * `isAtomic` plugin contract — third-party plugins follow the same shape.
+ */
+export type CalendarBlock = {
+  id: BlockId;
+  index: FracIndex;
+  type: "calendar";
+  /** Anchor date in ISO YYYY-MM-DD form. */
+  date: string;
+  /** Number of consecutive days to render starting at `date`. */
+  days: number;
+};
+
+/**
+ * DateMarker — slim non-editable atomic block. One line, e.g.
+ * "Wednesday, 2 Sep." Used to break up a journal-style document into
+ * day sections that the user can write between.
+ */
+export type DateMarkerBlock = {
+  id: BlockId;
+  index: FracIndex;
+  type: "date-marker";
+  /** Anchor date in ISO YYYY-MM-DD form. */
+  date: string;
+};
+
 export type Block =
   | ParagraphBlock
   | HeadingBlock
@@ -89,7 +118,9 @@ export type Block =
   | CodeBlock
   | ImageBlock
   | TableBlock
-  | ColumnsBlock;
+  | ColumnsBlock
+  | CalendarBlock
+  | DateMarkerBlock;
 
 export type BlockType = Block["type"];
 

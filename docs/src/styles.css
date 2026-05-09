@@ -537,6 +537,99 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 .demo-editor { min-height: 70vh; }
 .demo-editor .ed-creo-edit { min-height: 60vh; }
 
+/* ----------------------------------------- Atomic-blocks demo route ----- */
+
+.atomic-demo { width: 100%; }
+.atomic-shell {
+  max-width: var(--max-shell);
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+.atomic-shell h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+.atomic-tagline {
+  color: var(--text-soft);
+  margin: 0 0 24px;
+  max-width: 720px;
+}
+.atomic-section {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 32px 0 8px;
+}
+.atomic-journal-scroll {
+  /* Editor-only demo: the scroll container fills the viewport below the
+     site header so the user scrolls *inside* the editor — that's what
+     triggers the infinite-scroll plugin. */
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  /* Centre the editor content at a comfortable reading width via
+     padding; works at any viewport width, no max-width hack on the
+     editor itself (which would fight the contentEditable layout). */
+  padding: 0 max(24px, calc((100% - 720px) / 2));
+}
+.atomic-journal-editor {
+  /* Kill the default browser focus ring on the contentEditable root —
+     it can render as an orange/blue rectangle that looks like a UI
+     glitch. The caret itself is what signals focus. */
+  outline: none !important;
+  caret-color: var(--text, #1a1a1a);
+  padding: 24px 0;
+}
+
+/* Each paragraph between dates is the editable area. Give it a generous
+   click target so the user can tell where to type. `position: relative`
+   anchors the absolutely-positioned placeholder pseudo below. */
+.atomic-journal-editor .ce-block.ce-p {
+  position: relative;
+  min-height: 40px;
+  padding: 8px 12px;
+  margin: 4px 0 12px;
+  border-radius: 6px;
+  cursor: text;
+  outline: none;
+}
+/* Visual cue tied to *content*, not focus or hover: empty paragraphs
+   show a subtle background + placeholder so users see every editable
+   slot. As soon as the user types, the placeholder span disappears and
+   the highlight goes with it. This keeps the cue consistent across
+   Enter splits — the new (empty) paragraph lights up immediately, the
+   old one (now containing text) doesn't. */
+.atomic-journal-editor .ce-block.ce-p:has(span[data-empty="true"]) {
+  background: rgba(0, 0, 0, 0.025);
+}
+/* Placeholder for empty paragraphs. CRITICAL: `position: absolute` keeps
+   the pseudo OUT of the inline flow, otherwise it stretches the empty
+   span's box — clicks on the visible placeholder text then map to weird
+   positions in the document because the only real text node (ZWSP) is
+   zero-width and far from where the user clicked. With absolute
+   positioning the span stays tight and the paragraph itself is the
+   click target. The placeholder is purely decorative — pointer-events:
+   none lets clicks pass through to the paragraph. */
+.atomic-journal-editor .ce-block.ce-p:has(span[data-empty="true"])::before {
+  content: "+ Write a note…";
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  color: #b6b6b6;
+  pointer-events: none;
+}
+.atomic-code {
+  background: #f6f8fa;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 /* ---------------------------------------------------------------- 404 page */
 
 .not-found {

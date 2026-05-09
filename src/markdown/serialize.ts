@@ -110,6 +110,14 @@ function blockToMarkdown(
         .join("");
       return `<div data-creo-columns="${block.cols}">${inner}</div>`;
     }
+    case "calendar": {
+      // Atomic block — no native markdown form; serialize as an HTML stub
+      // so the parser can round-trip via its `data-block-kind` matcher.
+      return `<div data-block-kind="calendar" data-date="${block.date}" data-days="${block.days}"></div>`;
+    }
+    case "date-marker": {
+      return `<div data-block-kind="date-marker" data-date="${block.date}"></div>`;
+    }
   }
 }
 
