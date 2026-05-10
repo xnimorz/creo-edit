@@ -16,7 +16,10 @@ import { routeStore } from "../router";
 
 function isFullBleed(slug: string): boolean {
   return (
-    slug === "" || slug === "demo" || slug === "non-editable-blocks"
+    slug === "" ||
+    slug === "demo" ||
+    slug === "non-editable-blocks" ||
+    slug === "large-text-search"
   );
 }
 

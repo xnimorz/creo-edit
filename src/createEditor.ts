@@ -281,6 +281,17 @@ export type Editor = {
   /** Plugin registry for this editor instance — exposed for advanced
    *  consumers (devtools, the M3 trigger manager, etc.). */
   registry: Registry;
+  /**
+   * Scroll a block into view by id. Works for both virtualized and
+   * non-virtualized editors — for virtualized off-screen blocks, jumps
+   * the scroll container to the height-index-resolved Y. Used by the
+   * search plugin's jump-to-match; safe for any host code that wants
+   * to focus a specific block (e.g. permalink navigation).
+   */
+  scrollToBlock: (
+    blockId: BlockId,
+    opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
+  ) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -516,6 +527,41 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     modeStore.set(m);
   };
 
+  const scrollToBlock = (
+    blockId: BlockId,
+    opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
+  ): void => {
+    const order = docStore.get().order;
+    const idx = order.indexOf(blockId);
+    if (idx < 0) return;
+    const root = document.querySelector(
+      `[data-creo-edit="${editorId}"]`,
+    ) as HTMLElement | null;
+    if (!root) return;
+    const escaped = blockId.replace(/(["\\])/g, "\\$1");
+    const el = root.querySelector(
+      `[data-block-kind][data-block-id="${escaped}"]`,
+    ) as HTMLElement | null;
+    if (el) {
+      el.scrollIntoView({
+        block: opts?.block ?? "center",
+        behavior: opts?.behavior ?? "auto",
+      });
+      return;
+    }
+    // Virtualized off-screen — defer to VirtualDoc's height-index-aware
+    // scroller exposed at mount time.
+    const v = (root as unknown as {
+      __creoVirtual?: {
+        scrollToIndex: (
+          i: number,
+          opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
+        ) => void;
+      };
+    }).__creoVirtual;
+    v?.scrollToIndex(idx, opts);
+  };
+
   const focus = (): void => {
     const root = document.querySelector(
       `[data-creo-edit="${editorId}"]`,
@@ -562,6 +608,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             dispatch,
             appendBlocks,
             prependBlocks,
+            scrollToBlock,
           };
           nativeInput = attachNativeInput(
             root,
@@ -648,6 +695,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     getMode,
     setMode,
     registry,
+    scrollToBlock,
   };
 }
 

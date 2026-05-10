@@ -24,7 +24,6 @@ export const navSections: NavSection[] = [
     items: [
       { title: "Authoring plugins", slug: "plugin-authoring" },
       { title: "Built-in plugins", slug: "built-in-plugins" },
-      { title: "Non-editable blocks", slug: "non-editable-blocks" },
     ],
   },
   {
@@ -40,8 +39,12 @@ export const navSections: NavSection[] = [
     items: [{ title: "Architecture", slug: "architecture" }],
   },
   {
-    title: "Demo",
-    items: [{ title: "Try the editor", slug: "demo" }],
+    title: "Demos",
+    items: [
+      { title: "Infinite scroll & calendar", slug: "non-editable-blocks" },
+      { title: "Default demo with constructor", slug: "demo" },
+      { title: "Large text & scroll with search", slug: "large-text-search" },
+    ],
   },
 ];
 

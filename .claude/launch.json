@@ -7,7 +7,7 @@
       "runtimeArgs": ["-c", "cd docs && bun run dev -- --port 6543 --strictPort"],
       "port": 6543
     },
-    {
+{
       "name": "example-editor",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd examples/editor && bun run dev -- --port 5183 --strictPort"],

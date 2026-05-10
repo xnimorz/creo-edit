@@ -6,6 +6,7 @@ import { NotFound } from "./views/NotFound";
 import { DocPage } from "./views/DocPage";
 import { Demo } from "./views/Demo";
 import { AtomicBlocksDemo } from "./views/AtomicBlocksDemo";
+import { SearchDemo } from "./views/SearchDemo";
 import { navSections } from "./nav";
 
 const DocRoute = view<{ slug: string }>(({ props }) => ({
@@ -28,9 +29,14 @@ const routes: { path: string; view: () => void }[] = [
   { path: "/", view: () => Landing() },
   { path: "/demo", view: () => Demo() },
   { path: "/non-editable-blocks", view: () => AtomicBlocksDemo() },
+  { path: "/large-text-search", view: () => SearchDemo() },
 ];
 
-const STANDALONE_SLUGS = new Set(["demo", "non-editable-blocks"]);
+const STANDALONE_SLUGS = new Set([
+  "demo",
+  "non-editable-blocks",
+  "large-text-search",
+]);
 for (const slug of slugs) {
   if (!slug) continue;
   if (STANDALONE_SLUGS.has(slug)) continue;

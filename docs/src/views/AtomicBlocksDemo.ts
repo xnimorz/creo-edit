@@ -56,12 +56,61 @@ function dayPair(date: string): BlockInsertInput[] {
   ];
 }
 
+// Number of days a single load-event appends or prepends. Loading one
+// day at a time looks unresponsive on a fast mousewheel — the user
+// out-scrolls the loader and hits the actual bottom. A week's worth of
+// days per fire keeps the buffer comfortably ahead.
+const DAYS_PER_LOAD = 7;
+
+function dayBatch(startIso: string, count: number): BlockInsertInput[] {
+  const out: BlockInsertInput[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = formatIso(addDays(parseIso(startIso), i));
+    out.push(...dayPair(d));
+  }
+  return out;
+}
+
+// The "how to initialise this demo" snippet rendered as a code block
+// under today's date marker. Showing the actual init code keeps users
+// looking at the source they'd write themselves.
+const INIT_SNIPPET = `import {
+  createEditor,
+  calendarPlugin,
+  infiniteScrollPlugin,
+} from "creo-edit";
+
+const editor = createEditor({
+  plugins: [
+    calendarPlugin(),
+    infiniteScrollPlugin({
+      scrollContainer: () => document.querySelector(".my-wrap"),
+      loadAfter:  (ed) => ed.appendBlocks(nextDay(ed)),
+      loadBefore: (ed) => ed.prependBlocks(prevDay(ed)),
+    }),
+  ],
+  initial: { blocks: seedDays(new Date(), 10) },
+});`;
+
 function buildSeed(centre: Date, halfDays: number): SerializedDoc {
   const blocks: SerializedDoc["blocks"] = [];
+  const todayKey = formatIso(centre);
   for (let i = -halfDays; i <= halfDays; i++) {
     const iso = formatIso(addDays(centre, i));
     blocks.push({ type: "date-marker", date: iso });
-    blocks.push({ type: "p", runs: [] });
+    if (iso === todayKey) {
+      // Today's slot starts with a code block that shows the user how
+      // this very page is wired up — followed by an empty paragraph for
+      // their own notes.
+      blocks.push({
+        type: "code",
+        lang: "ts",
+        runs: [{ text: INIT_SNIPPET }],
+      });
+      blocks.push({ type: "p", runs: [] });
+    } else {
+      blocks.push({ type: "p", runs: [] });
+    }
   }
   return { blocks };
 }
@@ -99,16 +148,26 @@ function buildEditor(getScrollContainer: () => HTMLElement | null): Editor {
       calendarPlugin(),
       infiniteScrollPlugin({
         scrollContainer: getScrollContainer,
-        threshold: 240,
+        // Generous threshold + a week-per-load batch keeps the buffer
+        // comfortably ahead of a fast mousewheel. Loading one day at a
+        // time means a single wheel flick races past the loader and
+        // dumps the user at the actual end of doc.
+        threshold: 600,
+        // Tight cooldown — a fast wheel fires many scroll events per
+        // frame; the default 60ms means every other event was bailed
+        // and the user out-scrolled the loader.
+        cooldownMs: 16,
         loadAfter: (ed) => {
           const last = lastDateMarkerIso(ed as unknown as Editor) ?? todayIso();
-          const next = formatIso(addDays(parseIso(last), 1));
-          (ed as unknown as Editor).appendBlocks(dayPair(next));
+          const start = formatIso(addDays(parseIso(last), 1));
+          (ed as unknown as Editor).appendBlocks(dayBatch(start, DAYS_PER_LOAD));
         },
         loadBefore: (ed) => {
           const first = firstDateMarkerIso(ed as unknown as Editor) ?? todayIso();
-          const prev = formatIso(addDays(parseIso(first), -1));
-          (ed as unknown as Editor).prependBlocks(dayPair(prev));
+          // Prepending: build the batch oldest-first so the inserted
+          // order in the doc stays chronological.
+          const start = formatIso(addDays(parseIso(first), -DAYS_PER_LOAD));
+          (ed as unknown as Editor).prependBlocks(dayBatch(start, DAYS_PER_LOAD));
         },
       }),
     ],
@@ -131,13 +190,38 @@ export const AtomicBlocksDemo = view(() => {
 
   return {
     onMount() {
-      // Centre the scroll position so both edges are within reach of
-      // the threshold. The plugin's initial-fire logic will extend
-      // either side as the user scrolls.
       requestAnimationFrame(() => {
         const sc = getScrollContainer();
         if (!sc) return;
+        // Centre the scroll position so both edges are within reach of
+        // the plugin's threshold.
         sc.scrollTop = Math.max(0, (sc.scrollHeight - sc.clientHeight) / 2);
+        // Park the caret on a VISIBLE empty paragraph rather than
+        // leaving it at end-of-doc (which is below the viewport).
+        // Otherwise the browser's focus-scroll yanks the journal
+        // downward on the user's first click — the click target moves
+        // out from under the cursor before the click commits, so the
+        // native selection never updates and the editor effectively
+        // ignores the click.
+        const ed = editorStore.get();
+        const doc = ed.docStore.get();
+        const scRect = sc.getBoundingClientRect();
+        for (const id of doc.order) {
+          const blk = doc.byId.get(id);
+          if (!blk || blk.type !== "p") continue;
+          const el = sc.querySelector<HTMLElement>(
+            `.atomic-journal-editor p[data-block-id="${id}"]`,
+          );
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (r.top >= scRect.top && r.bottom <= scRect.bottom) {
+            ed.selStore.set({
+              kind: "caret",
+              at: { blockId: id, path: [0], offset: 0 },
+            });
+            return;
+          }
+        }
       });
     },
     render() {

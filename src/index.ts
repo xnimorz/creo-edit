@@ -169,6 +169,19 @@ export {
   type InfiniteScrollOptions,
 } from "./plugins/infinite-scroll";
 
+// Search plugin — in-page find with optional Mod+F intercept; supports
+// virtualization and infinite-scroll backends.
+export {
+  searchPlugin,
+  type SearchOptions,
+  type SearchController,
+  type SearchSource,
+  type SearchState,
+  type SearchToggle,
+  type SearchMatch,
+  type SearchOpts,
+} from "./plugins/search";
+
 // Markdown serializer — turn a SerializedDoc into a markdown string.
 // Used by the docs site's MD-mode raw-source view; useful in apps that
 // want a "save as .md" button.

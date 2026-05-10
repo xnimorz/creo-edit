@@ -572,6 +572,18 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
      padding; works at any viewport width, no max-width hack on the
      editor itself (which would fight the contentEditable layout). */
   padding: 0 max(24px, calc((100% - 720px) / 2));
+  /* `position: relative` is critical: the decoration manager mounts a
+     `.ce-decorations` layer as a sibling of the editor root with
+     `position: absolute; inset: 0`. Without a positioned ancestor, the
+     layer (and the per-block deco hosts inside it, anchored at each
+     block's coordinates) escape the scroll container and stretch the
+     entire document — the page acquires its own outer scrollbar that
+     dwarfs the editor's bounded scroll. */
+  position: relative;
+  /* Belt-and-braces: even with the deco layer correctly contained,
+     anything else inside that's mis-sized shouldn't punch through the
+     scroll container's bounds. */
+  overflow-x: hidden;
 }
 .atomic-journal-editor {
   /* Kill the default browser focus ring on the contentEditable root —
@@ -628,6 +640,39 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.55;
+}
+
+/* ----------------------------------------------------- Search demo (large text) */
+.search-demo-scroll {
+  /* Same pattern as .atomic-journal-scroll: bounded scroll container so
+     virtualization scrolls inside the editor, and `position: relative` so
+     the search panel's sticky positioning anchors to this container. */
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--surface, #fff);
+  padding: 0 max(24px, calc((100% - 760px) / 2));
+  position: relative;
+}
+.search-demo-editor {
+  outline: none !important;
+  caret-color: var(--text, #1a1a1a);
+  padding: 32px 0 80px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.search-demo-editor .ce-block.ce-h1 {
+  font-size: 28px;
+  line-height: 1.3;
+  margin: 0 0 16px;
+}
+.search-demo-editor .ce-block.ce-h2 {
+  font-size: 22px;
+  line-height: 1.3;
+  margin: 28px 0 8px;
+}
+.search-demo-editor .ce-block.ce-p {
+  margin: 0 0 14px;
 }
 
 /* ---------------------------------------------------------------- 404 page */

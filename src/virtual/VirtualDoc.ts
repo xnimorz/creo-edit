@@ -88,10 +88,50 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
     viewport.set(props().viewportHeight ?? readViewportHeight());
   };
 
+  // scrollToIndex — used by `editor.scrollToBlock` for blocks that aren't
+  // currently mounted in the windowed renderer. We compute the target Y from
+  // the height index, set scrollTop on the resolved container, and the
+  // existing onScroll listener picks the new viewport up on the next render.
+  const scrollToIndex = (
+    i: number,
+    opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
+  ): void => {
+    const root = currentRoot();
+    if (!root) return;
+    const sc = scrollAncestor(root);
+    const vh = viewport.get();
+    const blockTop = heightIndex.prefix(i);
+    const blockH = i + 1 <= heightIndex.size
+      ? heightIndex.prefix(i + 1) - blockTop
+      : 0;
+    const where = opts?.block ?? "center";
+    let targetTop = blockTop;
+    if (where === "center") targetTop = blockTop - Math.max(0, (vh - blockH) / 2);
+    else if (where === "end") targetTop = blockTop - Math.max(0, vh - blockH);
+    if (sc) {
+      sc.scrollTo({ top: Math.max(0, targetTop), behavior: opts?.behavior ?? "auto" });
+    } else {
+      // Window scroll — translate by the editor root's offset, since
+      // heightIndex measures relative to the spacer (root content origin).
+      const rootRect = root.getBoundingClientRect();
+      const rootTopAbs = (window.scrollY ?? 0) + rootRect.top;
+      window.scrollTo({
+        top: Math.max(0, rootTopAbs + targetTop),
+        behavior: opts?.behavior ?? "auto",
+      });
+    }
+  };
+
   return {
     onMount() {
       const root = currentRoot();
       if (!root) return;
+      // Expose the scroll-to-index helper so `editor.scrollToBlock` can
+      // jump to virtualized off-screen blocks. Hidden field — host code
+      // should always go through the editor surface.
+      (root as unknown as { __creoVirtual?: unknown }).__creoVirtual = {
+        scrollToIndex,
+      };
       // Listen for scroll on the nearest scroll ancestor (default: window).
       const target = scrollAncestor(root) ?? window;
       target.addEventListener("scroll", onScroll, { passive: true } as never);

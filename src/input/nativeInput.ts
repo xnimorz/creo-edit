@@ -201,7 +201,19 @@ export function attachNativeInput(
       return;
     }
     if (!anchorPoint || !focusPoint) return;
-    programmaticSeq++;
+    // Don't bump programmaticSeq when writing the same selection the
+    // browser already has — `setBaseAndExtent(...)` to the current
+    // position is a no-op and fires no `selectionchange`. If we bump
+    // anyway, the next user-driven selectionchange is mistakenly
+    // consumed as the "missing" echo and the user's click is dropped.
+    if (
+      native.anchorNode === anchorPoint.node &&
+      native.anchorOffset === anchorPoint.offset &&
+      native.focusNode === focusPoint.node &&
+      native.focusOffset === focusPoint.offset
+    ) {
+      return;
+    }
     try {
       native.setBaseAndExtent(
         anchorPoint.node,
@@ -222,6 +234,21 @@ export function attachNativeInput(
         // Truly headless — nothing more we can do.
       }
     }
+    // Bump programmaticSeq ONLY if the write actually moved the native
+    // selection. If the call was a no-op (target nodes detached, or the
+    // browser silently rejected the write), `selectionchange` won't
+    // fire — bumping the seq anyway would consume the next user-driven
+    // event as a phantom echo.
+    if (
+      native.anchorNode !== anchorPoint.node ||
+      native.anchorOffset !== anchorPoint.offset ||
+      native.focusNode !== focusPoint.node ||
+      native.focusOffset !== focusPoint.offset
+    ) {
+      // Selection didn't actually move — don't expect an echo.
+      return;
+    }
+    programmaticSeq++;
   };
 
   const onSelectionChange = (): void => {
