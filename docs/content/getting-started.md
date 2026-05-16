@@ -120,20 +120,24 @@ const Toolbar = view(() => ({
   render() {
     button(
       {
-        onClick: (e) => {
-          e.preventDefault();
-          editor.dispatch({ t: "toggleMark", mark: "b" });
-          editor.focus();
+        on: {
+          click: (e) => {
+            e.preventDefault();
+            editor.dispatch({ t: "toggleMark", mark: "b" });
+            editor.focus();
+          },
         },
       },
       "B",
     );
     button(
       {
-        onClick: (e) => {
-          e.preventDefault();
-          editor.dispatch({ t: "setBlockType", payload: { type: "h2" } });
-          editor.focus();
+        on: {
+          click: (e) => {
+            e.preventDefault();
+            editor.dispatch({ t: "setBlockType", payload: { type: "h2" } });
+            editor.focus();
+          },
         },
       },
       "H2",

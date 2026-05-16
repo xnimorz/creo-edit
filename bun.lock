@@ -5,12 +5,12 @@
       "name": "creo-editor",
       "devDependencies": {
         "@types/bun": "latest",
-        "creo": "^0.2.6",
+        "creo": "^0.2.7",
         "happy-dom": "^20.8.4",
         "typescript": "^5",
       },
       "peerDependencies": {
-        "creo": ">=0.2.6",
+        "creo": ">=0.2.7",
       },
     },
   },
@@ -25,7 +25,7 @@
 
     "bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
 
-    "creo": ["creo@0.2.6", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-zbVGfiOGzIToJcIb1vR0gliIwY+hSfWZ1TaPjzHaVu8ASl2/aT47piE+Q4itQh3QY0II6yovzu7KaGGwlCQiig=="],
+    "creo": ["creo@0.2.7", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-rVyEu5Xo1zXO59Zzbj6hvaVL64fmaAJXAnz0BKz6Ni4sMxN75088ERZMBYBfHDdmAE6On6st1eQKdhoRdy8zCw=="],
 
     "entities": ["entities@7.0.1", "", {}, "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="],
 

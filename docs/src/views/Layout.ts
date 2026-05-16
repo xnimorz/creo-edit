@@ -69,7 +69,7 @@ export const Layout = view(({ slot, use }) => {
             button(
               {
                 class: "mobile-toggle",
-                onClick: toggleMobile,
+                on: { click: toggleMobile },
                 "aria-label": "Toggle navigation",
               },
               () => {
@@ -94,7 +94,7 @@ export const Layout = view(({ slot, use }) => {
                         {
                           href: `#/${item.slug}`,
                           class: "nav-link" + (isActive ? " active" : ""),
-                          onClick: closeMobile,
+                          on: { click: closeMobile },
                         },
                         item.title,
                       );

@@ -20,10 +20,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "creo": ">=0.2.6"
+    "creo": ">=0.2.7"
   },
   "devDependencies": {
-    "creo": "^0.2.6",
+    "creo": "^0.2.7",
     "typescript": "^5",
     "@types/bun": "latest",
     "happy-dom": "^20.8.4"

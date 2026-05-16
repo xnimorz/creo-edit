@@ -439,14 +439,14 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
             button(
               {
                 class: "ed-mode-btn" + (s.mode === "wysiwyg" ? " is-active" : ""),
-                onClick: setMode("wysiwyg"),
+                on: { click: setMode("wysiwyg") },
               },
               "WYSIWYG",
             );
             button(
               {
                 class: "ed-mode-btn" + (s.mode === "md" ? " is-active" : ""),
-                onClick: setMode("md"),
+                on: { click: setMode("md") },
               },
               "Markdown",
             );
@@ -457,7 +457,7 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
               input({
                 type: "checkbox",
                 checked: s.slash,
-                onChange: togglePlugin("slash"),
+                on: { change: togglePlugin("slash") },
               });
               span({}, "Slash menu (/)");
             });
@@ -465,7 +465,7 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
               input({
                 type: "checkbox",
                 checked: s.drag,
-                onChange: togglePlugin("drag"),
+                on: { change: togglePlugin("drag") },
               });
               span({}, "Drag handle");
             });
@@ -473,7 +473,7 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
               input({
                 type: "checkbox",
                 checked: s.addBlock,
-                onChange: togglePlugin("addBlock"),
+                on: { change: togglePlugin("addBlock") },
               });
               span({}, "+ button");
             });
@@ -481,26 +481,26 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
         });
 
         div({ class: "ed-toolbar" }, () => {
-          select({ class: "ed-select", onChange: onTypeChange }, () => {
+          select({ class: "ed-select", on: { change: onTypeChange } }, () => {
             for (const t of blockTypes) {
               option({ value: t.v }, t.label);
             }
           });
           div({ class: "ed-sep" });
-          button({ class: "ed-btn", onClick: mark("b") }, "B");
-          button({ class: "ed-btn", onClick: mark("i") }, "I");
-          button({ class: "ed-btn", onClick: mark("u") }, "U");
-          button({ class: "ed-btn", onClick: mark("s") }, "S");
-          button({ class: "ed-btn", onClick: mark("code") }, "</>");
+          button({ class: "ed-btn", on: { click: mark("b") } }, "B");
+          button({ class: "ed-btn", on: { click: mark("i") } }, "I");
+          button({ class: "ed-btn", on: { click: mark("u") } }, "U");
+          button({ class: "ed-btn", on: { click: mark("s") } }, "S");
+          button({ class: "ed-btn", on: { click: mark("code") } }, "</>");
           div({ class: "ed-sep" });
-          button({ class: "ed-btn", onClick: list(false) }, "• List");
-          button({ class: "ed-btn", onClick: list(true) }, "1. List");
+          button({ class: "ed-btn", on: { click: list(false) } }, "• List");
+          button({ class: "ed-btn", on: { click: list(true) } }, "1. List");
           div({ class: "ed-sep" });
-          button({ class: "ed-btn", onClick: insertImage }, "Image");
-          button({ class: "ed-btn", onClick: insertTable }, "Table");
+          button({ class: "ed-btn", on: { click: insertImage } }, "Image");
+          button({ class: "ed-btn", on: { click: insertTable } }, "Table");
           div({ class: "ed-sep" });
-          button({ class: "ed-btn", onClick: undo }, "Undo");
-          button({ class: "ed-btn", onClick: redo }, "Redo");
+          button({ class: "ed-btn", on: { click: undo } }, "Undo");
+          button({ class: "ed-btn", on: { click: redo } }, "Redo");
         });
         if (s.mode === "md") {
           // Markdown source view — a plain textarea backed by `mdText`.
@@ -517,25 +517,27 @@ export const EditorDemo = view<EditorDemoProps>(({ props, use }) => {
           textarea(
             {
               class: "ed-md-source",
-              onInput: (_e: InputEventData) => {
-                if (!s.slash) return;
-                const ta = document.querySelector(
-                  ".ed-md-source",
-                ) as HTMLTextAreaElement | null;
-                if (ta) maybeOpenMdSlash(ta);
+              on: {
+                input: (_e: InputEventData) => {
+                  if (!s.slash) return;
+                  const ta = document.querySelector(
+                    ".ed-md-source",
+                  ) as HTMLTextAreaElement | null;
+                  if (ta) maybeOpenMdSlash(ta);
+                },
+                keyDown: (e: KeyEventData) => {
+                  // Alt+Up/Down handled by a document-level native listener
+                  // below — creo's KeyEventData strips modifier flags.
+                  if (!mdSlash) return;
+                  const adapter = {
+                    key: e.key,
+                    preventDefault: () => e.preventDefault(),
+                  } as unknown as KeyboardEvent;
+                  mdSlash.handleKey(adapter);
+                  if (e.key === "Escape") closeMdSlash();
+                },
+                blur: () => closeMdSlash(),
               },
-              onKeyDown: (e: KeyEventData) => {
-                // Alt+Up/Down handled by a document-level native listener
-                // below — creo's KeyEventData strips modifier flags.
-                if (!mdSlash) return;
-                const adapter = {
-                  key: e.key,
-                  preventDefault: () => e.preventDefault(),
-                } as unknown as KeyboardEvent;
-                mdSlash.handleKey(adapter);
-                if (e.key === "Escape") closeMdSlash();
-              },
-              onBlur: () => closeMdSlash(),
             },
           );
         } else {

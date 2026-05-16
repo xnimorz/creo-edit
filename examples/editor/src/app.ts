@@ -123,27 +123,27 @@ const Toolbar = view(() => {
   return {
     render() {
       div({ class: "toolbar" }, () => {
-        select({ onChange: onTypeChange }, () => {
+        select({ on: { change: onTypeChange } }, () => {
           for (const t of blockTypes) {
             option({ value: t.v }, t.label);
           }
         });
         div({ class: "sep" });
-        button({ onClick: mark("b") }, "B");
-        button({ onClick: mark("i") }, "I");
-        button({ onClick: mark("u") }, "U");
-        button({ onClick: mark("s") }, "S");
-        button({ onClick: mark("code") }, "</>");
+        button({ on: { click: mark("b") } }, "B");
+        button({ on: { click: mark("i") } }, "I");
+        button({ on: { click: mark("u") } }, "U");
+        button({ on: { click: mark("s") } }, "S");
+        button({ on: { click: mark("code") } }, "</>");
         div({ class: "sep" });
-        button({ onClick: list(false) }, "• List");
-        button({ onClick: list(true) }, "1. List");
+        button({ on: { click: list(false) } }, "• List");
+        button({ on: { click: list(true) } }, "1. List");
         div({ class: "sep" });
-        button({ onClick: insertImage }, "Image");
-        button({ onClick: insertTable }, "Table");
-        button({ onClick: insertColumns }, "Columns");
+        button({ on: { click: insertImage } }, "Image");
+        button({ on: { click: insertTable } }, "Table");
+        button({ on: { click: insertColumns } }, "Columns");
         div({ class: "sep" });
-        button({ onClick: undo }, "Undo");
-        button({ onClick: redo }, "Redo");
+        button({ on: { click: undo } }, "Undo");
+        button({ on: { click: redo } }, "Redo");
       });
     },
   };

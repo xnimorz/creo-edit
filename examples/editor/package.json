@@ -11,7 +11,7 @@
     "test:ui": "playwright test --ui"
   },
   "dependencies": {
-    "creo": "^0.2.6"
+    "creo": "^0.2.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
