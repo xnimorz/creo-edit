@@ -13,11 +13,13 @@ import {
   findPos,
   getBlock,
   insertAfter,
+  insertAt,
   newBlockId,
   removeBlock,
   removeBlocks,
   updateBlock,
 } from "../model/doc";
+import { isAtomicBlockType } from "../plugin/atomic";
 import {
   anchorOffset,
   caret,
@@ -324,31 +326,77 @@ function collapseRangeForStructuralOp(
   // Multi-block range delete: keep the part of the start-block before sOff
   // and the part of the end-block after eOff, then merge them, and remove
   // every block in between.
+  //
+  // Atomic blocks (e.g. calendar / date-marker) appear at either endpoint
+  // when the user runs Select-All across a doc whose first or last block is
+  // non-editable. They contribute no runs to merge — the whole atomic block
+  // is consumed by the deletion. Cmd+A → Backspace must still wipe the doc
+  // and leave a fresh paragraph for the caret.
   const startBlock = getBlock(doc, start.blockId);
   const endBlock = getBlock(doc, end.blockId);
-  if (!startBlock || !endBlock || !isTextBearing(startBlock) || !isTextBearing(endBlock)) {
+  if (!startBlock || !endBlock) return false;
+  const startTB = isTextBearing(startBlock);
+  const endTB = isTextBearing(endBlock);
+  const startAtomic = isAtomicBlockType(startBlock.type);
+  const endAtomic = isAtomicBlockType(endBlock.type);
+  if ((!startTB && !startAtomic) || (!endTB && !endAtomic)) {
+    // Tables / columns as a range endpoint aren't supported here.
     return false;
   }
   const sOff = anchorOffset(start);
   const eOff = anchorOffset(end);
-  const [leftRuns] = splitRunsAt((startBlock as TextBearingBlock).runs, sOff);
-  const [, rightRuns] = splitRunsAt(
-    (endBlock as TextBearingBlock).runs,
-    eOff,
-  );
-  const merged = concatRuns(leftRuns, rightRuns);
   const startI = findPos(doc, start.blockId);
   const endI = findPos(doc, end.blockId);
-  // Remove every block in (startI, endI] and replace startBlock's runs.
-  let working = updateBlock(doc, {
-    ...(startBlock as TextBearingBlock),
-    runs: merged,
-  } as Block);
-  // Bulk-remove rather than per-block (which is O(M*N) on the order array).
-  const idsToRemove: string[] = [];
-  for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
-  working = removeBlocks(working, idsToRemove);
+  const leftRuns = startTB
+    ? splitRunsAt((startBlock as TextBearingBlock).runs, sOff)[0]
+    : [];
+  const rightRuns = endTB
+    ? splitRunsAt((endBlock as TextBearingBlock).runs, eOff)[1]
+    : [];
+  const merged = concatRuns(leftRuns, rightRuns);
+
+  let working = doc;
+  let resultId: string;
+  let resultOff: number;
+  if (startTB) {
+    working = updateBlock(working, {
+      ...(startBlock as TextBearingBlock),
+      runs: merged,
+    } as Block);
+    const idsToRemove: string[] = [];
+    for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
+    if (idsToRemove.length > 0) working = removeBlocks(working, idsToRemove);
+    resultId = start.blockId;
+    resultOff = sOff;
+  } else if (endTB) {
+    working = updateBlock(working, {
+      ...(endBlock as TextBearingBlock),
+      runs: merged,
+    } as Block);
+    const idsToRemove: string[] = [];
+    for (let i = startI; i < endI; i++) idsToRemove.push(doc.order[i]!);
+    if (idsToRemove.length > 0) working = removeBlocks(working, idsToRemove);
+    resultId = end.blockId;
+    resultOff = 0;
+  } else {
+    const idsToRemove: string[] = [];
+    for (let i = startI; i <= endI; i++) idsToRemove.push(doc.order[i]!);
+    working = removeBlocks(working, idsToRemove);
+    if (working.order.length === 0) {
+      const freshId = newBlockId();
+      working = insertAt(working, 0, {
+        id: freshId,
+        type: "p",
+        runs: [],
+      } as BlockSpec);
+      resultId = freshId;
+    } else {
+      const newIdx = Math.min(startI, working.order.length - 1);
+      resultId = working.order[newIdx]!;
+    }
+    resultOff = 0;
+  }
   docStore.set(working);
-  selStore.set(caret(caretAt(start.blockId, sOff)));
+  selStore.set(caret(caretAt(resultId, resultOff)));
   return true;
 }

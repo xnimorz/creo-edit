@@ -30,7 +30,9 @@ export async function jumpToMatch(
       return;
     }
   }
-  editor.scrollToBlock(match.blockId, { block: "center", behavior: "smooth" });
+  // Instant jump — smooth scrolling between matches feels broken when the
+  // user is rapidly cycling through results (Enter / Shift+Enter).
+  editor.scrollToBlock(match.blockId, { block: "center", behavior: "auto" });
 }
 
 export function nextIndex(current: number, total: number): number {

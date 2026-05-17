@@ -141,21 +141,22 @@ export function searchPlugin(opts: SearchOptions = {}): EditorPlugin {
           ensureStylesInjected();
 
           // ----- panel host (floating, sticky top-right) -----------------
-          // We mount our own wrapper inside the editor's parent so the
-          // panel is positioned relative to the scroll container and
-          // sticks to the viewport edge as the user scrolls. The
-          // decoration manager's per-block hosts can't do this — they're
-          // pinned to their block.
+          // The host is itself `position: sticky` and zero-height, so it
+          // pins to the top of the viewport as long as the editor root is
+          // in view (and slides back down when the editor scrolls past).
+          // The panel inside is absolutely positioned relative to the
+          // sticky host — that keeps the panel pinned without displacing
+          // editor content.
+          //
+          // Earlier we made the host `position: absolute; height: 0`,
+          // which broke sticky positioning entirely: a sticky child can
+          // only stick within its containing block, and a zero-height
+          // absolute box gives it nothing to stick to. The panel ended up
+          // scrolling away with the editor content.
           const panelHost = document.createElement("div");
           panelHost.className = "creo-search-host";
-          // Sticky needs a non-static container with overflow constraints;
-          // attaching as the FIRST child of the editor root works because
-          // the root is `position: relative` and the panel itself uses
-          // `position: sticky`.
-          panelHost.style.position = "absolute";
+          panelHost.style.position = "sticky";
           panelHost.style.top = "0";
-          panelHost.style.left = "0";
-          panelHost.style.right = "0";
           panelHost.style.height = "0";
           panelHost.style.zIndex = "100";
           panelHost.style.pointerEvents = "none";

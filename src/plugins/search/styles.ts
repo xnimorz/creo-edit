@@ -17,10 +17,9 @@ const CSS_TEXT = `
 }
 
 .creo-search-panel {
-  position: sticky;
+  position: absolute;
   top: 8px;
-  margin-left: auto;
-  margin-right: 8px;
+  right: 8px;
   width: max-content;
   max-width: calc(100% - 16px);
   z-index: 100;
