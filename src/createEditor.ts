@@ -8,7 +8,13 @@ import {
   attachVisualViewport,
   type ViewportHandle,
 } from "./input/mobile";
-import { homeOfDoc, endOfDocAnchor } from "./controller/navigation";
+import {
+  endOfBlock,
+  endOfDocAnchor,
+  homeOfBlock,
+  homeOfDoc,
+} from "./controller/navigation";
+import { isAtomicBlockType } from "./plugin/atomic";
 import {
   insertColumns as cmdInsertColumns,
   insertImage as cmdInsertImage,
@@ -575,12 +581,86 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     root?.blur();
   };
 
+  // Cmd+A selects the editable "section" surrounding the caret — the run
+  // of blocks bounded by the nearest atomic blocks (calendar, date-marker,
+  // image…) above and below, rather than the entire doc. Wiping the
+  // current list with Cmd+A → Backspace shouldn't also wipe every other
+  // section's content. Pressing Cmd+A again when the section is already
+  // fully selected expands to the whole doc so the "select everything"
+  // intent stays reachable.
   const handleSelectAll = (): void => {
     const doc = docStore.get();
-    const start = homeOfDoc(doc);
-    const end = endOfDocAnchor(doc);
-    selStore.set({ kind: "range", anchor: start, focus: end });
+    if (doc.order.length === 0) return;
+    const sel = selStore.get();
+    const pivotId = sel.kind === "caret" ? sel.at.blockId : sel.anchor.blockId;
+    const pivotIdx = doc.order.indexOf(pivotId);
+    const pivotBlock = pivotIdx >= 0 ? doc.byId.get(pivotId) : undefined;
+
+    // Caret on an atomic block, or pivot block missing — fall back to
+    // the original whole-doc behavior.
+    if (!pivotBlock || isAtomicBlockType(pivotBlock.type)) {
+      selStore.set({
+        kind: "range",
+        anchor: homeOfDoc(doc),
+        focus: endOfDocAnchor(doc),
+      });
+      return;
+    }
+
+    // Walk outward to find the editable section's edges.
+    let startIdx = pivotIdx;
+    while (startIdx > 0) {
+      const prev = doc.byId.get(doc.order[startIdx - 1]!);
+      if (prev && isAtomicBlockType(prev.type)) break;
+      startIdx--;
+    }
+    let endIdx = pivotIdx;
+    while (endIdx < doc.order.length - 1) {
+      const next = doc.byId.get(doc.order[endIdx + 1]!);
+      if (next && isAtomicBlockType(next.type)) break;
+      endIdx++;
+    }
+    const startId = doc.order[startIdx]!;
+    const endId = doc.order[endIdx]!;
+    const sectionStart = homeOfBlock(doc, {
+      blockId: startId,
+      path: [0],
+      offset: 0,
+    });
+    const sectionEnd = endOfBlock(doc, {
+      blockId: endId,
+      path: [0],
+      offset: 0,
+    });
+
+    // Progressive expansion: if the section is ALREADY fully selected,
+    // expand to whole-doc. Detected by comparing the current range's
+    // ordered endpoints with the section's endpoints.
+    if (sel.kind === "range") {
+      const docStart = homeOfDoc(doc);
+      const docEnd = endOfDocAnchor(doc);
+      const a = sel.anchor;
+      const f = sel.focus;
+      const matchesSection =
+        (anchorEq(a, sectionStart) && anchorEq(f, sectionEnd)) ||
+        (anchorEq(a, sectionEnd) && anchorEq(f, sectionStart));
+      const alreadyWholeDoc =
+        (anchorEq(a, docStart) && anchorEq(f, docEnd)) ||
+        (anchorEq(a, docEnd) && anchorEq(f, docStart));
+      if (matchesSection && !alreadyWholeDoc) {
+        selStore.set({ kind: "range", anchor: docStart, focus: docEnd });
+        return;
+      }
+    }
+
+    selStore.set({ kind: "range", anchor: sectionStart, focus: sectionEnd });
   };
+
+  const anchorEq = (a: Anchor, b: Anchor): boolean =>
+    a.blockId === b.blockId &&
+    a.offset === b.offset &&
+    a.path.length === b.path.length &&
+    a.path.every((v, i) => v === b.path[i]);
 
   // EditorView — minimal contentEditable wrapper. The browser handles caret,
   // drag-selection, IME composition, and the long-press OS context menu;
