@@ -183,6 +183,16 @@ export function infiniteScrollPlugin(opts: InfiniteScrollOptions): EditorPlugin 
           let pendingPrependAnchor:
             | { container: HTMLElement | Window; height: number; top: number }
             | null = null;
+          // True from the moment a prepend dispatches until its
+          // scrollTop re-anchor has landed. While set, further
+          // loadBefore fires are suppressed — without this gate,
+          // scrollTop stays near 0 during the afterCommit window and
+          // every scroll event triggers another prepend, ballooning the
+          // doc and starving the renderer. (loadAfter is naturally
+          // self-throttling: appending grows scrollHeight immediately,
+          // so distFromBottom jumps past threshold without needing any
+          // post-load adjustment.)
+          let prependAdjustPending = false;
 
           // Scroll-event entry-point. Cooldown gates back-to-back
           // firings in the same direction during a single scroll
@@ -204,9 +214,15 @@ export function infiniteScrollPlugin(opts: InfiniteScrollOptions): EditorPlugin 
               opts.loadAfter(editor);
               return;
             }
-            if (opts.loadBefore && g.scrollTop < threshold && cooldownOk("up")) {
+            if (
+              opts.loadBefore &&
+              g.scrollTop < threshold &&
+              cooldownOk("up") &&
+              !prependAdjustPending
+            ) {
               lastDir = "up";
               lastFiredAt = now;
+              prependAdjustPending = true;
               // Capture geometry BEFORE the load so we can re-anchor.
               pendingPrependAnchor = {
                 container: sc,
@@ -239,6 +255,7 @@ export function infiniteScrollPlugin(opts: InfiniteScrollOptions): EditorPlugin 
               if (delta !== 0) {
                 setScrollTop(anchor.container, anchor.top + delta);
               }
+              prependAdjustPending = false;
             });
           });
 
