@@ -45,11 +45,8 @@ export class HeightIndex {
     const delta = h - prev;
     this.#measured[i] = 1;
     this.#measuredHeights[i] = h;
-    // Update BIT: maintain prefix sums of (h_i - estimated).
-    const prevDelta = (this.#measured[i] ? prev : this.#estimated) - this.#estimated;
-    void prevDelta;
-    // Easier: maintain BIT of *measured-or-zero* deltas. We added "delta"
-    // relative to old contribution.
+    // BIT tracks prefix sums of (measured - estimated); bump by the change
+    // in this index's contribution.
     this.#bitAdd(i + 1, delta);
   }
 
@@ -74,19 +71,26 @@ export class HeightIndex {
     if (this.#n === 0) return 0;
     if (y <= 0) return 0;
     if (y >= this.total()) return this.#n - 1;
-    // Binary search using BIT — classic Fenwick lower_bound.
-    // We're looking for: smallest i with prefix(i+1) > y, equivalently
-    // first i with sum(1..i) > y.
-    // Adapt for our prefix-with-estimated formula by binary searching
-    // directly on prefix(i).
-    let lo = 0;
-    let hi = this.#n;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (this.prefix(mid + 1) > y) hi = mid;
-      else lo = mid + 1;
+    // Fenwick lower-bound descent in O(log n): walk bit-positions from the
+    // highest power of two down, folding each node's measured-delta plus its
+    // estimated contribution. Finds the largest `pos` with prefix(pos) <= y,
+    // which is exactly the floor index for y.
+    let pos = 0;
+    let cum = 0;
+    let step = 1;
+    while (step << 1 <= this.#n) step <<= 1;
+    for (; step > 0; step >>= 1) {
+      const next = pos + step;
+      if (next > this.#n) continue;
+      // Heights summed over the `step` indices ending at `next`: the BIT node
+      // holds their (measured - estimated) deltas, plus `step` estimates.
+      const add = (this.#bit[next] ?? 0) + step * this.#estimated;
+      if (cum + add <= y) {
+        pos = next;
+        cum += add;
+      }
     }
-    return lo;
+    return pos;
   }
 
   /** Append `count` new blocks at the end, all unmeasured. */
