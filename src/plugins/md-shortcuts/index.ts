@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { caret } from "../../controller/selection";
-import { runsLengthAt, runsAt } from "../../plugin/runsAt";
+import { runsAt } from "../../plugin/runsAt";
 import type {
   EditorPlugin,
   TriggerCtx,
@@ -109,10 +109,8 @@ function applyInlineMark(
   const endA = { blockId: at.blockId, path: [...path], offset: innerEnd };
   ctx.selStore.set({ kind: "range", anchor: startA, focus: endA });
   ctx.dispatch({ t: "toggleMark", mark });
-  // Collapse caret to end. Also delete the OPENING delimiter that's still
-  // sitting before the (now-marked) inner text.
-  ctx.selStore.set(caret(endA));
-  // Delete leading delimiter chars (they're at innerStart - delimLen).
+  // Delete the OPENING delimiter still sitting before the (now-marked) inner
+  // text — place the caret at innerStart, then backspace delimLen chars.
   const newPath = [...at.path];
   newPath[lastIdx] = innerStart;
   ctx.selStore.set(caret({ blockId: at.blockId, path: newPath, offset: innerStart }));
@@ -171,7 +169,6 @@ function getBlockPrefixUpToCaret(ctx: TriggerCtx): string | null {
     s += r.text;
     acc += r.text.length;
   }
-  void runsLengthAt;
   return s;
 }
 

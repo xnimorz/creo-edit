@@ -8,7 +8,7 @@
 // caret hits inside the calendar as side 0 / side 1 edges.
 // ---------------------------------------------------------------------------
 
-import { _, div, span, view } from "creo";
+import { div, span, view } from "creo";
 import type { CalendarBlock, DateMarkerBlock } from "../../model/types";
 
 const DAY_NAMES_LONG = [
@@ -109,7 +109,6 @@ export const CalendarView = view<{ block: CalendarBlock }>(({ props }) => ({
             });
           });
         }
-        void _;
       },
     );
   },
@@ -143,7 +142,6 @@ export const DateMarkerView = view<{ block: DateMarkerBlock }>(({ props }) => ({
       },
       () => {
         span({}, label);
-        void _;
       },
     );
   },

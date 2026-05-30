@@ -46,8 +46,14 @@ export class DecorationManager {
   /** Hovered block id — surfaced to decorations via dataset on the layer
    *  so they can style themselves with sibling CSS or read it directly. */
   private hoveredBlockId: BlockId | null = null;
+  /** Decoration id → registration index, used to order stacked decorations.
+   *  Fixed after install, so computed once rather than per position() frame. */
+  private orderById: Map<string, number>;
 
   constructor(private opts: DecorationManagerOptions) {
+    this.orderById = new Map(
+      opts.registry.decorations.map((d, i) => [d.id, i]),
+    );
     const layer = document.createElement("div");
     layer.className = "ce-decorations";
     Object.assign(layer.style, {
@@ -190,9 +196,8 @@ export class DecorationManager {
     // Group mounted decorations by (blockId, layer) so we can stack
     // multiple decorations in the same layer side-by-side instead of
     // overlapping. Order within a (blockId, layer) group follows the
-    // plugin registration order via this.opts.registry.decorations.
-    const orderById = new Map<string, number>();
-    this.opts.registry.decorations.forEach((d, i) => orderById.set(d.id, i));
+    // plugin registration order (this.orderById, computed once at install).
+    const orderById = this.orderById;
     type Group = { blockId: string; layer: string; items: Mounted[] };
     const groups = new Map<string, Group>();
     for (const m of this.mounted.values()) {
