@@ -8,7 +8,6 @@
 // so the migration is a file move.
 // ---------------------------------------------------------------------------
 
-import { p, h1, h2, h3, h4, h5, h6, li, view } from "creo";
 import type { PublicView } from "creo";
 import type {
   Block,
@@ -143,6 +142,24 @@ function numAttr(el: HTMLElement, name: string): number | undefined {
   if (v == null) return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Validate a pasted image `src` at the model boundary. Strips control chars
+ * (used to smuggle a scheme past naive filters, e.g. "java\nscript:") and
+ * allows only scheme-less/relative URLs, http(s), and data:image/ — rejecting
+ * javascript:, vbscript:, and non-image data: URIs. Returns null to drop the
+ * image entirely when the src is unsafe.
+ */
+function safeImageSrc(raw: string): string | null {
+  const s = raw.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (s === "") return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(s);
+  if (!scheme) return s; // relative / scheme-less — no protocol to abuse
+  const proto = scheme[1]!.toLowerCase();
+  if (proto === "http" || proto === "https") return s;
+  if (proto === "data" && /^data:image\//i.test(s)) return s;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +349,7 @@ const imageDef: BlockDef<ImageBlock> = {
   htmlCodec: {
     matchHTML: ["img"],
     parseHTML(el) {
-      const src = el.getAttribute("src") ?? "";
+      const src = safeImageSrc(el.getAttribute("src") ?? "");
       if (!src) return null;
       const alt = el.getAttribute("alt") ?? undefined;
       const w = numAttr(el, "width");
@@ -438,15 +455,3 @@ export const defaultPlugins: EditorPlugin[] = [
   imagePlugin,
   cellsPlugin,
 ];
-
-// Suppress unused-import warnings for creo-element helpers that text-bearing
-// blocks would have used had we inlined their views here.
-void p;
-void h1;
-void h2;
-void h3;
-void h4;
-void h5;
-void h6;
-void li;
-void view;
