@@ -48,12 +48,10 @@ import {
 import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
 import type {
   Anchor,
-  Block,
   BlockId,
   BlockSpec,
   DistOmit,
   DocState,
-  InlineRun,
   Mark,
   Selection,
 } from "./model/types";
@@ -796,7 +794,3 @@ function seedEmpty(): DocState {
 
 // Re-export emptyDoc for convenience.
 export { emptyDoc };
-
-// Avoid an unused-import warning on Block in some downstream typings.
-void (null as unknown as Block);
-void (null as unknown as InlineRun);

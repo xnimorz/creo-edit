@@ -2,6 +2,7 @@ import type { Store } from "creo";
 import {
   isTextBearing,
   normalizeRuns,
+  runsLength,
   splitRunsAt,
   type TextBearingBlock,
 } from "../model/blockText";
@@ -91,12 +92,6 @@ export function toggleMark({ docStore, selStore }: Stores, mark: Mark): boolean 
   }
   docStore.set(working);
   return true;
-}
-
-function runsLength(runs: InlineRun[]): number {
-  let n = 0;
-  for (const r of runs) n += r.text.length;
-  return n;
 }
 
 function sliceAllHasMark(

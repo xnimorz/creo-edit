@@ -1,8 +1,8 @@
 import {
   generateBetween,
   generateN,
-  needsRebalance,
   rebalance,
+  REBALANCE_THRESHOLD,
 } from "./fractional";
 import type { Block, BlockId, BlockSpec, DocState, FracIndex } from "./types";
 
@@ -221,8 +221,16 @@ export function insertManyAt(
 // ---------------------------------------------------------------------------
 
 export function maybeRebalance(doc: DocState): DocState {
-  const keys = doc.order.map((id) => doc.byId.get(id)!.index);
-  if (!needsRebalance(keys)) return doc;
+  // Runs after every doc mutation (microtask), so avoid allocating a keys
+  // array — scan in place and bail the moment nothing has outgrown the cap.
+  let needs = false;
+  for (const id of doc.order) {
+    if (doc.byId.get(id)!.index.length > REBALANCE_THRESHOLD) {
+      needs = true;
+      break;
+    }
+  }
+  if (!needs) return doc;
   const fresh = rebalance(doc.order.length);
   const byId = new Map<BlockId, Block>();
   for (let i = 0; i < doc.order.length; i++) {

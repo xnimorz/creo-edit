@@ -95,7 +95,10 @@ export function compareAnchors(
   }
   const ai = findPos(doc, a.blockId);
   const bi = findPos(doc, b.blockId);
-  if (ai === bi) return 0;
+  // A missing block (findPos === -1) can't be ordered against another block;
+  // treat as equal so a stale range over a just-removed block doesn't get
+  // mis-ordered into the wrong delete slice.
+  if (ai < 0 || bi < 0 || ai === bi) return 0;
   return ai < bi ? -1 : 1;
 }
 

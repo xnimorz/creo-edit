@@ -109,11 +109,10 @@ export function marksAt(
   runs: InlineRun[],
   offset: number,
 ): ReadonlySet<Mark> | undefined {
-  if (runs.length === 0) return undefined;
-  const pos = locateRun(runs, offset);
-  // At absolute start, no marks.
-  if (offset === 0) return undefined;
-  return runs[pos.runIndex]!.marks;
+  // At absolute start (or empty) there is nothing to inherit — check first so
+  // the common start-of-block insert skips the run scan entirely.
+  if (offset === 0 || runs.length === 0) return undefined;
+  return runs[locateRun(runs, offset).runIndex]!.marks;
 }
 
 /**
@@ -133,7 +132,10 @@ export function insertText(
   const out: InlineRun[] = [];
   for (let i = 0; i < pos.runIndex; i++) out.push(runs[i]!);
 
-  const inheritMarks = marks ?? marksAt(runs, offset);
+  // Reuse the run we already located rather than re-scanning via marksAt.
+  const inheritMarks =
+    marks ??
+    (offset === 0 || pos.runIndex < 0 ? undefined : runs[pos.runIndex]!.marks);
   const newRun: InlineRun = inheritMarks && inheritMarks.size
     ? { text, marks: inheritMarks }
     : { text };
