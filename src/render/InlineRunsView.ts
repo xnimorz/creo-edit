@@ -1,5 +1,5 @@
 import { _ } from "creo";
-import { code, em, s, span, strong, text, u, view } from "creo";
+import { code, em, s, span, strong, u, view } from "creo";
 import type { InlineRun, Mark } from "../model/types";
 
 /**
@@ -72,16 +72,14 @@ const RunView = view<{ run: InlineRun; index: number; empty?: boolean }>(({ prop
       }
     }
     inner();
-    void text; // keep `text` import — used below for empty-run pathway in tests
   },
 }));
 
 // Stable singleton placeholder run for empty-runs blocks. Reusing the same
-// reference means RunView's identity-based shouldUpdate skips re-renders
-// when the block stays empty. RunView renders the text content via its
-// `text` field, so a single zero-width-space gives the line a measurable
-// box without leaking any visible glyph.
-const EMPTY_PLACEHOLDER_RUN: InlineRun = { text: ZWSP };
+// reference means RunView's identity-based shouldUpdate skips re-renders when
+// the block stays empty. Its empty text triggers RunView's ZWSP substitution,
+// giving the line a measurable box without leaking any visible glyph.
+const EMPTY_PLACEHOLDER_RUN: InlineRun = { text: "" };
 
 export const InlineRunsView = view<{ runs: InlineRun[] }>(({ props }) => ({
   shouldUpdate(next) {

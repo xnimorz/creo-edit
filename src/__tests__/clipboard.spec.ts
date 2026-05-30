@@ -62,6 +62,25 @@ describe("HTML parser", () => {
     expect(total).toBe("xy");
   });
 
+  it("keeps safe image srcs and drops dangerous ones", () => {
+    // http(s) and data:image survive.
+    expect(parseHTML(`<img src="https://x/y.png">`)[0]?.type).toBe("img");
+    expect(parseHTML(`<img src="data:image/png;base64,AAAA">`)[0]?.type).toBe(
+      "img",
+    );
+    // A plain javascript: src is neutralized to "#" by the pre-parse
+    // sanitizer, so any surviving img never carries a javascript: src.
+    for (const b of parseHTML(`<img src="javascript:alert(1)">`)) {
+      if (b.type === "img") expect(b.src.startsWith("javascript:")).toBe(false);
+    }
+    // Non-image data: and control-char-smuggled schemes (which the pre-parse
+    // regex misses) are dropped at the model boundary by safeImageSrc.
+    expect(parseHTML(`<img src="data:text/html,<script>1</script>">`).some((b) => b.type === "img")).toBe(false);
+    // Tab-smuggled scheme: stripping the control char reconstitutes
+    // "javascript:" so it is rejected.
+    expect(parseHTML(`<img src="java\tscript:alert(1)">`).some((b) => b.type === "img")).toBe(false);
+  });
+
   it("flattens unknown block tags into paragraphs", () => {
     const blocks = parseHTML("<custom-thing>plain text</custom-thing>");
     expect(blocks.length).toBe(1);

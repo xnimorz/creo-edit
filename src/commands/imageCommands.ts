@@ -1,6 +1,6 @@
 import type { Store } from "creo";
 import { insertImage as cmdInsertImage } from "./insertCommands";
-import { removeBlock } from "../model/doc";
+import { findPos, removeBlock } from "../model/doc";
 import { caret, isCaret } from "../controller/selection";
 import { isAtomicBlockType } from "../plugin/atomic";
 import type { DocState, Selection } from "../model/types";
@@ -70,7 +70,7 @@ export function deleteSelectedAtomic(stores: Stores): boolean {
   const block = doc.byId.get(sel.at.blockId);
   if (!block || !isAtomicBlockType(block.type)) return false;
   // Find adjacent block to land caret on.
-  const i = doc.order.indexOf(block.id);
+  const i = findPos(doc, block.id);
   const next = removeBlock(doc, block.id);
   stores.docStore.set(next);
   const newId = next.order[i] ?? next.order[i - 1] ?? next.order[0];

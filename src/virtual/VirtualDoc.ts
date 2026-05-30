@@ -1,9 +1,6 @@
-import { _ } from "creo";
 import { div, view } from "creo";
 import type { Store } from "creo";
 import type { BlockId, DocState, Selection } from "../model/types";
-import { findPos } from "../model/doc";
-import { selectionStart } from "../controller/selection";
 import { getView } from "../plugin/registry";
 import { HeightIndex } from "./heightIndex";
 
@@ -15,9 +12,10 @@ import { HeightIndex } from "./heightIndex";
  *    Fenwick tree (`HeightIndex`) for O(log n) y-position lookups.
  *  - Top / bottom spacer divs absorb the off-screen height so the scrollbar
  *    behaves as if the whole document is rendered.
- *  - The block containing the caret is ALWAYS rendered, even when off-screen.
- *    Without this guarantee the caret overlay (which queries DOM) would lose
- *    its anchor when the user scrolls away with a selection.
+ *
+ * The caret overlay simply hides while its anchor block is scrolled out of
+ * the window — VirtualDoc does not subscribe to selection, so caret motion
+ * never re-runs the windowing computation.
  */
 
 export type VirtualDocProps = {
@@ -36,7 +34,6 @@ const DEFAULT_OVERSCAN = 1.5;
 
 export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   const doc = use(props().docStore);
-  const sel = use(props().selStore);
   const scrollTop = use(0);
   const viewport = use(props().viewportHeight ?? readViewportHeight());
 
@@ -45,24 +42,61 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
     props().estimatedHeight ?? DEFAULT_ESTIMATED,
   );
   let resizeObserver: ResizeObserver | null = null;
-  // BlockId → element so the ResizeObserver can find which index changed.
+  // BlockId → mounted element (windowed subset) so the ResizeObserver and
+  // measureAll can resolve heights; rebuilt from the live DOM after render.
   const elByBlock = new Map<BlockId, HTMLElement>();
+  // BlockId → order index, rebuilt only when the order array identity changes
+  // (text edits keep the same `order` reference, so this is amortized cheap).
+  const idToIndex = new Map<BlockId, number>();
+  let lastOrder: BlockId[] | null = null;
 
-  // Sync the index size to the doc whenever the doc shape changes.
+  // Sync the index size + id→index map whenever the doc shape changes.
   const syncIndex = () => {
-    const n = doc.get().order.length;
-    if (heightIndex.size !== n) heightIndex.resize(n);
+    const order = doc.get().order;
+    if (heightIndex.size !== order.length) heightIndex.resize(order.length);
+    if (order !== lastOrder) {
+      idToIndex.clear();
+      for (let i = 0; i < order.length; i++) idToIndex.set(order[i]!, i);
+      lastOrder = order;
+    }
+  };
+
+  // Rebuild elByBlock from the mounted DOM and reconcile ResizeObserver
+  // subscriptions: observe newly mounted block elements, unobserve ones that
+  // scrolled out of the window. Only top-level blocks carry data-block-kind
+  // (cells share their parent's data-block-id), so this selects exactly the
+  // measurable block containers.
+  const refreshObservations = (root: HTMLElement) => {
+    const els = root.querySelectorAll<HTMLElement>(
+      "[data-block-kind][data-block-id]",
+    );
+    const seen = new Set<BlockId>();
+    for (let k = 0; k < els.length; k++) {
+      const el = els[k]!;
+      const id = el.getAttribute("data-block-id") as BlockId | null;
+      if (!id) continue;
+      seen.add(id);
+      const prev = elByBlock.get(id);
+      if (prev !== el) {
+        if (prev) resizeObserver?.unobserve(prev);
+        elByBlock.set(id, el);
+        resizeObserver?.observe(el);
+      }
+    }
+    for (const [id, el] of elByBlock) {
+      if (!seen.has(id)) {
+        resizeObserver?.unobserve(el);
+        elByBlock.delete(id);
+      }
+    }
   };
 
   const measureAll = () => {
-    const order = doc.get().order;
-    for (let i = 0; i < order.length; i++) {
-      const id = order[i]!;
-      const el = elByBlock.get(id);
-      if (el) {
-        const h = el.getBoundingClientRect().height;
-        if (h > 0) heightIndex.setHeight(i, h);
-      }
+    for (const [id, el] of elByBlock) {
+      const i = idToIndex.get(id);
+      if (i === undefined) continue;
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) heightIndex.setHeight(i, h);
     }
   };
 
@@ -142,23 +176,22 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
           for (const e of entries) {
             const id = (e.target as HTMLElement).getAttribute("data-block-id");
             if (!id) continue;
-            const order = doc.get().order;
-            const idx = order.indexOf(id);
-            if (idx < 0) continue;
+            const idx = idToIndex.get(id as BlockId);
+            if (idx === undefined) continue;
             const h = e.contentRect.height;
             if (h > 0) heightIndex.setHeight(idx, h);
           }
         });
-        for (const el of elByBlock.values()) resizeObserver.observe(el);
       }
+      syncIndex();
+      refreshObservations(root);
       measureAll();
     },
     onUpdateAfter() {
+      const root = currentRoot();
       syncIndex();
+      if (root) refreshObservations(root);
       measureAll();
-      if (resizeObserver) {
-        for (const el of elByBlock.values()) resizeObserver.observe(el);
-      }
     },
     render() {
       syncIndex();
@@ -173,13 +206,6 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
       const startIdx = heightIndex.findIndexAtY(fromY);
       let endIdx = heightIndex.findIndexAtY(toY);
       if (endIdx < startIdx) endIdx = startIdx;
-      // The plan calls for "always render the selection's block". We leave
-      // that optimization for M11 — naively extending the window with a
-      // potentially-far-away selection breaks the spacer math (and
-      // empirically, with selection at end-of-doc, mounts every block).
-      // The caret overlay simply hides while its anchor is off-screen.
-      void selectionStart;
-      void findPos;
       const topSpacer = heightIndex.prefix(startIdx);
       const bottomSpacer = Math.max(
         0,
@@ -217,10 +243,6 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
           }
         },
       );
-      // Refresh the elByBlock map from the live DOM after the render call
-      // unwinds. We do this in onUpdateAfter / onMount via measureAll +
-      // resize observation.
-      void _;
     },
   };
 });

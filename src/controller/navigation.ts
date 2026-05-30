@@ -297,11 +297,9 @@ function runsText(runs: InlineRun[]): string {
 function blockText(doc: DocState, blockId: string): string | null {
   const b = getBlock(doc, blockId);
   if (!b) return null;
+  // Word nav inside table/columns operates on the current cell only, handled
+  // by the caller — so only top-level text-bearing blocks resolve here.
   if (isTextBearing(b)) return runsText((b as TextBearingBlock).runs);
-  if (b.type === "table") {
-    // Word nav inside a table operates on the current cell only.
-    return null;
-  }
   return null;
 }
 

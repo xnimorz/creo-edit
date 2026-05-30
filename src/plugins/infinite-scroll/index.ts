@@ -265,7 +265,23 @@ export function infiniteScrollPlugin(opts: InfiniteScrollOptions): EditorPlugin 
           const listenerTarget = initialContainer as
             | HTMLElement
             | (Window & typeof globalThis);
-          const onScroll = (): void => tryFire();
+          // Coalesce bursts of scroll events into one tryFire per frame so
+          // we read layout (scrollHeight/scrollTop) at most once per frame
+          // instead of on every scroll tick.
+          let scrollRafQueued = false;
+          const onScroll = (): void => {
+            if (scrollRafQueued) return;
+            scrollRafQueued = true;
+            const run = (): void => {
+              scrollRafQueued = false;
+              tryFire();
+            };
+            if (typeof requestAnimationFrame !== "undefined") {
+              requestAnimationFrame(run);
+            } else {
+              run();
+            }
+          };
           listenerTarget.addEventListener("scroll", onScroll, { passive: true });
 
           // No mount-time auto-fill — that historically chained many

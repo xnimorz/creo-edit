@@ -184,11 +184,12 @@ const cellsKeymap: KeymapDef[] = [
 // like { t: "tableInsertRow", where }. Routing them to the namespaced
 // implementations keeps existing callers (and tests) working without
 // renaming everywhere at once.
+const tableCommandByT = new Map(tableCommandDefs.map((c) => [c.t, c]));
 const backcompatAliases = [
-  { t: "tableInsertRow", run: (ctx, p) => tableCommandDefs.find((c) => c.t === "table.insertRow")!.run(ctx, (p as { where: "above" | "below" }).where) },
-  { t: "tableInsertCol", run: (ctx, p) => tableCommandDefs.find((c) => c.t === "table.insertCol")!.run(ctx, (p as { where: "before" | "after" }).where) },
-  { t: "tableRemoveRow", run: (ctx, _p) => tableCommandDefs.find((c) => c.t === "table.removeRow")!.run(ctx, undefined) },
-  { t: "tableRemoveCol", run: (ctx, _p) => tableCommandDefs.find((c) => c.t === "table.removeCol")!.run(ctx, undefined) },
+  { t: "tableInsertRow", run: (ctx, p) => tableCommandByT.get("table.insertRow")!.run(ctx, (p as { where: "above" | "below" }).where) },
+  { t: "tableInsertCol", run: (ctx, p) => tableCommandByT.get("table.insertCol")!.run(ctx, (p as { where: "before" | "after" }).where) },
+  { t: "tableRemoveRow", run: (ctx, _p) => tableCommandByT.get("table.removeRow")!.run(ctx, undefined) },
+  { t: "tableRemoveCol", run: (ctx, _p) => tableCommandByT.get("table.removeCol")!.run(ctx, undefined) },
 ] as { t: string; run: (ctx: import("../../plugin/types").CommandCtx, p: unknown) => boolean | void }[];
 
 export const cellsPlugin: EditorPlugin = {

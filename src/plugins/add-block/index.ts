@@ -139,6 +139,7 @@ function openAddMenu(
       const newId = insertParagraphAbove(editor, beforeBlockId);
       if (!newId) {
         menu.destroy();
+        cleanup();
         return;
       }
       // 2. Place caret in the new paragraph.
@@ -160,8 +161,12 @@ function openAddMenu(
         // Item handler error — leave the empty paragraph in place.
       }
       menu.destroy();
+      cleanup();
     },
-    onCancel: () => menu.destroy(),
+    onCancel: () => {
+      menu.destroy();
+      cleanup();
+    },
   });
 
   // Close on Escape / click outside.

@@ -47,6 +47,12 @@ function escapeInline(s: string): string {
   return s.replace(/([\\`*_~])/g, "\\$1");
 }
 
+// Inside a GFM table cell `|` is a column delimiter and a newline ends the
+// row, so escape both on top of the normal inline escaping.
+function cellToMarkdown(cell: SerializedRun[]): string {
+  return runsToMarkdown(cell).replace(/\|/g, "\\|").replace(/\n/g, "<br>");
+}
+
 function blockToMarkdown(
   block: SerializedBlock,
   state: { listKind: "ul" | "ol" | null; olCounter: number },
@@ -91,14 +97,14 @@ function blockToMarkdown(
     case "table": {
       const rows = block.cells;
       if (rows.length === 0) return "";
-      const headerCells = (rows[0] ?? []).map((cell) => runsToMarkdown(cell));
+      const headerCells = (rows[0] ?? []).map((cell) => cellToMarkdown(cell));
       const sep = headerCells.map(() => "---");
       const lines: string[] = [];
       lines.push(`| ${headerCells.join(" | ")} |`);
       lines.push(`| ${sep.join(" | ")} |`);
       for (let r = 1; r < rows.length; r++) {
         const row = rows[r] ?? [];
-        lines.push(`| ${row.map((c) => runsToMarkdown(c)).join(" | ")} |`);
+        lines.push(`| ${row.map((c) => cellToMarkdown(c)).join(" | ")} |`);
       }
       return lines.join("\n");
     }

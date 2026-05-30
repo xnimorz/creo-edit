@@ -137,11 +137,7 @@ export function mountDefaultPanel(
       const on = controller.toggle(k);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    if (s.isOpen && document.activeElement !== input) {
-      // Only refocus on initial open (when value is empty or matches the
-      // controller); otherwise let the user interact with the panel.
-      // We refocus when isOpen flipped to true — track via a flag.
-    }
+    // Focus management on open lives in onChange (lastOpen flag) below.
   };
 
   let lastOpen = false;

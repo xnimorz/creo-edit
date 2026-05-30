@@ -111,12 +111,16 @@ function walkBlock(node: Node, marks: Mark[], out: BlockSpec[]): void {
     return;
   }
 
-  // Plugin-registered parser for this tag wins.
+  // Plugin-registered parser for this tag wins — but only if it actually
+  // claims the element. A null return (e.g. a non-calendar <div>) falls
+  // through to the generic wrapper handling below instead of dropping it.
   const parser = getHtmlParserForTag(tag);
   if (parser) {
     const block = parser(el, { marks });
-    if (block) out.push(block);
-    return;
+    if (block) {
+      out.push(block);
+      return;
+    }
   }
 
   // Unknown wrapper — recurse into block children, otherwise flatten as a

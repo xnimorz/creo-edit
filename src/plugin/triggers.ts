@@ -76,7 +76,14 @@ export class TriggerManager {
     if (!this.active) return;
     const sel = this.opts.selStore.get();
     const a = sel.kind === "caret" ? sel.at : sel.anchor;
-    if (a.blockId !== this.active.start.blockId) {
+    // Same block AND same cell: for table/columns the caret can stay in the
+    // block while moving to a different cell (same blockId, different path
+    // prefix) — that must close the trigger, otherwise the query is sliced
+    // from the wrong cell's runs.
+    if (
+      a.blockId !== this.active.start.blockId ||
+      !samePathPrefix(a, this.active.start)
+    ) {
       this.close();
       return;
     }
@@ -193,6 +200,16 @@ function matchesTrigger(def: TriggerDef, text: string): boolean {
 
 function lastPathEntry(a: Anchor): number {
   return a.path[a.path.length - 1] ?? 0;
+}
+
+/** Compare anchors' path prefixes (all but the trailing char offset) — i.e.
+ *  whether they point into the same runs slot (same table cell / column). */
+function samePathPrefix(a: Anchor, b: Anchor): boolean {
+  if (a.path.length !== b.path.length) return false;
+  for (let i = 0; i < a.path.length - 1; i++) {
+    if (a.path[i] !== b.path[i]) return false;
+  }
+  return true;
 }
 
 function runsToText(runs: import("../model/types").InlineRun[]): string {
