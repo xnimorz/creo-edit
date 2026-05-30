@@ -1,21 +1,11 @@
 // ---------------------------------------------------------------------------
 // Native (contentEditable) input pipeline
 //
-// The contentEditable migration replaces the hidden-textarea approach with
-// the browser's native selection + IME, while keeping the editor in full
-// control of mutations: every `beforeinput` event is preventDefaulted and
-// translated into an editor command. The browser writes to the DOM only
-// during IME composition, which is reconciled on `compositionend` (Phase 3).
-//
-// Phase 1+2 scope (this file):
-//   ✓ Bidirectional selection sync (Anchor ↔ native Range)
-//   ✓ beforeinput → command dispatch for the basic inputTypes
-//   ✓ Keyboard chord matching via the existing keymap module
-//   ✓ Clipboard wiring (copy / cut / paste) on the editor root
-//   ✗ IME composition reconciliation — deferred to Phase 3 (browser default
-//     fires for now; model will diverge during composition)
-//   ✗ Multi-cell table selection — deferred to Phase 4
-//   ✗ Per-cell contenteditable=false islands — deferred to Phase 4
+// The contentEditable approach uses the browser's native selection + IME,
+// while keeping the editor in full control of mutations: every `beforeinput`
+// event is preventDefaulted and translated into an editor command. The browser
+// is allowed to write to the DOM only during IME composition, which is
+// reconciled against the model on `compositionend`.
 // ---------------------------------------------------------------------------
 
 import type { Store } from "creo";
@@ -45,6 +35,8 @@ import type { Registry } from "../plugin/registry";
 import type { TriggerManager } from "../plugin/triggers";
 
 const ZWSP = "​";
+// Hoisted so the hot selection/composition paths don't recompile it per call.
+const ZWSP_RE = new RegExp(ZWSP, "g");
 
 /**
  * Schedule `cb` after the current render flush. Production: requestAnimationFrame
@@ -409,9 +401,8 @@ export function attachNativeInput(
   const onBeforeInput = (e: InputEvent): void => {
     const t = e.inputType;
 
-    // IME composition — let the browser write into the DOM. Phase 3 will
-    // reconcile on compositionend; for now this means the model diverges
-    // during active composition. Acceptable temporary breakage.
+    // IME composition — let the browser write into the DOM; we reconcile the
+    // affected scope against the model on compositionend.
     if (
       t === "insertCompositionText" ||
       t === "insertFromComposition" ||
@@ -436,12 +427,18 @@ export function attachNativeInput(
       case "insertParagraph":
         options.dispatch({ t: "splitBlock" });
         return;
-      case "insertLineBreak":
-        // Inside a code block this should insert "\n"; in other text-bearing
-        // blocks it should split. Phase 4 refines code-block handling. For
-        // now: always split.
-        options.dispatch({ t: "splitBlock" });
+      case "insertLineBreak": {
+        // Inside a code block a soft break inserts "\n" (code blocks never
+        // split on Enter); every other text-bearing block splits.
+        const sel = selStore.get();
+        const focusId = sel.kind === "caret" ? sel.at.blockId : sel.focus.blockId;
+        if (docStore.get().byId.get(focusId)?.type === "code") {
+          options.dispatch({ t: "insertText", text: "\n" });
+        } else {
+          options.dispatch({ t: "splitBlock" });
+        }
         return;
+      }
       case "deleteContentBackward":
       case "deleteWordBackward":
       case "deleteSoftLineBackward":
@@ -490,9 +487,12 @@ export function attachNativeInput(
             target.endOffset,
             root,
           );
-          if (startA && endA) {
+          if (startA && endA && startA.blockId === endA.blockId) {
             // Move selection over the replaced range, then delete and
             // re-insert. Avoids needing a dedicated replaceRange command.
+            // Cross-block target ranges fall through to the plain insert
+            // below — deleteBackward can't collapse those, so doing it here
+            // would duplicate text.
             selStore.set(rangeSel(startA, endA));
             options.dispatch({ t: "deleteBackward" });
             options.dispatch({ t: "insertText", text: e.data });
@@ -637,16 +637,18 @@ export function attachNativeInput(
     const kind = blockEl.getAttribute("data-block-kind") ?? "";
     const codec = lookupAnchorCodec(kind);
     const scope = codec?.domScope?.(blockEl, a) ?? blockEl;
-    const text = (scope.textContent ?? "").replace(new RegExp(ZWSP, "g"), "");
+    const text = (scope.textContent ?? "").replace(ZWSP_RE, "");
     return { scope, text };
   };
 
   const onCompositionStart = (): void => {
     const sel = selStore.get();
     // If a range was selected, delete it first — we want a caret-only start
-    // so the post-composition diff is unambiguous.
+    // so the post-composition diff is unambiguous. Route through
+    // handleBackspace so cross-block ranges actually collapse (a raw
+    // deleteBackward no-ops across block boundaries).
     if (sel.kind === "range") {
-      options.dispatch({ t: "deleteBackward" });
+      handleBackspace();
     }
     const after = selStore.get();
     if (after.kind !== "caret") return;
@@ -736,7 +738,10 @@ export function attachNativeInput(
     const payload = selectionToClipboard(docStore.get(), sel);
     e.clipboardData?.setData("text/html", payload.html);
     e.clipboardData?.setData("text/plain", payload.plain);
-    options.dispatch({ t: "deleteBackward" });
+    // Route through handleBackspace so a cross-block range is actually removed
+    // (a raw deleteBackward no-ops across block boundaries, leaving the cut
+    // content in the document).
+    handleBackspace();
   };
 
   // Shift state side-channel — many browsers don't expose `shiftKey` on
