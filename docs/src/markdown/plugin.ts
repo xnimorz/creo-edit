@@ -73,12 +73,21 @@ const RESOLVED_VIRTUAL_INDEX = "\0" + VIRTUAL_INDEX;
 
 export function markdownPlugin(): Plugin {
   let contentDir: string;
+  /**
+   * The repo-root CHANGELOG.md, surfaced on the site as `/changelog`.
+   *
+   * Served from its real location rather than copied into `content/` so the
+   * published package, the GitHub view and the docs site can't drift apart —
+   * there is exactly one changelog file.
+   */
+  let changelogFile: string;
 
   return {
     name: "creo-edit-docs-markdown",
     enforce: "pre",
     configResolved(cfg) {
       contentDir = path.resolve(cfg.root, "content");
+      changelogFile = path.resolve(cfg.root, "..", "CHANGELOG.md");
     },
 
     resolveId(id, importer) {
@@ -111,6 +120,9 @@ export function markdownPlugin(): Plugin {
           }
         };
         walk(contentDir, "");
+        if (fs.existsSync(changelogFile)) {
+          entries.push({ slug: "changelog", file: changelogFile });
+        }
 
         const imports = entries
           .map(
@@ -129,16 +141,25 @@ export function markdownPlugin(): Plugin {
       if (id.endsWith(".md?doc")) {
         const file = id.slice(0, -"?doc".length);
         const src = fs.readFileSync(file, "utf8");
-        const rel = path.relative(contentDir, file).replace(/\\/g, "/");
-        const withoutExt = rel.replace(/\.md$/, "");
-        const slug = withoutExt === "index" ? "" : withoutExt;
+        let slug: string;
+        if (file === changelogFile) {
+          // Lives outside `content/`, so the relative-path derivation below
+          // would produce "../CHANGELOG".
+          slug = "changelog";
+        } else {
+          const rel = path.relative(contentDir, file).replace(/\\/g, "/");
+          const withoutExt = rel.replace(/\.md$/, "");
+          slug = withoutExt === "index" ? "" : withoutExt;
+        }
         const compiled = compile(src, slug);
         return `export default ${JSON.stringify(compiled)};`;
       }
     },
 
     handleHotUpdate(ctx) {
-      if (ctx.file.endsWith(".md") && ctx.file.startsWith(contentDir)) {
+      const inScope =
+        ctx.file.startsWith(contentDir) || ctx.file === changelogFile;
+      if (ctx.file.endsWith(".md") && inScope) {
         const mod = ctx.server.moduleGraph.getModuleById(ctx.file + "?doc");
         if (mod) ctx.server.moduleGraph.invalidateModule(mod);
         return [

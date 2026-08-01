@@ -42,13 +42,36 @@ function unescapeEntities(s: string): string {
     .replace(/&#x27;/g, "'");
 }
 
+/**
+ * Collapse CommonMark *soft* breaks to spaces.
+ *
+ * A single newline inside a paragraph is a soft break, which renders as a
+ * space — that's what lets a markdown author hard-wrap prose at 80 columns
+ * without it showing up in the output. The editor renders runs under
+ * `white-space: pre-wrap`, so an embedded `\n` would otherwise become a
+ * visible line break and every wrapped paragraph would render ragged.
+ *
+ * HARD breaks are unaffected: marked emits those as `br` tokens, which push
+ * an explicit "\n" of their own. Fenced code blocks never reach here — they
+ * bypass `tokensToRuns` and keep their newlines verbatim.
+ */
+function collapseSoftBreaks(s: string): string {
+  return s.replace(/[ \t]*\r?\n[ \t]*/g, " ");
+}
+
 function tokensToRuns(tokens: Token[], baseMarks: Mark[] = []): SerializedRun[] {
   const out: SerializedRun[] = [];
   const push = (text: string, marks: Mark[]) => {
     if (!text) return;
-    const decoded = unescapeEntities(text);
+    const decoded = collapseSoftBreaks(unescapeEntities(text));
     if (marks.length === 0) out.push({ text: decoded });
     else out.push({ text: decoded, marks: [...new Set(marks)] });
+  };
+  /** Push text verbatim — used for hard breaks, whose "\n" must survive. */
+  const pushRaw = (text: string, marks: Mark[]) => {
+    if (!text) return;
+    if (marks.length === 0) out.push({ text });
+    else out.push({ text, marks: [...new Set(marks)] });
   };
 
   for (const tok of tokens) {
@@ -84,7 +107,8 @@ function tokensToRuns(tokens: Token[], baseMarks: Mark[] = []): SerializedRun[] 
         out.push(...tokensToRuns((tok as Tokens.Link).tokens, baseMarks));
         break;
       case "br":
-        push("\n", baseMarks);
+        // Hard break (trailing double-space or a backslash) — a real newline.
+        pushRaw("\n", baseMarks);
         break;
       case "html":
         // Inline HTML — keep the raw text so e.g. <kbd> contents survive,

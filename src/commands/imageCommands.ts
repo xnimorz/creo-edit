@@ -1,6 +1,7 @@
 import type { Store } from "creo";
 import { insertImage as cmdInsertImage } from "./insertCommands";
 import { findPos, removeBlock } from "../model/doc";
+import { recordChange } from "../model/changes";
 import { caret, isCaret } from "../controller/selection";
 import { isAtomicBlockType } from "../plugin/atomic";
 import type { DocState, Selection } from "../model/types";
@@ -73,6 +74,7 @@ export function deleteSelectedAtomic(stores: Stores): boolean {
   const i = findPos(doc, block.id);
   const next = removeBlock(doc, block.id);
   stores.docStore.set(next);
+  recordChange({ kind: "removeBlock", blockId: block.id });
   const newId = next.order[i] ?? next.order[i - 1] ?? next.order[0];
   if (newId == null) {
     stores.selStore.set(caret({ blockId: "", path: [0], offset: 0 }));

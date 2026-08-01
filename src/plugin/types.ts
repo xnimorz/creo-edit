@@ -15,6 +15,7 @@
 import type { PublicView, Store } from "creo";
 import type {
   Anchor,
+  AnchorRange,
   Block,
   BlockId,
   BlockSpec,
@@ -22,6 +23,12 @@ import type {
   InlineRun,
   Selection,
 } from "../model/types";
+import type {
+  BlockViewport,
+  SelfVirtualizedDef,
+} from "./selfVirtualized";
+
+export type { BlockViewport, SelfVirtualizedDef };
 
 // ---------------------------------------------------------------------------
 // Cell access — re-exported here so plugins can implement custom runs slots
@@ -100,12 +107,40 @@ export type SerializeCodec = {
 // BlockDef — everything a plugin needs to provide for a single block kind.
 // ---------------------------------------------------------------------------
 
+/**
+ * Props a self-virtualized block's view receives. Same shape as an ordinary
+ * block view plus the visible region, so a view can accept it without any
+ * change until it actually opts in.
+ */
+export type SelfVirtualizedProps<B extends Block = Block> = {
+  block: B;
+  key?: string;
+  /** Visible region in the block's own coordinate space, px from its top.
+   *  Absent when the editor is not virtualized. */
+  viewport?: BlockViewport;
+};
+
 export type BlockDef<B extends Block = Block> = {
   /** Discriminator — must match block.type. */
   type: B["type"];
 
-  /** Creo view rendering the block. Receives the block + a stable key. */
-  view: PublicView<{ block: B; key?: string }, void>;
+  /** Creo view rendering the block. Receives the block + a stable key, plus
+   *  a `viewport` when the block declares `selfVirtualized`. */
+  view: PublicView<SelfVirtualizedProps<B>, void>;
+
+  /**
+   * Opt in to managing internal windowing. When present, `VirtualDoc` stops
+   * measuring this block with ResizeObserver and trusts `measureHeight`, and
+   * passes the visible region down through the view's props.
+   *
+   * Only worth it for blocks that are internally long AND uniform enough for
+   * `measureHeight` to be arithmetic — code lines, log rows, table bodies. A
+   * block that isn't simply doesn't opt in and keeps today's behaviour.
+   *
+   * See the note in `plugin/selfVirtualized.ts`: a block that opts in owns
+   * its anchor codec's correctness across its own spacers.
+   */
+  selfVirtualized?: SelfVirtualizedDef<B>;
 
   /**
    * Resolve the runs slot at `anchor`. Defaults to "block.runs if present,
@@ -162,6 +197,14 @@ export type CommandDef<P = unknown> = {
    *  (e.g. arrow-nav at the table edge); the keymap dispatcher uses this to
    *  decide whether to preventDefault. Returning void or true means handled. */
   run(ctx: CommandCtx, payload: P): boolean | void;
+  /**
+   * Opt the command out of the read-only gate. The dispatcher refuses every
+   * command while `editor.isEditable()` is false — set this on commands that
+   * only move the caret / open UI and never touch the document (table cell
+   * navigation, search jump-to-match, …) so they keep working in a diff or
+   * transcript view. Default: false (gated).
+   */
+  readOnlySafe?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -244,18 +287,131 @@ export type DecorationDef = {
   id: string;
   match(b: Block): boolean;
   /**
+   * Elements within the block to anchor decorations to. Defaults to
+   * `[blockEl]`, which is exactly the per-block behaviour.
+   *
+   * A code block returns its `.ce-code-line` children, giving one decoration
+   * per line — which is what every gutter affordance (line numbers, diff
+   * signs, diagnostics, fold arrows) actually needs.
+   *
+   * Called on every doc change and every reposition frame, so keep it to a
+   * `querySelectorAll`. See `uniformTargets` when the list is long.
+   */
+  targets?(block: Block, blockEl: HTMLElement): HTMLElement[];
+  /**
    * Mount the decoration's UI into the supplied `host` element. Return an
    * optional cleanup fn (called on unmount). The decoration's UI is plain
    * DOM — plugins that want a creo subtree create their own creo app
    * inside `mount` and dispose it in the returned cleanup.
+   *
+   * `target` is the element from `targets()` this instance is anchored to,
+   * and equals the block element when `targets` is omitted. `index` is the
+   * position within `targets()`, and is 0 when defaulted.
    */
   mount(
     block: Block,
-    blockEl: HTMLElement,
+    target: HTMLElement,
     host: HTMLElement,
     handle: DecorationHandle,
+    index: number,
   ): (() => void) | void;
   layer: "left" | "right" | "top" | "bottom" | "absolute";
+  /** Slot width in px reserved per decoration in the left / right gutter.
+   *  Default 24. */
+  slotWidth?: number;
+  /**
+   * Promise that every target has the same height and that they stack
+   * contiguously from the first one's top — true for code lines, false for
+   * anything with mixed content. When set, the manager measures only
+   * `targets()[0]` per frame and derives the rest arithmetically, which is
+   * what keeps a ~500-line gutter off the layout-thrash path.
+   */
+  uniformTargets?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Range decorations — arbitrary, overlapping spans painted with zero DOM
+// mutation via the CSS Custom Highlight API.
+// ---------------------------------------------------------------------------
+
+/** The mounted window a range-decoration source is asked to cover. */
+export type DecorationViewport = {
+  firstBlock: BlockId;
+  lastBlock: BlockId;
+};
+
+export type RangeDecorationDef = {
+  id: string;
+  /**
+   * Ranges to paint. Called on doc change and on viewport change; return only
+   * what intersects `viewport` for large documents. Ranges whose blocks are
+   * not currently mounted are skipped silently, so an over-broad return is
+   * correct-but-wasteful rather than wrong.
+   *
+   * `viewport` is null when the editor has no mounted blocks at all.
+   */
+  ranges(
+    doc: DocState,
+    viewport: DecorationViewport | null,
+  ): AnchorRange[];
+  /**
+   * Registered as a CSS `::highlight(name)`; the host supplies the styling.
+   * Names live in a document-global registry, so pick something namespaced
+   * when more than one editor is on the page.
+   */
+  className: string;
+  /** Paint order when ranges overlap. Higher wins. Default 0. */
+  priority?: number;
+};
+
+// ---------------------------------------------------------------------------
+// Inline widgets — non-text content placed WITHIN a line (ghost-text
+// completions, LSP inlay hints). See plugin/inlineWidgets.ts for the three
+// things a widget has to stay invisible to.
+// ---------------------------------------------------------------------------
+
+export type InlineWidgetPlacement = {
+  anchor: Anchor;
+  /** Opaque per-widget data handed back to `mount`. */
+  data?: unknown;
+};
+
+export type InlineWidgetDef = {
+  id: string;
+  /**
+   * Where widgets go. Called on doc change, selection change and viewport
+   * change; return only what intersects `viewport` for large documents.
+   * Placements whose block isn't mounted are retried on a later pass.
+   *
+   * `viewport` is null when the editor has no mounted blocks.
+   */
+  at(
+    doc: DocState,
+    viewport: DecorationViewport | null,
+  ): InlineWidgetPlacement[];
+  /**
+   * Which side of the anchor the widget sits on. Widgets are zero-width to
+   * the model either way, so this orders several widgets sharing one anchor
+   * ("before" first) and is exposed as `data-affinity` for styling.
+   * Default: "after".
+   */
+  affinity?: "before" | "after";
+  /**
+   * Whether the widget takes pointer events. Ghost text is inert so a click
+   * lands on the text underneath; a clickable inlay hint is not.
+   * Default: false.
+   */
+  interactive?: boolean;
+  /**
+   * Fill in the supplied host span. Return an optional cleanup fn. The host
+   * already carries `data-ce-inline-widget` and `contenteditable="false"` —
+   * do not remove either, they are what makes the widget invisible to the
+   * anchor walk and to the browser's caret.
+   */
+  mount(
+    host: HTMLElement,
+    ctx: { anchor: Anchor; data?: unknown },
+  ): (() => void) | void;
 };
 
 // ---------------------------------------------------------------------------
@@ -269,6 +425,8 @@ export type EditorPlugin = {
   keymap?: KeymapDef[];
   triggers?: TriggerDef[];
   decorations?: DecorationDef[];
+  rangeDecorations?: RangeDecorationDef[];
+  inlineWidgets?: InlineWidgetDef[];
   /** Tag prefixes whose history snapshots may coalesce. Defaults are
    *  ["text:"]; plugins can declare their own (e.g. "myPlugin:typing"). */
   historyCoalescePrefixes?: string[];

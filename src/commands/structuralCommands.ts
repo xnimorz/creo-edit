@@ -19,6 +19,11 @@ import {
   removeBlocks,
   updateBlock,
 } from "../model/doc";
+import {
+  recordChange,
+  recordTextChange,
+  type DocChange,
+} from "../model/changes";
 import { isAtomicBlockType } from "../plugin/atomic";
 import {
   anchorOffset,
@@ -79,6 +84,7 @@ export function splitBlock({ docStore, selStore }: Stores): boolean {
     if (!ctx) return false;
     const newRuns = insertTextRuns(ctx.runs, off, "\n");
     docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+    recordTextChange(cur.at, off, off, 1);
     selStore.set(caret(withCharOffset(cur.at, off + 1)));
     return true;
   }
@@ -94,6 +100,7 @@ export function splitBlock({ docStore, selStore }: Stores): boolean {
     docStore.set(
       updateBlock(doc, { ...(block as CodeBlock), runs: newRuns } as Block),
     );
+    recordTextChange(cur.at, off, off, 1);
     selStore.set(caret(withCharOffset(cur.at, off + 1)));
     return true;
   }
@@ -138,6 +145,7 @@ export function splitBlock({ docStore, selStore }: Stores): boolean {
   const d1 = updateBlock(doc, updatedLeft);
   const d2 = insertAfter(d1, block.id, nextBlock);
   docStore.set(d2);
+  recordChange({ kind: "split", blockId: block.id, at: off, into: newId });
   selStore.set(caret(caretAt(newId, 0)));
   return true;
 }
@@ -177,6 +185,12 @@ export function mergeBackward({ docStore, selStore }: Stores): boolean {
   const d1 = updateBlock(doc, merged as Block);
   const d2 = removeBlock(d1, at.blockId);
   docStore.set(d2);
+  recordChange({
+    kind: "merge",
+    blockId: at.blockId,
+    into: prevId,
+    atOffset: prevLen,
+  });
   selStore.set(caret(caretAt(prevId, prevLen)));
   return true;
 }
@@ -212,6 +226,12 @@ export function mergeForward({ docStore, selStore }: Stores): boolean {
   const d1 = updateBlock(doc, merged as Block);
   const d2 = removeBlock(d1, nextId);
   docStore.set(d2);
+  recordChange({
+    kind: "merge",
+    blockId: nextId,
+    into: block.id,
+    atOffset: len,
+  });
   // Caret stays at the merge boundary.
   selStore.set(caret(withCharOffset(at, len)));
   return true;
@@ -320,6 +340,7 @@ function collapseRangeForStructuralOp(
         runs: newRuns,
       } as Block),
     );
+    recordTextChange(start, sOff, eOff, 0);
     selStore.set(caret(caretAt(block.id, sOff)));
     return true;
   }
@@ -358,7 +379,12 @@ function collapseRangeForStructuralOp(
   let working = doc;
   let resultId: string;
   let resultOff: number;
+  // Change emission mirrors the three shapes below exactly: truncate the
+  // surviving text on each side, drop the blocks in between, then fold the
+  // end block into the start one.
+  const pending: DocChange[] = [];
   if (startTB) {
+    const startLen = blockTextLength(startBlock as TextBearingBlock);
     working = updateBlock(working, {
       ...(startBlock as TextBearingBlock),
       runs: merged,
@@ -366,6 +392,38 @@ function collapseRangeForStructuralOp(
     const idsToRemove: string[] = [];
     for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
     if (idsToRemove.length > 0) working = removeBlocks(working, idsToRemove);
+    if (startLen > sOff) {
+      pending.push({
+        kind: "text",
+        blockId: start.blockId,
+        container: [],
+        from: sOff,
+        to: startLen,
+        insertedLength: 0,
+      });
+    }
+    if (endTB && eOff > 0) {
+      pending.push({
+        kind: "text",
+        blockId: end.blockId,
+        container: [],
+        from: 0,
+        to: eOff,
+        insertedLength: 0,
+      });
+    }
+    for (const id of idsToRemove) {
+      if (id === end.blockId && endTB) continue;
+      pending.push({ kind: "removeBlock", blockId: id });
+    }
+    if (endTB) {
+      pending.push({
+        kind: "merge",
+        blockId: end.blockId,
+        into: start.blockId,
+        atOffset: sOff,
+      });
+    }
     resultId = start.blockId;
     resultOff = sOff;
   } else if (endTB) {
@@ -376,12 +434,28 @@ function collapseRangeForStructuralOp(
     const idsToRemove: string[] = [];
     for (let i = startI; i < endI; i++) idsToRemove.push(doc.order[i]!);
     if (idsToRemove.length > 0) working = removeBlocks(working, idsToRemove);
+    if (eOff > 0) {
+      pending.push({
+        kind: "text",
+        blockId: end.blockId,
+        container: [],
+        from: 0,
+        to: eOff,
+        insertedLength: 0,
+      });
+    }
+    for (const id of idsToRemove) {
+      pending.push({ kind: "removeBlock", blockId: id });
+    }
     resultId = end.blockId;
     resultOff = 0;
   } else {
     const idsToRemove: string[] = [];
     for (let i = startI; i <= endI; i++) idsToRemove.push(doc.order[i]!);
     working = removeBlocks(working, idsToRemove);
+    for (const id of idsToRemove) {
+      pending.push({ kind: "removeBlock", blockId: id });
+    }
     if (working.order.length === 0) {
       const freshId = newBlockId();
       working = insertAt(working, 0, {
@@ -389,6 +463,7 @@ function collapseRangeForStructuralOp(
         type: "p",
         runs: [],
       } as BlockSpec);
+      pending.push({ kind: "insertBlock", blockId: freshId, index: 0 });
       resultId = freshId;
     } else {
       const newIdx = Math.min(startI, working.order.length - 1);
@@ -397,6 +472,7 @@ function collapseRangeForStructuralOp(
     resultOff = 0;
   }
   docStore.set(working);
+  for (const c of pending) recordChange(c);
   selStore.set(caret(caretAt(resultId, resultOff)));
   return true;
 }

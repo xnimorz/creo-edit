@@ -1,4 +1,4 @@
-import type { Block, InlineRun, Mark } from "./types";
+import type { Block, InlineRun, Mark, RunAttrs } from "./types";
 
 /** Blocks whose content is a single InlineRun[] (paragraphs, headings, list items). */
 export type TextBearingBlock = Extract<
@@ -44,20 +44,40 @@ function marksEqual(
   return true;
 }
 
+function attrsEqual(
+  a: RunAttrs | undefined,
+  b: RunAttrs | undefined,
+): boolean {
+  if (a === b) return true;
+  // `class` is the only field today; compare it structurally so two distinct
+  // objects describing the same styling still merge.
+  return (a?.class ?? undefined) === (b?.class ?? undefined);
+}
+
 /**
- * Normalize: drop empty runs and merge adjacent runs with identical marks.
- * Always returns a fresh array.
+ * Re-slice a run to different text, carrying its marks AND its view-only
+ * `attrs` across. Every splice/split path goes through this so a syntax
+ * token's class survives an edit inside the run.
+ */
+export function withRunText(run: InlineRun, text: string): InlineRun {
+  return {
+    text,
+    ...(run.marks ? { marks: run.marks } : {}),
+    ...(run.attrs ? { attrs: run.attrs } : {}),
+  };
+}
+
+/**
+ * Normalize: drop empty runs and merge adjacent runs whose marks AND attrs
+ * match. Always returns a fresh array.
  */
 export function normalizeRuns(runs: InlineRun[]): InlineRun[] {
   const out: InlineRun[] = [];
   for (const r of runs) {
     if (r.text.length === 0) continue;
     const last = out[out.length - 1];
-    if (last && marksEqual(last.marks, r.marks)) {
-      out[out.length - 1] = {
-        text: last.text + r.text,
-        ...(last.marks ? { marks: last.marks } : {}),
-      };
+    if (last && marksEqual(last.marks, r.marks) && attrsEqual(last.attrs, r.attrs)) {
+      out[out.length - 1] = withRunText(last, last.text + r.text);
     } else {
       out.push(r);
     }
@@ -133,12 +153,17 @@ export function insertText(
   for (let i = 0; i < pos.runIndex; i++) out.push(runs[i]!);
 
   // Reuse the run we already located rather than re-scanning via marksAt.
-  const inheritMarks =
-    marks ??
-    (offset === 0 || pos.runIndex < 0 ? undefined : runs[pos.runIndex]!.marks);
-  const newRun: InlineRun = inheritMarks && inheritMarks.size
-    ? { text, marks: inheritMarks }
-    : { text };
+  const host = offset === 0 || pos.runIndex < 0 ? undefined : runs[pos.runIndex]!;
+  const inheritMarks = marks ?? host?.marks;
+  // `attrs` only rides along when the caller didn't dictate marks — an
+  // explicit `marks` argument means the text came from elsewhere (paste,
+  // markdown shortcut) and shouldn't inherit the host run's derived styling.
+  const inheritAttrs = marks ? undefined : host?.attrs;
+  const newRun: InlineRun = {
+    text,
+    ...(inheritMarks && inheritMarks.size ? { marks: inheritMarks } : {}),
+    ...(inheritAttrs ? { attrs: inheritAttrs } : {}),
+  };
 
   if (pos.runIndex === -1) {
     // Empty runs: just emit the new run.
@@ -147,13 +172,9 @@ export function insertText(
     const r = runs[pos.runIndex]!;
     const left = r.text.slice(0, pos.localOffset);
     const right = r.text.slice(pos.localOffset);
-    if (left.length) {
-      out.push(r.marks ? { text: left, marks: r.marks } : { text: left });
-    }
+    if (left.length) out.push(withRunText(r, left));
     out.push(newRun);
-    if (right.length) {
-      out.push(r.marks ? { text: right, marks: r.marks } : { text: right });
-    }
+    if (right.length) out.push(withRunText(r, right));
     for (let i = pos.runIndex + 1; i < runs.length; i++) out.push(runs[i]!);
   }
   return normalizeRuns(out);
@@ -185,9 +206,7 @@ export function deleteRange(
       const left = r.text.slice(0, keepLeft);
       const right = r.text.slice(keepRightStart);
       const txt = left + right;
-      if (txt.length) {
-        out.push(r.marks ? { text: txt, marks: r.marks } : { text: txt });
-      }
+      if (txt.length) out.push(withRunText(r, txt));
     }
     prefix = re;
   }
@@ -210,12 +229,8 @@ export function splitRunsAt(
   const r = runs[pos.runIndex]!;
   const lText = r.text.slice(0, pos.localOffset);
   const rText = r.text.slice(pos.localOffset);
-  if (lText.length) {
-    left.push(r.marks ? { text: lText, marks: r.marks } : { text: lText });
-  }
-  if (rText.length) {
-    right.push(r.marks ? { text: rText, marks: r.marks } : { text: rText });
-  }
+  if (lText.length) left.push(withRunText(r, lText));
+  if (rText.length) right.push(withRunText(r, rText));
   for (let i = pos.runIndex + 1; i < runs.length; i++) right.push(runs[i]!);
   return [normalizeRuns(left), normalizeRuns(right)];
 }

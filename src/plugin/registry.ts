@@ -17,12 +17,15 @@ import { registerAtomic } from "./atomic";
 import { registerHtmlBlockCodec } from "./htmlCodec";
 import { registerRunsAt } from "./runsAt";
 import { registerSerializeCodec } from "./serializeCodec";
+import { registerSelfVirtualized } from "./selfVirtualized";
 import type {
   CommandCtx,
   CommandDef,
   DecorationDef,
   EditorPlugin,
+  InlineWidgetDef,
   KeymapDef,
+  RangeDecorationDef,
   TriggerDef,
 } from "./types";
 
@@ -31,9 +34,17 @@ export class Registry {
   readonly keymap: KeymapDef[] = [];
   readonly triggers: TriggerDef[] = [];
   readonly decorations: DecorationDef[] = [];
+  readonly rangeDecorations: RangeDecorationDef[] = [];
+  readonly inlineWidgets: InlineWidgetDef[] = [];
   readonly coalescePrefixes = new Set<string>(["text:"]);
   /** Set of all known block type discriminators (for fast existence checks). */
   readonly knownBlockTypes = new Set<string>();
+  /**
+   * Read-only gate. `createEditor` points this at `editor.isEditable()`; a
+   * bare Registry (tests, devtools) defaults to always-editable. Commands
+   * that declare `readOnlySafe` bypass it.
+   */
+  isEditable: () => boolean = () => true;
 
   install(plugin: EditorPlugin): void {
     if (plugin.blocks) {
@@ -51,6 +62,9 @@ export class Registry {
         if (def.isAtomic) registerAtomic(def.type);
         if (def.htmlCodec) registerHtmlBlockCodec(def.type, def.htmlCodec);
         if (def.serializeCodec) registerSerializeCodec(def.type, def.serializeCodec);
+        if (def.selfVirtualized) {
+          registerSelfVirtualized(def.type, def.selfVirtualized as never);
+        }
         // Note: view registration lives in viewRegistry (./viewRegistry).
         // We import-and-call there too so the renderer can resolve by type.
         registerView(def.type, def.view as never);
@@ -62,6 +76,10 @@ export class Registry {
     if (plugin.keymap) this.keymap.push(...plugin.keymap);
     if (plugin.triggers) this.triggers.push(...plugin.triggers);
     if (plugin.decorations) this.decorations.push(...plugin.decorations);
+    if (plugin.rangeDecorations) {
+      this.rangeDecorations.push(...plugin.rangeDecorations);
+    }
+    if (plugin.inlineWidgets) this.inlineWidgets.push(...plugin.inlineWidgets);
     if (plugin.historyCoalescePrefixes) {
       for (const p of plugin.historyCoalescePrefixes) this.coalescePrefixes.add(p);
     }
@@ -75,6 +93,9 @@ export class Registry {
   runCommand(t: string, payload: unknown, ctx: CommandCtx): boolean {
     const cmd = this.commands.get(t);
     if (!cmd) return false;
+    // Read-only gate — returning false (rather than throwing) keeps keymap
+    // fall-through working, so the browser still gets its default handling.
+    if (cmd.readOnlySafe !== true && !this.isEditable()) return false;
     const r = cmd.run(ctx, payload);
     return r !== false;
   }
@@ -95,18 +116,30 @@ export class Registry {
 
 import type { PublicView } from "creo";
 import type { Block } from "../model/types";
+import type { BlockViewport } from "./selfVirtualized";
 
-const viewByType = new Map<string, PublicView<{ block: Block; key?: string }, void>>();
+/**
+ * Props every registered block view is called with. `viewport` is only
+ * populated for blocks that declared `selfVirtualized` and only when the
+ * editor is virtualized; every other view ignores the field.
+ */
+export type BlockViewProps = {
+  block: Block;
+  key?: string;
+  viewport?: BlockViewport;
+};
+
+const viewByType = new Map<string, PublicView<BlockViewProps, void>>();
 
 export function registerView(
   type: string,
-  v: PublicView<{ block: Block; key?: string }, void>,
+  v: PublicView<BlockViewProps, void>,
 ): void {
   viewByType.set(type, v);
 }
 
 export function getView(
   type: string,
-): PublicView<{ block: Block; key?: string }, void> | null {
+): PublicView<BlockViewProps, void> | null {
   return viewByType.get(type) ?? null;
 }

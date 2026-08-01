@@ -7,6 +7,7 @@ import { DocPage } from "./views/DocPage";
 import { Demo } from "./views/Demo";
 import { AtomicBlocksDemo } from "./views/AtomicBlocksDemo";
 import { SearchDemo } from "./views/SearchDemo";
+import { IdeDemo } from "./views/IdeDemo";
 import { navSections } from "./nav";
 
 const DocRoute = view<{ slug: string }>(({ props }) => ({
@@ -30,12 +31,14 @@ const routes: { path: string; view: () => void }[] = [
   { path: "/demo", view: () => Demo() },
   { path: "/non-editable-blocks", view: () => AtomicBlocksDemo() },
   { path: "/large-text-search", view: () => SearchDemo() },
+  { path: "/ide-affordances", view: () => IdeDemo() },
 ];
 
 const STANDALONE_SLUGS = new Set([
   "demo",
   "non-editable-blocks",
   "large-text-search",
+  "ide-affordances",
 ]);
 for (const slug of slugs) {
   if (!slug) continue;

@@ -15,6 +15,8 @@ type EditorPlugin = {
   keymap?: KeymapDef[];
   triggers?: TriggerDef[];
   decorations?: DecorationDef[];
+  rangeDecorations?: RangeDecorationDef[];
+  inlineWidgets?: InlineWidgetDef[];
 };
 ```
 
@@ -111,7 +113,111 @@ Type `@al` and the popover filters to `alice`. Press Enter or click and the edit
 - **Block kinds** — see [block-format](#/block-format) for the wire shape, then provide a `BlockDef` with `view`, `runsAt` (only if the block holds nested runs), `anchorCodec`, `htmlCodec`, and `serializeCodec`. The built-in `cellsPlugin` ([source](https://github.com/...)) is the worked example.
 - **Commands** — `{ t: "myPlugin.action", run: (ctx, payload) => { ... } }`. Dispatch via `editor.dispatch({ t: "myPlugin.action", payload })`.
 - **Keymap** — `{ chord: "Mod+Shift+K", when?: ctx => ..., command: { t, payload? } }`. Plugin keymap entries are matched BEFORE the built-in keymap; the first matching entry whose `when` returns true (or which has no `when`) wins. If the dispatched command returns `false`, the matcher falls through to subsequent entries (so plugin commands can no-op without consuming the key).
-- **Decorations** — overlay UI per block. See the next page.
+- **Decorations** — overlay UI per block (or per line — see below). See the next page.
+
+### Commands and read-only editors
+
+Every plugin command is refused while `editor.isEditable()` is false. Commands that only move the caret or open UI opt back in:
+
+```ts
+{ t: "myPlugin.nextCell", readOnlySafe: true, run: (ctx) => { /* ... */ } }
+```
+
+Gated commands return `false` rather than throwing, so keymap fall-through keeps working and the browser still gets its default handling of the key.
+
+## Sub-block decorations (per-line gutters)
+
+`DecorationDef.targets` picks the elements *within* a block to anchor against. Omit it and you get one decoration per block, exactly as before. Return the block's line elements and you get a per-line gutter — line numbers, diff signs, diagnostics, fold arrows:
+
+```ts
+const lineNumbers: DecorationDef = {
+  id: "line-numbers",
+  layer: "left",
+  slotWidth: 40,        // gutter width in px (default 24)
+  uniformTargets: true, // every target is the same height — see below
+  match: (b) => b.type === "code",
+  targets: (_block, blockEl) =>
+    Array.from(blockEl.querySelectorAll<HTMLElement>(".ce-code-line")),
+  mount(block, target, host, handle, index) {
+    host.textContent = String(index + 1);
+  },
+};
+```
+
+`mount` receives the anchored `target` (the block element when `targets` is omitted) and the `index` within `targets()`. Decorations are added and removed as targets come and go, so editing a code block keeps the gutter in step.
+
+Repositioning runs on rAF against `getBoundingClientRect`. With ~500 visible lines that is 500 layout reads a frame. Set `uniformTargets: true` when every target has the same height and they stack contiguously — the manager then measures only `targets()[0]` and derives the rest arithmetically.
+
+## Range decorations
+
+Comment ranges, diagnostic squiggles, word-level diff and selection highlights all overlap each other *and* overlap whatever run structure the model already has. Expressing them as DOM would mean splitting spans and fighting the token model, so they're painted with the CSS Custom Highlight API instead — zero DOM mutation:
+
+```ts
+const diagnostics: EditorPlugin = {
+  name: "diagnostics",
+  rangeDecorations: [
+    {
+      id: "lsp-error",
+      className: "my-lsp-error",   // styled via ::highlight(my-lsp-error)
+      priority: 10,                // higher wins where ranges overlap
+      ranges(doc, viewport) {
+        // viewport is { firstBlock, lastBlock } of the mounted window, or
+        // null when nothing is mounted. Return only what intersects it on
+        // a large document.
+        return currentDiagnostics.map((d) => ({ from: d.start, to: d.end }));
+      },
+    },
+  ],
+};
+```
+
+```css
+::highlight(my-lsp-error) {
+  text-decoration: underline wavy red;
+}
+```
+
+Sources are re-run on document change, scroll / resize, and block mount / unmount (virtualization). Call `editor.refreshRangeDecorations()` when the state the source reads changed on its own.
+
+Highlight names are document-global, so namespace `className` when more than one editor is on the page.
+
+**No fallback.** Where the API is unavailable, nothing is painted — a DOM fallback would have to split spans, which the character-offset walk would then see. Branch on `editor.supportsRangeDecorations()` and render your own affordance (a gutter marker via a sub-block decoration, say) rather than assuming a paint happened.
+
+## Inline widgets
+
+Custom blocks are block-level, and non-text ones must be `isAtomic` — two caret positions and `contenteditable="false"` around the whole thing. That's an island *between* blocks. Ghost-text completions and LSP inlay hints need content *inside* a line, which cannot be faked with a styled span: the span's text would enter the character-offset walk and shift every anchor after it on the line.
+
+```ts
+const inlayHints: EditorPlugin = {
+  name: "inlay-hints",
+  inlineWidgets: [
+    {
+      id: "inlay",
+      affinity: "after",   // ordering when several widgets share an anchor
+      interactive: false,  // inert, so clicks land on the text underneath
+      at(doc, viewport) {
+        return hints.map((h) => ({ anchor: h.anchor, data: h.label }));
+      },
+      mount(host, ctx) {
+        host.textContent = String(ctx.data);
+        return () => { /* optional cleanup */ };
+      },
+    },
+  ],
+};
+```
+
+The host span you're handed already carries `data-ce-inline-widget` and `contenteditable="false"`. **Do not remove either** — they are what makes the widget invisible to:
+
+1. **The character-offset walk.** The default and code-block anchor codecs skip subtrees carrying the attribute. A custom `anchorCodec` must honour it too (`INLINE_WIDGET_ATTR` is exported), or widgets in that block will shift every anchor after them.
+2. **IME composition diffing.** The composition diff reads the affected scope through `visibleTextOf`, which strips widget subtrees. Without it a multi-line ghost-text suggestion would read as a phantom insertion.
+3. **Clipboard serialization.** Free: the serializer works from the model, and widgets are not in the model.
+
+`contenteditable="false"` handles the browser side of caret navigation — arrow keys step over an atomic inline — but none of the three above, which are creo-edit's own logic.
+
+Sources are re-run on document change, selection change (ghost text tracks the caret) and viewport change. Call `editor.refreshInlineWidgets()` when a completion arrives from elsewhere. Widgets whose block isn't mounted are retried on a later pass.
+
+The renderer owns block DOM and rewrites a run's text wholesale when it changes, which discards any widget inside it; the manager re-places it on the same tick, reusing the existing host so widget-internal state survives an unrelated keystroke.
 
 ## Lifecycle
 

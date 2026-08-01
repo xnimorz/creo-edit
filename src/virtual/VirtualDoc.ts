@@ -1,7 +1,11 @@
 import { div, view } from "creo";
 import type { Store } from "creo";
-import type { BlockId, DocState, Selection } from "../model/types";
+import type { Block, BlockId, DocState, Selection } from "../model/types";
 import { getView } from "../plugin/registry";
+import {
+  getSelfVirtualized,
+  isSelfVirtualized,
+} from "../plugin/selfVirtualized";
 import { HeightIndex } from "./heightIndex";
 
 /**
@@ -31,6 +35,8 @@ export type VirtualDocProps = {
 
 const DEFAULT_ESTIMATED = 32;
 const DEFAULT_OVERSCAN = 1.5;
+/** Fallback when a self-virtualized block's element isn't laid out yet. */
+const DEFAULT_LINE_HEIGHT = 20;
 
 export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   const doc = use(props().docStore);
@@ -45,20 +51,107 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   // BlockId → mounted element (windowed subset) so the ResizeObserver and
   // measureAll can resolve heights; rebuilt from the live DOM after render.
   const elByBlock = new Map<BlockId, HTMLElement>();
+  // Mounted elements of self-virtualized blocks. Tracked separately so they
+  // are excluded from ResizeObserver reconciliation while still being
+  // reachable for reading font metrics.
+  const selfElByBlock = new Map<BlockId, HTMLElement>();
   // BlockId → order index, rebuilt only when the order array identity changes
   // (text edits keep the same `order` reference, so this is amortized cheap).
   const idToIndex = new Map<BlockId, number>();
   let lastOrder: BlockId[] | null = null;
 
+  // ---------------------------------------------------------------------
+  // Self-virtualized blocks (see plugin/selfVirtualized.ts). These manage
+  // their own internal windowing, so we never measure them — we ask the
+  // block kind for a height instead, and we do it for EVERY such block in
+  // the doc, mounted or not, so the scrollbar is right from the first frame
+  // rather than only once the block scrolls into view.
+  // ---------------------------------------------------------------------
+  /** Positions in `order` holding a self-virtualized block. Small by nature
+   *  (a handful of code blocks), rebuilt only when `order` identity changes. */
+  let selfIndices: number[] = [];
+  /** Memo so `measureHeight` runs on block change, not per frame. `lineHeight`
+   *  is part of the key: the first frames run before any element is laid out,
+   *  so the metric starts at the default and must be able to correct itself. */
+  const selfHeights = new Map<
+    BlockId,
+    { block: Block; height: number; lineHeight: number }
+  >();
+  /** Per-kind line-height, read off a mounted element once. */
+  const lineHeightByType = new Map<string, number>();
+
+  const lineHeightFor = (type: string): number => {
+    const cached = lineHeightByType.get(type);
+    if (cached !== undefined) return cached;
+    let lh = DEFAULT_LINE_HEIGHT;
+    for (const el of selfElByBlock.values()) {
+      if (el.getAttribute("data-block-kind") !== type) continue;
+      const parsed = readLineHeight(el);
+      if (parsed > 0) {
+        lh = parsed;
+        // Only cache once we've actually seen a laid-out element; otherwise
+        // an early zero-height frame would pin the default forever.
+        lineHeightByType.set(type, lh);
+      }
+      break;
+    }
+    return lh;
+  };
+
+  const applySelfHeights = () => {
+    if (selfIndices.length === 0) return;
+    const d = doc.get();
+    for (const i of selfIndices) {
+      const id = d.order[i];
+      if (!id) continue;
+      const block = d.byId.get(id);
+      if (!block) continue;
+      const lineHeight = lineHeightFor(block.type);
+      const memo = selfHeights.get(id);
+      if (memo && memo.block === block && memo.lineHeight === lineHeight) {
+        // Same block object and same metric — height is unchanged, but its
+        // INDEX may have moved, so still write it in.
+        heightIndex.setHeight(i, memo.height);
+        continue;
+      }
+      const def = getSelfVirtualized(block.type);
+      if (!def) continue;
+      let h: number;
+      try {
+        h = def.measureHeight(block, { lineHeight });
+      } catch {
+        continue;
+      }
+      if (!(h > 0)) continue;
+      selfHeights.set(id, { block, height: h, lineHeight });
+      heightIndex.setHeight(i, h);
+    }
+  };
+
   // Sync the index size + id→index map whenever the doc shape changes.
   const syncIndex = () => {
-    const order = doc.get().order;
+    const d = doc.get();
+    const order = d.order;
     if (heightIndex.size !== order.length) heightIndex.resize(order.length);
     if (order !== lastOrder) {
       idToIndex.clear();
-      for (let i = 0; i < order.length; i++) idToIndex.set(order[i]!, i);
+      const nextSelf: number[] = [];
+      for (let i = 0; i < order.length; i++) {
+        const id = order[i]!;
+        idToIndex.set(id, i);
+        const b = d.byId.get(id);
+        if (b && isSelfVirtualized(b.type)) nextSelf.push(i);
+      }
+      selfIndices = nextSelf;
       lastOrder = order;
+      // Drop memos for blocks that left the doc.
+      if (selfHeights.size > 0) {
+        for (const id of selfHeights.keys()) {
+          if (!idToIndex.has(id)) selfHeights.delete(id);
+        }
+      }
     }
+    applySelfHeights();
   };
 
   // Rebuild elByBlock from the mounted DOM and reconcile ResizeObserver
@@ -66,15 +159,35 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   // scrolled out of the window. Only top-level blocks carry data-block-kind
   // (cells share their parent's data-block-id), so this selects exactly the
   // measurable block containers.
+  //
+  // Self-virtualized blocks are routed to `selfElByBlock` instead and are
+  // never observed: the block sizes itself from its own spacers, and an
+  // observer would feed that self-chosen height straight back into the index
+  // the block is already authoritative for — the two would fight every frame.
+  // `data-block-kind` is already on the element, so the exclusion is a plain
+  // attribute test with nothing extra to thread through.
   const refreshObservations = (root: HTMLElement) => {
     const els = root.querySelectorAll<HTMLElement>(
       "[data-block-kind][data-block-id]",
     );
     const seen = new Set<BlockId>();
+    const seenSelf = new Set<BlockId>();
     for (let k = 0; k < els.length; k++) {
       const el = els[k]!;
       const id = el.getAttribute("data-block-id") as BlockId | null;
       if (!id) continue;
+      const kind = el.getAttribute("data-block-kind") ?? "";
+      if (isSelfVirtualized(kind)) {
+        seenSelf.add(id);
+        // If it used to be observed (kind changed under it), stop.
+        const prevObserved = elByBlock.get(id);
+        if (prevObserved) {
+          resizeObserver?.unobserve(prevObserved);
+          elByBlock.delete(id);
+        }
+        selfElByBlock.set(id, el);
+        continue;
+      }
       seen.add(id);
       const prev = elByBlock.get(id);
       if (prev !== el) {
@@ -88,6 +201,9 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
         resizeObserver?.unobserve(el);
         elByBlock.delete(id);
       }
+    }
+    for (const id of selfElByBlock.keys()) {
+      if (!seenSelf.has(id)) selfElByBlock.delete(id);
     }
   };
 
@@ -183,14 +299,17 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
           }
         });
       }
-      syncIndex();
+      // refreshObservations first: it populates `selfElByBlock`, which is
+      // where the self-virtualized line-height metric is read from, and
+      // syncIndex consumes that metric.
       refreshObservations(root);
+      syncIndex();
       measureAll();
     },
     onUpdateAfter() {
       const root = currentRoot();
-      syncIndex();
       if (root) refreshObservations(root);
+      syncIndex();
       measureAll();
     },
     render() {
@@ -232,7 +351,24 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
             // DocView, so plugin-registered block kinds render identically
             // when virtualized.
             const v = getView(block.type);
-            if (v) v({ block, key: id });
+            if (!v) continue;
+            if (isSelfVirtualized(block.type)) {
+              // Translate the window into the block's own coordinate space so
+              // it can slice its sub-items without knowing about the outer
+              // scroll container.
+              const blockTop = heightIndex.prefix(i);
+              const blockH = heightIndex.prefix(i + 1) - blockTop;
+              v({
+                block,
+                key: id,
+                viewport: {
+                  top: Math.max(0, fromY - blockTop),
+                  bottom: Math.max(0, Math.min(blockH, toY - blockTop)),
+                },
+              });
+              continue;
+            }
+            v({ block, key: id });
           }
           if (bottomSpacer > 0) {
             div({
@@ -246,6 +382,18 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
     },
   };
 });
+
+/** Computed line-height in px, or 0 when it isn't resolvable (`normal`, or a
+ *  headless environment with no layout). */
+function readLineHeight(el: HTMLElement): number {
+  try {
+    const raw = window.getComputedStyle(el).lineHeight;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
 
 function readViewportHeight(): number {
   if (typeof window === "undefined") return 800;

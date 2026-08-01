@@ -110,6 +110,32 @@ type SerializedRun = {
 
 A block's text is an array of contiguous runs. Adjacent runs with the same `marks` set are equivalent to a single combined run; you don't need to merge them yourself.
 
+### View-only run attributes
+
+The in-memory `InlineRun` carries one more field than the wire shape:
+
+```ts
+type InlineRun = {
+  text: string;
+  marks?: ReadonlySet<Mark>;
+  /** Rendered on the run's span. Not part of mark toggling. */
+  attrs?: { class?: string };
+};
+```
+
+`attrs.class` lands on the run's `<span data-run-index>` and nothing else. It is the seam for **derived** styling that the host recomputes from the text — syntax-highlight tokens (`tok-keyword`, `tok-string`, …), spell-check underlines, and the like:
+
+```ts
+// A syntax-highlight pass writes runs straight into the doc store.
+editor.docStore.set(updateBlock(doc, { ...block, runs: tokenize(text) }));
+```
+
+Because it is derived rather than authored, `attrs` is deliberately **view-only**: it does not round-trip through `toJSON()` / `setDoc()`, HTML, or markdown — a reload recomputes it. It is also orthogonal to marks: toggling bold over a token keeps the token's class.
+
+Runs that differ only by `attrs` are never merged, so a token boundary survives normalization; `attrs` is carried across splits, deletions and insertions within the same run.
+
+Overlapping, non-token styling (comment ranges, diagnostics, diff) doesn't belong here — it can't be expressed by a per-run class. Use [range decorations](#/plugin-authoring) for that.
+
 ## Plugin block types
 
 Plugins can register their own block types via `BlockDef.serializeCodec`. The wire shape can be anything serializable — when reading back via `toJSON()`, the plugin's `serialize` decides what fields appear. Hosts that store docs to a backend should be aware that the set of valid `type` strings expands with the plugin set the editor was constructed with.

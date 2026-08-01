@@ -807,8 +807,11 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   outline: 2px solid var(--accent-bg);
   outline-offset: -2px;
 }
-.creo-edit-regular { font-family: var(--sans); }
-.creo-edit-mono {
+/* Mode classes emitted by the editor root. These were `.creo-edit-regular`
+   / `.creo-edit-mono` before the mode flag became "wysiwyg" | "md"; the old
+   selectors matched nothing, so both rules were silently dead. */
+.creo-edit-wysiwyg { font-family: var(--sans); }
+.creo-edit-md {
   font-family: var(--mono);
   font-size: 14px;
   line-height: 1.6;
@@ -934,4 +937,179 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   .hero { padding: 32px 12px; }
   .hero-copy h1 { font-size: 26px; }
   .hero-tagline { font-size: 15px; }
+}
+
+/* --------------------------------------- IDE-affordances demo route ----- */
+
+.ide-demo { width: 100%; }
+.ide-shell {
+  max-width: var(--max-shell);
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+
+.ide-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+}
+.ide-toggle,
+.ide-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.ide-toggle:hover,
+.ide-btn:hover { border-color: var(--text-muted); color: var(--text); }
+.ide-toggle.is-on {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+.ide-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* The gutter decorations sit in negative space to the LEFT of each code
+   line, so the editor needs room for them. */
+.ide-editor-wrap {
+  position: relative;
+  padding-left: 60px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.ide-editor {
+  padding: 16px 16px 16px 0;
+  min-height: 260px;
+  /* Same reasoning as .atomic-journal-editor: the browser's focus ring on a
+     contentEditable root renders as a full-height rectangle that reads as a
+     glitch. The caret signals focus. */
+  outline: none !important;
+  caret-color: var(--text);
+}
+
+/* ---- Per-line gutter (DecorationDef.targets) ---- */
+.ide-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-right: 10px;
+  font: 12px/1 var(--mono);
+  color: var(--text-muted);
+  user-select: none;
+}
+.ide-gutter-num { min-width: 16px; text-align: right; }
+.ide-bar {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: transparent;
+}
+.ide-bar-changed { background: var(--accent); }
+
+/* ---- Range decorations (CSS Custom Highlight API) ----
+   These overlap each other AND the syntax tokens below, with zero DOM
+   mutation — which is the entire reason they aren't spans. */
+::highlight(ide-diagnostic) {
+  text-decoration: underline wavy #d92d20;
+  text-decoration-skip-ink: none;
+  background-color: rgba(217, 45, 32, 0.08);
+}
+::highlight(ide-comment) {
+  background-color: rgba(255, 90, 31, 0.18);
+}
+
+/* ---- Inline widgets ---- */
+.ide-inlay {
+  font: inherit;
+  font-size: 0.9em;
+  color: #6b7f9e;
+  background: rgba(107, 127, 158, 0.12);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 1px;
+}
+.ide-ghost {
+  color: var(--text-muted);
+  opacity: 0.62;
+  font-style: italic;
+}
+
+/* ---- Syntax tokens (InlineRun.attrs) ---- */
+.ide-editor .tok-keyword { color: #8250df; }
+.ide-editor .tok-string { color: #0a7b45; }
+.ide-editor .tok-number { color: #b35309; }
+.ide-editor .tok-comment { color: #6e7781; font-style: italic; }
+
+/* ---- Side panels ---- */
+.ide-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+.ide-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg-soft);
+}
+.ide-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  margin: 0 0 10px;
+}
+.ide-panel-hint { margin: 0 0 10px; font-size: 14px; min-height: 22px; }
+.ide-panel-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ide-muted { color: var(--text-muted); }
+.ide-detached { color: #d92d20; font-weight: 500; }
+.ide-code {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--bg-code);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.ide-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  min-height: 24px;
+}
+.ide-change {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: var(--text-soft);
+}
+
+@media (max-width: 760px) {
+  .ide-panels { grid-template-columns: 1fr; }
+  .ide-editor-wrap { padding-left: 52px; }
 }

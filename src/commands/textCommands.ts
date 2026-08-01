@@ -1,4 +1,5 @@
 import { getBlock, updateBlock } from "../model/doc";
+import { recordTextChange } from "../model/changes";
 import {
   deleteRange,
   insertText as insertTextRuns,
@@ -58,6 +59,7 @@ export function insertText({ docStore, selStore }: Stores, text: string): boolea
         text,
       );
       docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+      recordTextChange(start, sOff, eOff, text.length);
       selStore.set(caret(withCharOffset(start, sOff + text.length)));
       return true;
     }
@@ -79,6 +81,7 @@ export function insertText({ docStore, selStore }: Stores, text: string): boolea
   const off = anchorOffset(at);
   const newRuns = insertTextRuns(ctx.runs, off, text);
   docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+  recordTextChange(at, off, off, text.length);
   selStore.set(caret(withCharOffset(at, off + text.length)));
   return true;
 }
@@ -101,6 +104,7 @@ export function deleteBackward({ docStore, selStore }: Stores): boolean {
   if (off === 0) return false;
   const newRuns = deleteRange(ctx.runs, off - 1, off);
   docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+  recordTextChange(at, off - 1, off, 0);
   selStore.set(caret(withCharOffset(at, off - 1)));
   return true;
 }
@@ -124,6 +128,7 @@ export function deleteForward({ docStore, selStore }: Stores): boolean {
   if (off >= len) return false;
   const newRuns = deleteRange(ctx.runs, off, off + 1);
   docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+  recordTextChange(at, off, off + 1, 0);
   return true;
 }
 
@@ -147,6 +152,7 @@ function deleteSelectionRange(
   if (sOff === eOff) return false;
   const newRuns = deleteRange(ctx.runs, sOff, eOff);
   stores.docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
+  recordTextChange(start, sOff, eOff, 0);
   // Place caret at start; preserve table path prefix.
   if (start.path.length >= 3) {
     stores.selStore.set(caret(withCharOffset(start, sOff)));

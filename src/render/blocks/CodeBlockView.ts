@@ -1,5 +1,6 @@
 import { div, pre, view, _ } from "creo";
 import type { CodeBlock, InlineRun } from "../../model/types";
+import { withRunText } from "../../model/blockText";
 import { InlineRunsView } from "../InlineRunsView";
 
 // Split a code block's flat run list into one InlineRun[] per line. Runs
@@ -18,7 +19,7 @@ function splitRunsByNewline(runs: InlineRun[]): InlineRun[][] {
       const text = parts[i]!;
       if (text.length > 0) {
         const last = lines[lines.length - 1]!;
-        last.push(r.marks ? { text, marks: r.marks } : { text });
+        last.push(withRunText(r, text));
       }
       if (i < parts.length - 1) lines.push([]);
     }

@@ -4,180 +4,100 @@ import { EditorHarness } from "./helpers";
 /**
  * Mobile-emulation suite.
  *
- * Playwright device profiles (iPhone 13, Pixel 7) set:
- *  - viewport size & device-pixel-ratio
- *  - touch + coarse-pointer
- *  - mobile UA
+ * Playwright device profiles (iPhone 13, Pixel 7) set viewport size,
+ * device-pixel-ratio, touch + coarse pointer, and a mobile UA. They do NOT
+ * spin up an actual virtual keyboard, so soft-keyboard behaviour is tested
+ * structurally rather than visually.
  *
- * They do NOT spin up an actual virtual keyboard, so the soft-keyboard
- * behaviour we test here is structural (textarea positioning, font-size
- * guard, hidden-input attributes) rather than visual.
+ * IMPORTANT — what this suite deliberately does NOT test any more. The editor
+ * used to ship a hidden `<textarea>`, a `.creo-caret` overlay, `.creo-handle`
+ * drag handles and a `.creo-mobile-toolbar`. All four are gone: the editor is
+ * a controlled contentEditable, so native selection handles, the OS
+ * long-press menu, IME and autocorrect are delivered by the BROWSER. Tests
+ * that asserted our replacements would now be testing code that shouldn't
+ * exist. What's left is the part the editor still owns — coarse-pointer
+ * detection, visual-viewport tracking, and the input pipeline behaving the
+ * same under touch as under a mouse.
  */
 
-test.describe("Mobile — hidden input setup", () => {
-  test("textarea has font-size:16px (iOS auto-zoom guard)", async ({ page }) => {
-    const h = await EditorHarness.open(page);
-    const fs = await h.textarea.evaluate((el) =>
-      (el as HTMLTextAreaElement).style.fontSize ||
-      window.getComputedStyle(el as HTMLElement).fontSize,
-    );
-    expect(fs.replace(/\s/g, "")).toBe("16px");
-  });
-
-  test("textarea exposes mobile-friendly attributes", async ({ page }) => {
-    const h = await EditorHarness.open(page);
-    const attrs = await h.textarea.evaluate((el) => ({
-      autocomplete: el.getAttribute("autocomplete"),
-      autocorrect: el.getAttribute("autocorrect"),
-      autocapitalize: el.getAttribute("autocapitalize"),
-      spellcheck: el.getAttribute("spellcheck"),
-      inputmode: el.getAttribute("inputmode"),
-      enterkeyhint: el.getAttribute("enterkeyhint"),
-    }));
-    expect(attrs.autocomplete).toBe("off");
-    expect(attrs.autocorrect).toBe("off");
-    expect(attrs.autocapitalize).toBe("off");
-    expect(attrs.spellcheck).toBe("false");
-    expect(attrs.inputmode).toBe("text");
-    expect(attrs.enterkeyhint).toBe("enter");
-  });
-
-  test("textarea is 1×1 px and transparent — never display:none", async ({
+test.describe("Mobile — contentEditable setup", () => {
+  test("the editor root is the editable surface (no hidden input)", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
-    const box = await h.textarea.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeLessThan(4);
-    expect(box!.height).toBeLessThan(4);
-    const visible = await h.textarea.evaluate((el) => {
-      const cs = window.getComputedStyle(el as HTMLElement);
-      return {
-        display: cs.display,
-        visibility: cs.visibility,
-        opacity: cs.opacity,
-      };
+    await expect(h.editor).toHaveAttribute("contenteditable", "true");
+    // The old architecture's hidden textarea must not come back — a stray one
+    // would silently steal focus and swallow the keyboard.
+    await expect(page.locator("textarea[data-creo-input]")).toHaveCount(0);
+  });
+
+  test("spellcheck is disabled on the editable root", async ({ page }) => {
+    const h = await EditorHarness.open(page);
+    await expect(h.editor).toHaveAttribute("spellcheck", "false");
+  });
+
+  test("no editor-drawn selection UI is mounted", async ({ page }) => {
+    // Selection handles and the long-press menu are the browser's job now.
+    // This asserts the deliberate absence, so re-introducing an overlay is a
+    // conscious decision rather than an accident.
+    const h = await EditorHarness.open(page);
+    await h.buildDoc([{ type: "p", runs: [{ text: "hello" }] }]);
+    await h.setSelection({
+      kind: "range",
+      anchor: { blockId: "tb0", path: [0], offset: 0 },
+      focus: { blockId: "tb0", path: [4], offset: 4 },
     });
-    expect(visible.display).not.toBe("none");
-    expect(visible.visibility).not.toBe("hidden");
-    expect(Number(visible.opacity)).toBeLessThan(0.5);
+    await expect(page.locator(".creo-handle")).toHaveCount(0);
+    await expect(page.locator(".creo-mobile-toolbar")).toHaveCount(0);
+    await expect(page.locator(".creo-caret")).toHaveCount(0);
+    // …and the browser is representing the range itself.
+    expect(await h.nativeSelectedText()).toBe("hell");
+  });
+
+  test("the device really is a coarse pointer", async ({ page }) => {
+    // Guards the emulation itself: if this were false, every assertion below
+    // would be silently testing the desktop path.
+    await EditorHarness.open(page);
+    const coarse = await page.evaluate(
+      () => window.matchMedia("(pointer: coarse)").matches,
+    );
+    expect(coarse).toBe(true);
   });
 });
 
 test.describe("Mobile — tap to focus and type", () => {
-  test("tap into the editor focuses the textarea and types", async ({
+  test("tapping the editor focuses it and typed text lands", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
     await h.editor.tap();
-    await expect(h.textarea).toBeFocused();
-    // Synthesize a beforeinput event since Playwright tap doesn't bring up
-    // a soft keyboard in headless emulation.
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, "data", { value: "hi" });
-      Object.defineProperty(ev, "inputType", { value: "insertText" });
-      ta.dispatchEvent(ev);
-    });
-    await expect(h.editor.locator("p[data-block-id]")).toContainText("hi");
-  });
-});
-
-test.describe("Mobile — selection handles", () => {
-  test("non-collapsed range renders 44×44 touch handles", async ({ page }) => {
-    const h = await EditorHarness.open(page);
-    await h.editor.tap();
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      // Type "hello" via beforeinput so the desktop-style page.keyboard.type
-      // (which would synthesize keystrokes the textarea swallows) isn't
-      // needed.
-      for (const c of "hello") {
-        const ev = new Event("beforeinput", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(ev, "data", { value: c });
-        Object.defineProperty(ev, "inputType", { value: "insertText" });
-        ta.dispatchEvent(ev);
-      }
-    });
-    // Set a range covering "hell".
-    await page.evaluate(() => {
-      const e = (window as unknown as {
-        __editor: {
-          docStore: { get(): { order: string[] } };
-          selStore: { set(s: unknown): void };
-        };
-      }).__editor;
-      const id = e.docStore.get().order[0]!;
-      e.selStore.set({
-        kind: "range",
-        anchor: { blockId: id, path: [0], offset: 0 },
-        focus: { blockId: id, path: [4], offset: 4 },
-      });
-    });
-    const handles = h.page.locator(".creo-handle");
-    await expect(handles).toHaveCount(2);
-    const startBox = await handles.first().boundingBox();
-    expect(startBox).not.toBeNull();
-    expect(startBox!.width).toBeGreaterThanOrEqual(40);
-    expect(startBox!.height).toBeGreaterThanOrEqual(40);
+    await h.expectFocused();
+    // Playwright's tap doesn't raise a soft keyboard in headless emulation,
+    // so drive the same `beforeinput` the keyboard would produce.
+    await h.inputText("hi");
+    await expect(h.paragraphs()).toContainText("hi");
   });
 
-  // The toolbar's wrapper div is always rendered; the test below checks
-  // both states. The "becomes-visible-on-range" assertion is currently a
-  // soft check because MobileToolbar's pos.set inside an onUpdateAfter
-  // callback hits a Creo engine corner case where the follow-up render
-  // doesn't run reliably (the underlying primitive's children do change,
-  // but the dirty propagation chain for the second pass is incomplete).
-  // The handles overlay path exercises the same code without that hop.
-  test("mobile floating toolbar wrapper is mounted (visibility flips on range)", async ({
+  test("tapping into a specific block puts the caret in that block", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
-    await h.editor.tap();
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      for (const c of "hello") {
-        const ev = new Event("beforeinput", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(ev, "data", { value: c });
-        Object.defineProperty(ev, "inputType", { value: "insertText" });
-        ta.dispatchEvent(ev);
-      }
-      const e = (window as unknown as {
-        __editor: {
-          docStore: { get(): { order: string[] } };
-          selStore: { set(s: unknown): void };
-        };
-      }).__editor;
-      const id = e.docStore.get().order[0]!;
-      e.selStore.set({
-        kind: "range",
-        anchor: { blockId: id, path: [0], offset: 0 },
-        focus: { blockId: id, path: [5], offset: 5 },
-      });
-    });
-    // Wrapper exists and is mobile-only.
-    const wrapper = h.page.locator(".creo-mobile-toolbar");
-    await expect(wrapper).toHaveCount(1);
-    // Cut/Copy/Paste/All/B/I buttons are present inside it.
-    await expect(wrapper.locator("button.creo-tb-btn")).toHaveCount(6);
+    await h.buildDoc([
+      { type: "p", runs: [{ text: "first" }] },
+      { type: "p", runs: [{ text: "second" }] },
+    ]);
+    await h.editor.locator('p[data-block-id="tb1"]').tap();
+    await h.expectSelection((s) => s.at.blockId).toBe("tb1");
   });
 });
 
 test.describe("Mobile — composition (Gboard / QuickType)", () => {
-  test("compositionupdate doesn't mutate the doc; a swiped word commits as one", async ({
-    page,
-  }) => {
+  test("a swiped word commits as a single insertion", async ({ page }) => {
     const h = await EditorHarness.open(page);
     await h.editor.tap();
-    await h.composition(["ho", "hel", "hell", "hello"], "hello");
-    await expect(h.editor.locator("p[data-block-id]")).toContainText("hello");
+    await h.expectFocused();
+    await h.composition("hello");
+    await expect(h.paragraphs()).toContainText("hello");
     const json = await h.toJSON();
     const len = json.blocks
       .filter((b) => b.type === "p")
@@ -188,19 +108,63 @@ test.describe("Mobile — composition (Gboard / QuickType)", () => {
 });
 
 test.describe("Mobile — visual viewport tracking", () => {
-  test("editor root exposes --creo-vv-height when visualViewport is present", async ({
+  test("editor root exposes --creo-vv-height and --creo-vv-top", async ({
+    page,
+  }) => {
+    // These custom properties are the editor's contract with host pages for
+    // positioning floating UI above the soft keyboard.
+    const h = await EditorHarness.open(page);
+    const vars = await h.editor.evaluate((el) => ({
+      height: (el as HTMLElement).style.getPropertyValue("--creo-vv-height"),
+      top: (el as HTMLElement).style.getPropertyValue("--creo-vv-top"),
+      hasApi: typeof window.visualViewport !== "undefined",
+    }));
+    // Mobile emulation always provides visualViewport; if a profile ever
+    // stops doing so, the editor no-ops rather than throwing.
+    if (!vars.hasApi) test.skip();
+    expect(vars.height).toMatch(/^\d+(\.\d+)?px$/);
+    expect(vars.top).toMatch(/^\d+(\.\d+)?px$/);
+  });
+
+  test("--creo-vv-height tracks the visual viewport height", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
-    const v = await h.editor.evaluate(
-      (el) =>
-        (el as HTMLElement).style.getPropertyValue("--creo-vv-height") ||
-        getComputedStyle(el as HTMLElement).getPropertyValue("--creo-vv-height"),
+    const reported = await h.editor.evaluate((el) =>
+      parseFloat(
+        (el as HTMLElement).style.getPropertyValue("--creo-vv-height") || "0",
+      ),
     );
-    // visualViewport exists in mobile emulation; the value should be a px
-    // string. (Skip when the API isn't supported by the emulated context.)
-    if (v) {
-      expect(v).toMatch(/\d+px/);
-    }
+    const actual = await page.evaluate(
+      () => window.visualViewport?.height ?? 0,
+    );
+    expect(Math.abs(reported - actual)).toBeLessThan(1);
+  });
+});
+
+test.describe("Mobile — editing still works under touch", () => {
+  test("Enter splits and Backspace merges", async ({ page }) => {
+    const h = await EditorHarness.open(page);
+    await h.editor.tap();
+    await h.expectFocused();
+    await h.inputText("ab");
+    await h.beforeInput("insertParagraph");
+    await expect(h.paragraphs()).toHaveCount(2);
+    await h.beforeInput("deleteContentBackward");
+    await expect(h.paragraphs()).toHaveCount(1);
+    await expect(h.paragraphs().first()).toHaveText("ab");
+  });
+
+  test("autocorrect-style replacement rewrites the target range", async ({
+    page,
+  }) => {
+    // iOS sends `insertReplacementText` with target ranges rather than a
+    // plain insert. Without a caret in the block there'd be nothing to
+    // replace, so seed one first.
+    const h = await EditorHarness.open(page);
+    await h.buildDoc([{ type: "p", runs: [{ text: "teh" }] }]);
+    await h.caretAt("tb0", 3);
+    await h.beforeInput("insertReplacementText", "the");
+    await expect(h.paragraphs().first()).toContainText("the");
   });
 });

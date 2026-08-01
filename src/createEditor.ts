@@ -46,6 +46,12 @@ import {
   type NativeInputHandle,
 } from "./input/nativeInput";
 import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
+import {
+  collectChanges,
+  mapAnchor as mapAnchorPure,
+  type DocChange,
+  type MapBias,
+} from "./model/changes";
 import type {
   Anchor,
   BlockId,
@@ -74,6 +80,8 @@ import {
 } from "./plugin/serializeCodec";
 import { TriggerManager } from "./plugin/triggers";
 import { DecorationManager } from "./plugin/decorations";
+import { RangeDecorationManager } from "./plugin/rangeDecorations";
+import { InlineWidgetManager } from "./plugin/inlineWidgets";
 import type { EditorPlugin } from "./plugin/types";
 
 let __editorIdCounter = 0;
@@ -239,15 +247,72 @@ export type EditorOptions = {
    * tag matchers.
    */
   plugins?: EditorPlugin[];
+  /**
+   * Whether the document accepts input. Accepts a thunk so a host can flip it
+   * without recreating the editor (e.g. an agent is mid-write).
+   *
+   * Honoured in two places: the root's `contenteditable` attribute, and the
+   * command dispatcher — mutating commands return `false` while read-only, so
+   * keymap fall-through still works. Plugin commands opt back in via
+   * `CommandDef.readOnlySafe`. Attribute-only would be insufficient because
+   * `dispatch()` is public.
+   *
+   * Host-level document APIs (`setDoc`, `setDocFromHTML`, `appendBlocks`,
+   * `prependBlocks`) are deliberately NOT gated — that's how a read-only
+   * viewer loads its content.
+   *
+   * Default: true.
+   */
+  editable?: boolean | (() => boolean);
 };
 
 export type Editor = {
   docStore: Store<DocState>;
   selStore: Store<Selection>;
-  /** Dispatch any registered command — typed built-ins or plugin commands. */
-  dispatch: (cmd: DispatchableCommand) => void;
+  /**
+   * Dispatch any registered command — typed built-ins or plugin commands.
+   * Returns `false` when the command did not apply: unknown command, a plugin
+   * command that returned false, or a mutating command while the editor is
+   * read-only.
+   */
+  dispatch: (cmd: DispatchableCommand) => boolean;
   undo: () => void;
   redo: () => void;
+  /**
+   * Subscribe to the change batches each `dispatch` produces. Returns an
+   * unsubscribe fn. Fires AFTER the stores are updated, so a listener reading
+   * `docStore` sees the post-edit document.
+   *
+   * Feed the batch to `mapAnchor` to move anything anchored outside the
+   * document — review comments, diagnostics, bookmarks — through the edit;
+   * or forward it to a language server as an incremental `didChange` instead
+   * of resending the whole file.
+   *
+   * Batches are empty for commands that don't move text (mark toggles, list
+   * indent, caret motion), and a single `{ kind: "replaceDoc" }` for
+   * wholesale swaps (`setDoc`, `setDocFromHTML`, undo, redo) where no anchor
+   * survives.
+   */
+  onChange: (cb: (changes: DocChange[]) => void) => () => void;
+  /**
+   * Move an anchor through a set of changes. Returns null when the anchored
+   * text was deleted outright, its block was removed, or the block's internal
+   * shape changed unmappably.
+   *
+   * Also exported standalone as `mapAnchor` for callers batching up changes
+   * off the editor instance.
+   */
+  mapAnchor: (
+    anchor: Anchor,
+    changes: readonly DocChange[],
+    bias?: MapBias,
+  ) => Anchor | null;
+  /** Whether the document currently accepts input. Resolves the `editable`
+   *  thunk if one was supplied. */
+  isEditable: () => boolean;
+  /** Replace the `editable` option with a fixed boolean and re-sync the root's
+   *  `contenteditable` attribute. */
+  setEditable: (editable: boolean) => void;
   EditorView: PublicView<EditorViewProps, void>;
   setDocFromHTML: (html: string) => void;
   /**
@@ -296,6 +361,29 @@ export type Editor = {
     blockId: BlockId,
     opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
   ) => void;
+  /**
+   * Whether this environment can paint `rangeDecorations` (the CSS Custom
+   * Highlight API). When false NOTHING is painted — there is deliberately no
+   * DOM fallback, because splitting spans to fake it would be visible to the
+   * character-offset walk. Hosts that must degrade should branch on this and
+   * render their own affordance instead.
+   */
+  supportsRangeDecorations: () => boolean;
+  /**
+   * Force a recompute + repaint of every registered range decoration. The
+   * manager already refreshes on doc / scroll / block-mount changes; call
+   * this when the state a source reads (a comment list, a diagnostics array)
+   * changed without the document changing.
+   */
+  refreshRangeDecorations: () => void;
+  /**
+   * Recompute and re-place every registered inline widget. The manager
+   * already syncs on document, selection and viewport changes; call this when
+   * the state a widget source reads changed on its own — a completion
+   * arriving from a language server, inlay hints landing from an LSP round
+   * trip.
+   */
+  refreshInlineWidgets: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -327,6 +415,36 @@ function serializeDoc(doc: DocState): SerializedDoc {
 // ---------------------------------------------------------------------------
 // createEditor
 // ---------------------------------------------------------------------------
+
+/**
+ * Every `t` the dispatch switch handles itself. Used by the read-only gate to
+ * tell "built-in, refuse it" apart from "plugin command, ask the registry".
+ */
+const BUILTIN_COMMANDS = new Set<string>([
+  "noop",
+  "insertText",
+  "deleteBackward",
+  "deleteForward",
+  "splitBlock",
+  "mergeBackward",
+  "mergeForward",
+  "setBlockType",
+  "toggleMark",
+  "toggleList",
+  "indentList",
+  "outdentList",
+  "insertImage",
+  "insertTable",
+  "insertColumns",
+  "tableInsertRow",
+  "tableInsertCol",
+  "tableRemoveRow",
+  "tableRemoveCol",
+  "moveCursor",
+]);
+
+/** Built-ins that never touch the document, so they survive read-only mode. */
+const READ_ONLY_SAFE_BUILTINS = new Set<string>(["noop", "moveCursor"]);
 
 function historyTagFor(cmd: DispatchableCommand): string {
   switch (cmd.t) {
@@ -367,10 +485,14 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   let drop: DropHandle | null = null;
   let viewport: ViewportHandle | null = null;
   let decorations: DecorationManager | null = null;
+  let rangeDecorations: RangeDecorationManager | null = null;
+  let inlineWidgets: InlineWidgetManager | null = null;
   void nativeInput;
   void drop;
   void viewport;
   void decorations;
+  void rangeDecorations;
+  void inlineWidgets;
 
   const history: History = createHistory({ docStore, selStore });
   // Microtask rebalance — keeps fractional indices short under adversarial
@@ -379,6 +501,22 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   attachAutoRebalance(docStore);
 
   const ctx = { docStore, selStore };
+
+  // -------------------------------------------------------------------------
+  // Read-only support. `editableOpt` holds whatever the host supplied — a
+  // boolean or a thunk — and is re-read on every check so a thunk-driven flip
+  // takes effect without recreating the editor.
+  // -------------------------------------------------------------------------
+  let editableOpt: boolean | (() => boolean) = opts.editable ?? true;
+  const isEditable = (): boolean =>
+    typeof editableOpt === "function" ? editableOpt() !== false : editableOpt !== false;
+  const setEditable = (editable: boolean): void => {
+    editableOpt = editable;
+    nativeInput?.syncEditable();
+  };
+  // Plugin commands are gated inside the registry so keymap fall-through
+  // (matchPluginKeymap → runCommand) sees the same answer as dispatch().
+  registry.isEditable = isEditable;
 
   // Trigger manager — needs `dispatch` for plugin trigger callbacks. Defined
   // before dispatch so the dispatch closure can reference it; the manager
@@ -391,94 +529,149 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     dispatch: (cmd) => dispatchRef?.(cmd),
   });
 
-  const dispatch = (cmd: DispatchableCommand): void => {
+  // ---- Change stream -----------------------------------------------------
+  const changeListeners = new Set<(changes: DocChange[]) => void>();
+  const onChange = (cb: (changes: DocChange[]) => void): (() => void) => {
+    changeListeners.add(cb);
+    return () => changeListeners.delete(cb);
+  };
+  const emitChanges = (changes: DocChange[]): void => {
+    if (changes.length === 0 || changeListeners.size === 0) return;
+    // Snapshot the listener set so a subscriber unsubscribing (or a new one
+    // subscribing) mid-emit doesn't disturb this pass.
+    for (const cb of [...changeListeners]) {
+      try {
+        cb(changes);
+      } catch {
+        // A misbehaving listener must not abort the edit that already landed.
+      }
+    }
+  };
+
+  const runDispatch = (cmd: DispatchableCommand): boolean => {
+    // Read-only gate. Built-ins that never touch the document are allowed
+    // through; every other built-in is refused before `history.record` so no
+    // empty undo step is pushed. Plugin commands are gated inside
+    // `registry.runCommand`, which honours `CommandDef.readOnlySafe`.
+    if (!isEditable() && !READ_ONLY_SAFE_BUILTINS.has(cmd.t)) {
+      if (BUILTIN_COMMANDS.has(cmd.t)) return false;
+      const def = registry.commands.get(cmd.t);
+      if (!def || def.readOnlySafe !== true) return false;
+    }
     // Snapshot for undo BEFORE mutating. Tag drives coalescing.
     history.record(historyTagFor(cmd));
     switch (cmd.t) {
       case "noop":
-        return;
+        return true;
       case "insertText":
         cmdInsertText(ctx, (cmd as Extract<Command, { t: "insertText" }>).text);
-        return;
+        return true;
       case "deleteBackward":
         cmdDeleteBackward(ctx);
-        return;
+        return true;
       case "deleteForward":
         cmdDeleteForward(ctx);
-        return;
+        return true;
       case "splitBlock":
         cmdSplitBlock(ctx);
-        return;
+        return true;
       case "mergeBackward":
         cmdMergeBackward(ctx);
-        return;
+        return true;
       case "mergeForward":
         cmdMergeForward(ctx);
-        return;
+        return true;
       case "setBlockType":
         cmdSetBlockType(ctx, (cmd as Extract<Command, { t: "setBlockType" }>).payload);
-        return;
+        return true;
       case "toggleMark":
         cmdToggleMark(ctx, (cmd as Extract<Command, { t: "toggleMark" }>).mark);
-        return;
+        return true;
       case "toggleList":
         cmdToggleList(ctx, (cmd as Extract<Command, { t: "toggleList" }>).ordered);
-        return;
+        return true;
       case "indentList":
         cmdIndentList(ctx);
-        return;
+        return true;
       case "outdentList":
         cmdOutdentList(ctx);
-        return;
+        return true;
       case "insertImage": {
         const c = cmd as Extract<Command, { t: "insertImage" }>;
         cmdInsertImage(ctx, { src: c.src, alt: c.alt, width: c.width, height: c.height });
-        return;
+        return true;
       }
       case "insertTable": {
         const c = cmd as Extract<Command, { t: "insertTable" }>;
         cmdInsertTable(ctx, { rows: c.rows, cols: c.cols });
-        return;
+        return true;
       }
       case "insertColumns": {
         const c = cmd as Extract<Command, { t: "insertColumns" }>;
         cmdInsertColumns(ctx, { cols: c.cols });
-        return;
+        return true;
       }
       case "tableInsertRow":
-        registry.runCommand("tableInsertRow", { where: (cmd as Extract<Command, { t: "tableInsertRow" }>).where }, ctx);
-        return;
+        return registry.runCommand("tableInsertRow", { where: (cmd as Extract<Command, { t: "tableInsertRow" }>).where }, ctx);
       case "tableInsertCol":
-        registry.runCommand("tableInsertCol", { where: (cmd as Extract<Command, { t: "tableInsertCol" }>).where }, ctx);
-        return;
+        return registry.runCommand("tableInsertCol", { where: (cmd as Extract<Command, { t: "tableInsertCol" }>).where }, ctx);
       case "tableRemoveRow":
-        registry.runCommand("tableRemoveRow", undefined, ctx);
-        return;
+        return registry.runCommand("tableRemoveRow", undefined, ctx);
       case "tableRemoveCol":
-        registry.runCommand("tableRemoveCol", undefined, ctx);
-        return;
+        return registry.runCommand("tableRemoveCol", undefined, ctx);
       case "moveCursor": {
         const c = cmd as Extract<Command, { t: "moveCursor" }>;
         moveTo(ctx, c.to, c.extend === true);
-        return;
+        return true;
       }
       default: {
         // Plugin command — route through the registry. Payload shape is
         // plugin-defined; built-ins handled above don't reach this branch.
         const payload = (cmd as { payload?: unknown }).payload;
-        registry.runCommand(cmd.t, payload, ctx);
-        return;
+        return registry.runCommand(cmd.t, payload, ctx);
       }
     }
   };
 
+  /**
+   * Single mutation entry point. Wraps the command in a change collector so
+   * the batch it produced reaches `onChange` subscribers — commands emit into
+   * an ambient sink rather than threading a return value through every nested
+   * call, so `insertText → mergeBackward → insertText` still yields one flat,
+   * ordered batch.
+   */
+  // Depth guard: a plugin command that re-enters `dispatch` would otherwise
+  // deliver its changes twice — once for the inner call, then again as part
+  // of the outer batch that `collectChanges` folds them into. Only the
+  // outermost dispatch emits, and it emits everything in order.
+  let dispatchDepth = 0;
+  const dispatch = (cmd: DispatchableCommand): boolean => {
+    dispatchDepth++;
+    let batch: DocChange[];
+    let result: boolean;
+    try {
+      const collected = collectChanges(() => runDispatch(cmd));
+      result = collected.result;
+      batch = collected.changes;
+    } finally {
+      dispatchDepth--;
+    }
+    if (dispatchDepth === 0) emitChanges(batch);
+    return result;
+  };
+
   dispatchRef = dispatch;
 
+  // Undo / redo mutate the document, so they follow the same gate. They
+  // restore whole snapshots, so no anchor can be mapped across them —
+  // subscribers get `replaceDoc` and re-derive.
   const undo = (): void => {
-    history.undo();
+    if (!isEditable()) return;
+    if (history.undo()) emitChanges([{ kind: "replaceDoc" }]);
   };
   const redo = (): void => {
-    history.redo();
+    if (!isEditable()) return;
+    if (history.redo()) emitChanges([{ kind: "replaceDoc" }]);
   };
 
   const setDocFromHTML = (html: string): void => {
@@ -487,12 +680,14 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     docStore.set(docFromBlocks(blocks));
     selStore.set(defaultSelection(docStore.get()));
     history.reset();
+    emitChanges([{ kind: "replaceDoc" }]);
   };
 
   const setDoc = (s: SerializedDoc): void => {
     docStore.set(deserializeDoc(s));
     selStore.set(defaultSelection(docStore.get()));
     history.reset();
+    emitChanges([{ kind: "replaceDoc" }]);
   };
 
   const toJSON = (): SerializedDoc => serializeDoc(docStore.get());
@@ -507,19 +702,33 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       (s) => (s.id ? s : { ...s, id: newBlockId() }) as BlockSpec,
     );
   };
+  const emitInserts = (ids: BlockId[], at: number): void => {
+    emitChanges(
+      ids.map((blockId, i) => ({
+        kind: "insertBlock" as const,
+        blockId,
+        index: at + i,
+      })),
+    );
+  };
   const appendBlocks = (specs: BlockInsertInput[]): BlockId[] => {
     if (specs.length === 0) return [];
     const withIds = ensureIds(specs);
     const doc = docStore.get();
-    docStore.set(insertManyAt(doc, doc.order.length, withIds));
-    return withIds.map((s) => s.id!);
+    const at = doc.order.length;
+    docStore.set(insertManyAt(doc, at, withIds));
+    const ids = withIds.map((s) => s.id!);
+    emitInserts(ids, at);
+    return ids;
   };
   const prependBlocks = (specs: BlockInsertInput[]): BlockId[] => {
     if (specs.length === 0) return [];
     const withIds = ensureIds(specs);
     const doc = docStore.get();
     docStore.set(insertManyAt(doc, 0, withIds));
-    return withIds.map((s) => s.id!);
+    const ids = withIds.map((s) => s.id!);
+    emitInserts(ids, 0);
+    return ids;
   };
 
   // Mode state — held in a creo store so the EditorView re-renders when it
@@ -693,15 +902,21 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             { docStore, selStore },
             {
               dispatch,
-              undo: () => history.undo(),
-              redo: () => history.redo(),
+              undo,
+              redo,
               selectAll: () => handleSelectAll(),
               uploadImage: opts.uploadImage,
               registry,
               triggers,
+              isEditable,
             },
           );
-          drop = attachDrop(root, { docStore, selStore }, opts.uploadImage);
+          drop = attachDrop(
+            root,
+            { docStore, selStore },
+            opts.uploadImage,
+            isEditable,
+          );
           viewport = attachVisualViewport(root, { docStore, selStore });
           // Decoration manager — only mounts a layer if at least one
           // plugin contributes a decoration. Cheap to instantiate either
@@ -715,6 +930,23 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             decorations = new DecorationManager({
               registry,
               docStore,
+              editorRoot: root,
+            });
+          }
+          if (registry.rangeDecorations.length > 0) {
+            rangeDecorations?.destroy();
+            rangeDecorations = new RangeDecorationManager({
+              registry,
+              docStore,
+              editorRoot: root,
+            });
+          }
+          if (registry.inlineWidgets.length > 0) {
+            inlineWidgets?.destroy();
+            inlineWidgets = new InlineWidgetManager({
+              registry,
+              docStore,
+              selStore,
               editorRoot: root,
             });
           }
@@ -762,6 +994,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     dispatch,
     undo,
     redo,
+    onChange,
+    mapAnchor: mapAnchorPure,
+    isEditable,
+    setEditable,
     EditorView,
     setDocFromHTML,
     setDoc,
@@ -774,6 +1010,9 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     setMode,
     registry,
     scrollToBlock,
+    supportsRangeDecorations: () => RangeDecorationManager.isSupported(),
+    refreshRangeDecorations: () => rangeDecorations?.refresh(),
+    refreshInlineWidgets: () => inlineWidgets?.sync(),
   };
 }
 

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { EditorHarness } from "./helpers";
+import { EditorHarness, type SelectionShape } from "./helpers";
 
 /**
  * Coverage for the six follow-up features:
@@ -11,21 +11,13 @@ import { EditorHarness } from "./helpers";
  *  6. Multi-column block — render + edit + Tab navigation
  */
 
+/**
+ * Shim kept so the specs below read unchanged — the implementation (and the
+ * render barrier that makes mouse-position assertions deterministic) lives on
+ * the harness.
+ */
 async function buildDoc(page: Page, blocks: unknown[]) {
-  await page.evaluate((blocks) => {
-    const e = (window as { __editor?: { docStore: { set(d: unknown): void }; selStore: { set(s: unknown): void } } }).__editor!;
-    const order: string[] = [];
-    const byId = new Map<string, unknown>();
-    blocks.forEach((b, i) => {
-      const id = `tb${i}`;
-      const idx = String.fromCharCode(65 + i);
-      const block = { ...(b as { type: string }), id, index: idx };
-      byId.set(id, block);
-      order.push(id);
-    });
-    e.docStore.set({ byId, order });
-    e.selStore.set({ kind: "caret", at: { blockId: order[0]!, path: [0], offset: 0 } });
-  }, blocks);
+  await new EditorHarness(page).buildDoc(blocks);
 }
 
 // ---------------------------------------------------------------------------
@@ -48,11 +40,7 @@ test.describe("Mouse — drag select + double/triple click", () => {
     await page.mouse.down();
     await page.mouse.move(endX, y, { steps: 8 });
     await page.mouse.up();
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    expect((sel as { kind: string }).kind).toBe("range");
+    await h.expectSelection((s) => s.kind).toBe("range");
   });
 
   test("double-click selects the word under the pointer", async ({ page }) => {
@@ -63,16 +51,11 @@ test.describe("Mouse — drag select + double/triple click", () => {
     expect(box).not.toBeNull();
     // Click somewhere inside "world" (right half of the span).
     await page.mouse.dblclick(box!.x + box!.width * 0.75, box!.y + box!.height / 2);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    expect((sel as { kind: string }).kind).toBe("range");
+    await h.expectSelection((s) => s.kind).toBe("range");
     // The selected range should cover at least 4 chars (the word "world"
     // is 5; allow some hit-testing slack).
-    const start = (sel as { anchor: { offset: number } }).anchor.offset;
-    const end = (sel as { focus: { offset: number } }).focus.offset;
-    expect(Math.abs(end - start)).toBeGreaterThanOrEqual(4);
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    expect(Math.abs(sel.focus.offset - sel.anchor.offset)).toBeGreaterThanOrEqual(4);
   });
 
   test("click on an empty paragraph between filled ones lands the caret AND accepts typed text", async ({
@@ -101,21 +84,19 @@ test.describe("Mouse — drag select + double/triple click", () => {
     const box = await empty.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    // Wait for the click to reach the model BEFORE typing. The browser
+    // delivers `selectionchange` after the click handler returns, so typing
+    // immediately would race the caret move and land the character in
+    // whichever block the caret was in a moment ago.
+    await h.expectSelection((s) => s.at.blockId).toBe("tb1");
     // Type a single character.
-    await page.keyboard.type("X");
+    await h.type("X");
     const json = await h.toJSON();
     expect(json.blocks[0]!.runs?.[0]?.text).toBe("before");
     // The typed text MUST land in the middle (clicked) paragraph.
     expect(json.blocks[1]!.runs?.[0]?.text).toBe("X");
     // The trailing paragraph stays untouched.
     expect(json.blocks[2]!.runs?.[0]?.text).toBe("after");
-    // selStore now points at the middle paragraph at offset 1.
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    expect((sel as { at: { blockId: string; offset: number } }).at.blockId).toBe(
-      "tb1",
-    );
   });
 
   test("triple-click selects the entire block", async ({ page }) => {
@@ -126,18 +107,13 @@ test.describe("Mouse — drag select + double/triple click", () => {
     expect(box).not.toBeNull();
     const x = box!.x + box!.width / 2;
     const y = box!.y + box!.height / 2;
-    await page.mouse.click(x, y);
-    await page.mouse.click(x, y);
-    await page.mouse.click(x, y);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    expect((sel as { kind: string }).kind).toBe("range");
-    const start = (sel as { anchor: { offset: number } }).anchor.offset;
-    const end = (sel as { focus: { offset: number } }).focus.offset;
-    expect(start).toBe(0);
-    expect(end).toBe("the quick brown fox".length);
+    // `clickCount: 3` sets the detail counter the browser uses to recognise a
+    // triple-click. Three separate `click()` calls each start a fresh count.
+    await page.mouse.click(x, y, { clickCount: 3 });
+    await h.expectSelection((s) => s.kind).toBe("range");
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    expect(sel.anchor.offset).toBe(0);
+    expect(sel.focus.offset).toBe("the quick brown fox".length);
   });
 });
 
@@ -146,48 +122,33 @@ test.describe("Mouse — drag select + double/triple click", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("Word + line + doc nav chords", () => {
+  // These motions are delegated to the BROWSER (the editor deliberately
+  // doesn't reimplement word boundaries or line edges), so `h.nav` maps them
+  // to the host OS's real bindings — which is not the same thing as the
+  // emulated navigator the editor's own chord matcher reads.
   test("word-jump skips over a word in one keypress", async ({ page }) => {
     const h = await EditorHarness.open(page);
     await h.focus();
     await h.type("hello world stuff");
-    await h.page.keyboard.press("Home");
-    // On macOS-emulating profile this is Alt+Right; on Win/Linux it's Ctrl+Right.
-    if (h.isMacEmulated) {
-      await page.keyboard.press("Alt+ArrowRight");
-    } else {
-      await page.keyboard.press("Control+ArrowRight");
-    }
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
+    await h.nav("lineStart");
+    await h.nav("wordRight");
+    const sel = (await h.selection()) as unknown as { at: { offset: number } };
     // After jumping one word from offset 0, we land at the END of "hello"
     // = offset 5.
-    expect((sel as { at: { offset: number } }).at.offset).toBe(5);
+    expect(sel.at.offset).toBe(5);
   });
 
-  test("line-edge chord (Cmd+Right on Mac) jumps to end of block", async ({
-    page,
-  }) => {
+  test("line-edge chord jumps to end of block", async ({ page }) => {
     const h = await EditorHarness.open(page);
     await h.focus();
     await h.type("the whole line");
-    await h.page.keyboard.press("Home");
-    if (h.isMacEmulated) {
-      await page.keyboard.press("Meta+ArrowRight");
-    } else {
-      await page.keyboard.press("End");
-    }
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    expect((sel as { at: { offset: number } }).at.offset).toBe(
-      "the whole line".length,
-    );
+    await h.nav("lineStart");
+    await h.nav("lineEnd");
+    const sel = (await h.selection()) as unknown as { at: { offset: number } };
+    expect(sel.at.offset).toBe("the whole line".length);
   });
 
-  test("doc-edge chord (Cmd+Down on Mac / Ctrl+End elsewhere)", async ({
-    page,
-  }) => {
+  test("doc-edge chord jumps to the end of the document", async ({ page }) => {
     const h = await EditorHarness.open(page);
     await buildDoc(page, [
       { type: "p", runs: [{ text: "first" }] },
@@ -195,18 +156,12 @@ test.describe("Word + line + doc nav chords", () => {
       { type: "p", runs: [{ text: "third" }] },
     ]);
     await h.focusKeepingSelection();
-    if (h.isMacEmulated) {
-      await page.keyboard.press("Meta+ArrowDown");
-    } else {
-      await page.keyboard.press("Control+End");
-    }
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    expect((sel as { at: { blockId: string; offset: number } }).at.blockId).toBe(
-      "tb2",
-    );
-    expect((sel as { at: { offset: number } }).at.offset).toBe("third".length);
+    await h.nav("docEnd");
+    const sel = (await h.selection()) as unknown as {
+      at: { blockId: string; offset: number };
+    };
+    expect(sel.at.blockId).toBe("tb2");
+    expect(sel.at.offset).toBe("third".length);
   });
 });
 
@@ -227,64 +182,107 @@ test.describe("Visual-line Up/Down", () => {
       { type: "p", runs: [{ text: "This is a normal paragraph below." }] },
     ]);
     // Place caret after "Welcome to" (offset 10 in the h1).
-    await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!;
-      e.selStore.set({ kind: "caret", at: { blockId: "tb0", path: [10], offset: 10 } });
-    });
-    await h.focusKeepingSelection();
-    // Capture the caret's pixel X before pressing down.
-    const xBefore = await page.evaluate(() => {
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      return c ? Number(c.style.left.replace("px", "")) : 0;
-    });
-    expect(xBefore).toBeGreaterThan(0);
-    await page.keyboard.press("ArrowDown");
-    // After the move, caret should be in the paragraph (tb1) at an offset
-    // close to xBefore in pixel terms.
-    const result = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      const sel = e.selStore.get() as { at: { blockId: string; offset: number } };
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      return {
-        blockId: sel.at.blockId,
-        offset: sel.at.offset,
-        leftPx: c ? Number(c.style.left.replace("px", "")) : null,
-      };
-    });
-    expect(result.blockId).toBe("tb1");
+    await h.caretAt("tb0", 10);
+    // The browser paints the caret, so its position comes off the live
+    // Range rather than an overlay div.
+    const before = await h.caretRect();
+    expect(before).not.toBeNull();
+    expect(before!.left).toBeGreaterThan(0);
+    await h.press("ArrowDown");
+    const sel = (await h.selection()) as unknown as {
+      at: { blockId: string; offset: number };
+    };
+    const after = await h.caretRect();
+    expect(sel.at.blockId).toBe("tb1");
     // Visual-line nav target should NOT be a pure character-offset copy of
     // the source — the h1 font is larger, so the same pixel column maps to
     // MORE characters in the smaller paragraph font. Plain block-jump would
     // have produced offset 10; visual-line nav should overshoot.
-    expect(result.offset).toBeGreaterThan(10);
-    // The new caret X should be within ~30px of the goal column.
-    expect(Math.abs((result.leftPx ?? 0) - xBefore)).toBeLessThan(40);
+    expect(sel.at.offset).toBeGreaterThan(10);
+    // The new caret X should be within ~40px of the goal column.
+    expect(Math.abs((after?.left ?? 0) - before!.left)).toBeLessThan(40);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 4. Mode (regular / mono)
+// 4. Mode (wysiwyg / md)
+//
+// The old cosmetic "regular | mono" flag is gone — a host that wants a
+// monospaced editor adds its own CSS class. The mode now selects between the
+// rich-text view and a raw markdown source view.
 // ---------------------------------------------------------------------------
 
 test.describe("Editor mode", () => {
-  test("default editor is regular mode", async ({ page }) => {
+  test("default editor is wysiwyg mode", async ({ page }) => {
     const h = await EditorHarness.open(page);
     const cls = await h.editor.evaluate((el) => el.className);
-    expect(cls).toContain("creo-edit-regular");
-    expect(cls).not.toContain("creo-edit-mono");
+    expect(cls).toContain("creo-edit-wysiwyg");
+    expect(cls).not.toContain("creo-edit-md");
+    expect(await h.mode()).toBe("wysiwyg");
   });
 
-  test("?mode=mono opens the editor in monospace mode", async ({ page }) => {
-    await page.goto("/?mode=mono");
-    const editor = page.locator(".creo-edit");
-    await editor.waitFor();
-    const cls = await editor.evaluate((el) => el.className);
-    expect(cls).toContain("creo-edit-mono");
-    const fontFamily = await editor.evaluate(
-      (el) => window.getComputedStyle(el).fontFamily,
+  test("?mode=md opens the editor in markdown mode", async ({ page }) => {
+    const h = await EditorHarness.open(page, "?mode=md");
+    const cls = await h.editor.evaluate((el) => el.className);
+    expect(cls).toContain("creo-edit-md");
+    expect(cls).not.toContain("creo-edit-wysiwyg");
+    expect(await h.mode()).toBe("md");
+  });
+
+  test("setMode toggles the class at runtime", async ({ page }) => {
+    const h = await EditorHarness.open(page);
+    await h.setMode("md");
+    await expect(h.editor).toHaveClass(/creo-edit-md/);
+    await h.setMode("wysiwyg");
+    await expect(h.editor).toHaveClass(/creo-edit-wysiwyg/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. Read-only editors — `editable: false` must hold at BOTH the
+// contenteditable attribute and the command dispatcher, because dispatch()
+// is public and the attribute alone wouldn't stop a plugin or the host.
+// ---------------------------------------------------------------------------
+
+test.describe("Read-only", () => {
+  test("?editable=false renders contenteditable=false and refuses typing", async ({
+    page,
+  }) => {
+    const h = await EditorHarness.open(page, "?editable=false");
+    await expect(h.editor).toHaveAttribute("contenteditable", "false");
+    await buildDoc(page, [{ type: "p", runs: [{ text: "frozen" }] }]);
+    await h.editor.click();
+    await page.keyboard.type("XYZ");
+    const json = await h.toJSON();
+    expect(json.blocks[0]!.runs?.[0]?.text).toBe("frozen");
+  });
+
+  test("dispatch is refused too, and reports false", async ({ page }) => {
+    const h = await EditorHarness.open(page, "?editable=false");
+    await buildDoc(page, [{ type: "p", runs: [{ text: "frozen" }] }]);
+    const applied = await page.evaluate(() =>
+      (window as { __editor?: { dispatch(c: unknown): boolean } }).__editor!
+        .dispatch({ t: "insertText", text: "X" }),
     );
-    // Sanity: computed font stack mentions a monospace family.
-    expect(/mono|menlo|consolas|sf mono/i.test(fontFamily)).toBe(true);
+    expect(applied).toBe(false);
+    const json = await h.toJSON();
+    expect(json.blocks[0]!.runs?.[0]?.text).toBe("frozen");
+  });
+
+  test("setEditable(true) re-enables input without recreating the editor", async ({
+    page,
+  }) => {
+    const h = await EditorHarness.open(page, "?editable=false");
+    await buildDoc(page, [{ type: "p", runs: [{ text: "" }] }]);
+    await page.evaluate(() =>
+      (window as { __editor?: { setEditable(v: boolean): void } }).__editor!
+        .setEditable(true),
+    );
+    await expect(h.editor).toHaveAttribute("contenteditable", "true");
+    await h.caretAt("tb0", 0);
+    await h.type("now editable");
+    const json = await h.toJSON();
+    expect(json.blocks[0]!.runs?.[0]?.text).toBe("now editable");
   });
 });
 
@@ -308,18 +306,10 @@ test.describe("Tables — arrow navigation", () => {
         ],
       },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb0", path: [0, 1, 0], offset: 0 },
-      });
-    });
-    await h.focusKeepingSelection();
-    await page.keyboard.press("ArrowDown");
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    const at = (sel as { at: { path: number[] } }).at;
+    await h.caretAt("tb0", 0, [0, 1, 0]);
+    await h.press("ArrowDown");
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    const at = sel.at;
     expect(at.path[0]).toBe(1);
     expect(at.path[1]).toBe(1);
   });
@@ -336,18 +326,10 @@ test.describe("Tables — arrow navigation", () => {
         cells: [[[{ text: "abc" }], [{ text: "xyz" }]]],
       },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb0", path: [0, 0, 3], offset: 3 },
-      });
-    });
-    await h.focusKeepingSelection();
-    await page.keyboard.press("ArrowRight");
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    const at = (sel as { at: { path: number[] } }).at;
+    await h.caretAt("tb0", 3, [0, 0, 3]);
+    await h.press("ArrowRight");
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    const at = sel.at;
     expect(at.path).toEqual([0, 1, 0]);
   });
 
@@ -362,18 +344,10 @@ test.describe("Tables — arrow navigation", () => {
         cells: [[[{ text: "a" }], [{ text: "b" }]]],
       },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb1", path: [0, 0, 0], offset: 0 },
-      });
-    });
-    await h.focusKeepingSelection();
-    await page.keyboard.press("ArrowUp");
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    const at = (sel as { at: { blockId: string } }).at;
+    await h.caretAt("tb1", 0, [0, 0, 0]);
+    await h.press("ArrowUp");
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    const at = sel.at;
     expect(at.blockId).toBe("tb0");
   });
 });
@@ -398,13 +372,7 @@ test.describe("Multi-column block", () => {
     await buildDoc(page, [
       { type: "columns", cols: 2, cells: [[], []] },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb0", path: [0, 0], offset: 0 },
-      });
-    });
-    await h.focusKeepingSelection();
+    await h.caretAt("tb0", 0, [0, 0]);
     await h.type("LEFT");
     const json = (await page.evaluate(() =>
       (window as { __editor?: { toJSON(): unknown } } ).__editor!.toJSON(),
@@ -420,18 +388,10 @@ test.describe("Multi-column block", () => {
     await buildDoc(page, [
       { type: "columns", cols: 2, cells: [[{ text: "abc" }], [{ text: "xyz" }]] },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb0", path: [0, 3], offset: 3 },
-      });
-    });
-    await h.focusKeepingSelection();
-    await page.keyboard.press("ArrowRight");
-    const sel = await page.evaluate(() =>
-      (window as { __editor?: { selStore: { get(): unknown } } }).__editor!.selStore.get(),
-    );
-    const at = (sel as { at: { path: number[] } }).at;
+    await h.caretAt("tb0", 3, [0, 3]);
+    await h.press("ArrowRight");
+    const sel = (await h.selection()) as unknown as SelectionShape;
+    const at = sel.at;
     expect(at.path).toEqual([1, 0]);
   });
 });
@@ -462,13 +422,8 @@ test.describe("Click past end of line", () => {
     const x = Math.min(editorBox!.x + editorBox!.width - 4, box!.x + box!.width + 200);
     const y = box!.y + box!.height / 2;
     await page.mouse.click(x, y);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    const at = (sel as { at: { blockId: string; offset: number } }).at;
-    expect(at.blockId).toBe("tb0");
-    expect(at.offset).toBe("Try these".length);
+    await h.expectSelection((s) => s.at.blockId).toBe("tb0");
+    await h.expectSelection((s) => s.at.offset).toBe("Try these".length);
   });
 
   test("clicking below all content lands caret at end of last block", async ({
@@ -487,13 +442,8 @@ test.describe("Click past end of line", () => {
     const x = editorBox!.x + 60;
     const y = editorBox!.y + editorBox!.height - 8;
     await page.mouse.click(x, y);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    const at = (sel as { at: { blockId: string; offset: number } }).at;
-    expect(at.blockId).toBe("tb2");
-    expect(at.offset).toBe("tail content".length);
+    await h.expectSelection((s) => s.at.blockId).toBe("tb2");
+    await h.expectSelection((s) => s.at.offset).toBe("tail content".length);
   });
 
   test("clicking far left of a paragraph lands caret at start of line", async ({
@@ -508,23 +458,22 @@ test.describe("Click past end of line", () => {
     expect(box).not.toBeNull();
     // Click way to the left of the paragraph but on its line.
     await page.mouse.click(Math.max(0, box!.x - 80), box!.y + box!.height / 2);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    const at = (sel as { at: { blockId: string; offset: number } }).at;
-    expect(at.blockId).toBe("tb0");
-    expect(at.offset).toBe(0);
+    await h.expectSelection((s) => s.at.blockId).toBe("tb0");
+    await h.expectSelection((s) => s.at.offset).toBe(0);
   });
 
-  test("clicking 2px above a row, far right, lands caret at end of that row", async ({
+  test("clicking far right of a MIDDLE row lands caret at end of that row", async ({
     page,
   }) => {
-    // Regression: caretFromPoint can return offset 0 of a text node when
-    // the click is outside the text's bounding box (browser snaps to the
-    // closest character at line edges). Without rect validation, Pass 1
-    // succeeded with the wrong answer, so a click "slightly above row N,
-    // far to the right" landed at start-of-row-N instead of end-of-row-N.
+    // Clicking past end-of-line has to resolve to end-of-THAT-row, not to
+    // the start of it and not to a neighbouring block. First/last rows can
+    // pass by accident (there's only one direction to snap), so this pins
+    // the middle row specifically.
+    //
+    // Note the click y is inside the row's own box. The browser owns
+    // hit-testing now, and a point in the GAP between two blocks is
+    // legitimately ambiguous — asserting a specific winner there would be
+    // testing Chromium's tie-breaking, not the editor.
     const h = await EditorHarness.open(page);
     await buildDoc(page, [
       { type: "p", runs: [{ text: "first row" }] },
@@ -533,20 +482,14 @@ test.describe("Click past end of line", () => {
     ]);
     const editorBox = await h.editor.boundingBox();
     expect(editorBox).not.toBeNull();
-    // Aim for the h2 row.
     const h2 = h.editor.locator("h2[data-block-id]");
     const box = await h2.boundingBox();
     expect(box).not.toBeNull();
     const x = editorBox!.x + editorBox!.width - 6;
-    const y = box!.y - 2; // 2px above the heading's top.
+    const y = box!.y + box!.height / 2;
     await page.mouse.click(x, y);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    const at = (sel as { at: { blockId: string; offset: number } }).at;
-    expect(at.blockId).toBe("tb1");
-    expect(at.offset).toBe("second row title".length);
+    await h.expectSelection((s) => s.at.blockId).toBe("tb1");
+    await h.expectSelection((s) => s.at.offset).toBe("second row title".length);
   });
 
   test("clicking on the list bullet lands caret at start of li (not end)", async ({
@@ -566,13 +509,8 @@ test.describe("Click past end of line", () => {
     // Click 12px to the left of the li's text — that's where the bullet
     // dot sits, inside the <ul>'s padding.
     await page.mouse.click(box!.x - 12, box!.y + box!.height / 2);
-    const sel = await page.evaluate(() => {
-      const e = (window as { __editor?: { selStore: { get(): unknown } } }).__editor!;
-      return e.selStore.get();
-    });
-    const at = (sel as { at: { blockId: string; offset: number } }).at;
-    expect(at.blockId).toBe("tb0");
-    expect(at.offset).toBe(0);
+    await h.expectSelection((s) => s.at.blockId).toBe("tb0");
+    await h.expectSelection((s) => s.at.offset).toBe(0);
   });
 });
 
@@ -590,22 +528,13 @@ test.describe("Range replace on type", () => {
       { type: "p", runs: [{ text: "three" }] },
     ]);
     // Range covering "ne" of first p, all of second p, and "th" of third p.
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } })
-        .__editor!.selStore.set({
-          kind: "range",
-          anchor: { blockId: "tb0", path: [1], offset: 1 },
-          focus: { blockId: "tb2", path: [2], offset: 2 },
-        });
+    await h.setSelection({
+      kind: "range",
+      anchor: { blockId: "tb0", path: [1], offset: 1 },
+      focus: { blockId: "tb2", path: [2], offset: 2 },
     });
     await h.focusKeepingSelection();
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, "data", { value: "X" });
-      Object.defineProperty(ev, "inputType", { value: "insertText" });
-      ta.dispatchEvent(ev);
-    });
+    await h.beforeInput("insertText", "X");
     const state = await page.evaluate(() => {
       const e = (window as { __editor?: { docStore: { get(): { order: string[]; byId: Map<string, { runs: { text: string }[] }> } }; selStore: { get(): unknown } } }).__editor!;
       const doc = e.docStore.get();
@@ -624,13 +553,13 @@ test.describe("Range replace on type", () => {
 });
 
 test.describe("Caret in nested cells (table / columns)", () => {
-  test("caret renders in the actual table cell after typing into it", async ({
+  test("caret lands in the actual table cell after typing into it", async ({
     page,
   }) => {
-    // Regression: caretRectFor measured against the OUTER block element
-    // (the <table>) at offset 0, so the visible caret stayed glued to
-    // cell [0][0] no matter where the user actually typed. Drilled into
-    // the matching <td data-cell="r:c"> instead.
+    // Regression: the caret used to be measured against the OUTER block
+    // element (the <table>) at offset 0, so it stayed glued to cell [0][0]
+    // no matter where the user actually typed. The anchor codec now drills
+    // into the matching <td data-cell="r:c">.
     const h = await EditorHarness.open(page);
     await buildDoc(page, [
       {
@@ -643,88 +572,37 @@ test.describe("Caret in nested cells (table / columns)", () => {
         ],
       },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } })
-        .__editor!.selStore.set({
-          kind: "caret",
-          at: { blockId: "tb0", path: [0, 2, 0], offset: 0 },
-        });
-    });
-    await h.focusKeepingSelection();
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      for (const c of "abc") {
-        const ev = new Event("beforeinput", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(ev, "data", { value: c });
-        Object.defineProperty(ev, "inputType", { value: "insertText" });
-        ta.dispatchEvent(ev);
-      }
-    });
-    // Caret X must be inside cell [0][2]'s horizontal range.
-    const result = await page.evaluate(() => {
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      const td = document.querySelector(
-        'td[data-cell="0:2"]',
-      ) as HTMLElement;
-      const root = document.querySelector(
-        "[data-creo-edit]",
-      ) as HTMLElement;
-      const caretAbs =
-        (c ? parseFloat(c.style.left) : 0) +
-        root.getBoundingClientRect().left;
-      const tdR = td.getBoundingClientRect();
-      return {
-        caretAbs,
-        cellLeft: tdR.left,
-        cellRight: tdR.right,
-        cellInside: caretAbs >= tdR.left && caretAbs <= tdR.right,
-      };
-    });
-    expect(result.cellInside).toBe(true);
+    await h.caretAt("tb0", 0, [0, 2, 0]);
+    await h.inputText("abc");
+    // The text landed in cell [0][2]…
+    const cellText = await page
+      .locator('td[data-cell="0:2"]')
+      .textContent();
+    expect(cellText).toContain("abc");
+    // …and the browser's caret is inside that cell's box, not cell [0][0]'s.
+    const caret = await h.caretRect();
+    expect(caret).not.toBeNull();
+    const td = (await page.locator('td[data-cell="0:2"]').boundingBox())!;
+    expect(caret!.left).toBeGreaterThanOrEqual(td.x - 2);
+    expect(caret!.left).toBeLessThanOrEqual(td.x + td.width + 2);
   });
 
-  test("caret renders in the actual columns cell after typing into it", async ({
+  test("caret lands in the actual columns cell after typing into it", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
     await buildDoc(page, [
       { type: "columns", cols: 3, cells: [[], [], []] },
     ]);
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } })
-        .__editor!.selStore.set({
-          kind: "caret",
-          at: { blockId: "tb0", path: [2, 0], offset: 0 },
-        });
-    });
-    await h.focusKeepingSelection();
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, "data", { value: "RIGHT" });
-      Object.defineProperty(ev, "inputType", { value: "insertText" });
-      ta.dispatchEvent(ev);
-    });
-    const result = await page.evaluate(() => {
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      const col = document.querySelector(
-        '[data-col="2"]',
-      ) as HTMLElement;
-      const root = document.querySelector(
-        "[data-creo-edit]",
-      ) as HTMLElement;
-      const caretAbs =
-        (c ? parseFloat(c.style.left) : 0) +
-        root.getBoundingClientRect().left;
-      const r = col.getBoundingClientRect();
-      return {
-        caretInside: caretAbs >= r.left && caretAbs <= r.right,
-      };
-    });
-    expect(result.caretInside).toBe(true);
+    await h.caretAt("tb0", 0, [2, 0]);
+    await h.inputText("RIGHT");
+    const colText = await page.locator('[data-col="2"]').textContent();
+    expect(colText).toContain("RIGHT");
+    const caret = await h.caretRect();
+    expect(caret).not.toBeNull();
+    const col = (await page.locator('[data-col="2"]').boundingBox())!;
+    expect(caret!.left).toBeGreaterThanOrEqual(col.x - 2);
+    expect(caret!.left).toBeLessThanOrEqual(col.x + col.width + 2);
   });
 });
 
@@ -742,36 +620,14 @@ test.describe("Trailing whitespace", () => {
       { type: "p", runs: [{ text: "hello" }] },
     ]);
     // Caret at end of "hello".
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } })
-        .__editor!.selStore.set({
-          kind: "caret",
-          at: { blockId: "tb0", path: [5], offset: 5 },
-        });
-    });
-    await h.focusKeepingSelection();
-    const xBefore = await page.evaluate(() => {
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      return c ? parseFloat(c.style.left) : 0;
-    });
-    expect(xBefore).toBeGreaterThan(0);
-    // Type three spaces via beforeinput (page.keyboard.type triggers the
-    // same input pipeline path).
-    await page.evaluate(() => {
-      const ta = document.querySelector("[data-creo-edit]") as HTMLElement;
-      for (let i = 0; i < 3; i++) {
-        const ev = new Event("beforeinput", { bubbles: true, cancelable: true });
-        Object.defineProperty(ev, "data", { value: " " });
-        Object.defineProperty(ev, "inputType", { value: "insertText" });
-        ta.dispatchEvent(ev);
-      }
-    });
-    const xAfter = await page.evaluate(() => {
-      const c = document.querySelector(".creo-caret") as HTMLElement | null;
-      return c ? parseFloat(c.style.left) : 0;
-    });
+    await h.caretAt("tb0", 5);
+    const before = await h.caretRect();
+    expect(before).not.toBeNull();
+    expect(before!.left).toBeGreaterThan(0);
+    await h.inputText("   ");
+    const after = await h.caretRect();
     // Caret must have visibly advanced.
-    expect(xAfter).toBeGreaterThan(xBefore + 4);
+    expect(after!.left).toBeGreaterThan(before!.left + 4);
     // Model has all 8 chars.
     const len = await page.evaluate(() => {
       const e = (window as { __editor?: { docStore: { get(): { byId: Map<string, { runs: { text: string }[] }> } } } }).__editor!;
@@ -831,13 +687,7 @@ test.describe("Regression: Enter-Enter at end of heading", () => {
       { type: "p", runs: [{ text: "tail" }] },
     ]);
     // Place caret at end of the h2 (block tb2, offset = "Try these".length).
-    await page.evaluate(() => {
-      (window as { __editor?: { selStore: { set(s: unknown): void } } }).__editor!.selStore.set({
-        kind: "caret",
-        at: { blockId: "tb2", path: [9], offset: 9 },
-      });
-    });
-    await h.focusKeepingSelection();
+    await h.caretAt("tb2", 9, [9]);
     // Enter twice — same as user pressing Return twice.
     await h.dispatch({ t: "splitBlock" });
     await h.dispatch({ t: "splitBlock" });

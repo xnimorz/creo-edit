@@ -12,25 +12,17 @@
 // ---------------------------------------------------------------------------
 
 import { anchorToDom } from "../../dom/anchorMap";
+import {
+  deleteHighlight,
+  isHighlightApiSupported,
+  setHighlight,
+} from "../../dom/highlights";
 import type { SearchMatch } from "./engine";
 
 export const HL_ALL = "creo-search";
 export const HL_CURRENT = "creo-search-current";
 
-type HighlightCtor = new (...ranges: AbstractRange[]) => Highlight;
-type HighlightRegistry = {
-  set(name: string, value: Highlight): void;
-  delete(name: string): void;
-  get?(name: string): Highlight | undefined;
-};
-type CSSWithHighlights = typeof CSS & {
-  highlights?: HighlightRegistry;
-};
-
-export function isHighlightApiSupported(): boolean {
-  if (typeof CSS === "undefined") return false;
-  return Boolean((CSS as CSSWithHighlights).highlights) && typeof (globalThis as { Highlight?: unknown }).Highlight === "function";
-}
+export { isHighlightApiSupported };
 
 function buildRange(
   root: HTMLElement,
@@ -62,10 +54,6 @@ export function paintHighlights(
   activeIndex: number,
 ): number {
   if (!isHighlightApiSupported()) return 0;
-  const css = CSS as CSSWithHighlights;
-  const highlights = css.highlights!;
-  const Hi = (globalThis as unknown as { Highlight: HighlightCtor }).Highlight;
-
   const allRanges: Range[] = [];
   let currentRange: Range | null = null;
   let mounted = 0;
@@ -78,18 +66,14 @@ export function paintHighlights(
     else allRanges.push(r);
   }
   // Always set the "all" highlight even if empty so prior matches clear.
-  highlights.set(HL_ALL, new Hi(...allRanges));
-  if (currentRange) {
-    highlights.set(HL_CURRENT, new Hi(currentRange));
-  } else {
-    highlights.delete(HL_CURRENT);
-  }
+  setHighlight(HL_ALL, allRanges);
+  // The active match paints over the rest of them.
+  if (currentRange) setHighlight(HL_CURRENT, [currentRange], 1);
+  else deleteHighlight(HL_CURRENT);
   return mounted;
 }
 
 export function clearHighlights(): void {
-  if (!isHighlightApiSupported()) return;
-  const css = CSS as CSSWithHighlights;
-  css.highlights!.delete(HL_ALL);
-  css.highlights!.delete(HL_CURRENT);
+  deleteHighlight(HL_ALL);
+  deleteHighlight(HL_CURRENT);
 }

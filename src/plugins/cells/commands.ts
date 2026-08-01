@@ -10,6 +10,11 @@
 // ---------------------------------------------------------------------------
 
 import { getBlock, updateBlock } from "../../model/doc";
+// Row / column insert+remove reshapes the [row, col] address space, which no
+// offset arithmetic can describe — `resetBlock` tells anchor holders their
+// position inside this block is unmappable rather than handing them a
+// plausible wrong one.
+import { recordChange } from "../../model/changes";
 import { anchorOffset, caret } from "../../controller/selection";
 import type {
   Block,
@@ -172,6 +177,7 @@ function columnsInsertCol(ctx: CommandCtx, p: ColumnsTarget): boolean {
   ];
   const next: ColumnsBlock = { ...block, cols: block.cols + 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   ctx.selStore.set(caret({ blockId: block.id, path: [insertAt, 0], offset: 0 }));
   return true;
 }
@@ -193,6 +199,7 @@ function columnsRemoveCol(
   const cells = block.cells.filter((_, i) => i !== target);
   const next: ColumnsBlock = { ...block, cols: block.cols - 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   const newCol = Math.min(target, next.cols - 1);
   ctx.selStore.set(caret({ blockId: block.id, path: [newCol, 0], offset: 0 }));
   return true;
@@ -230,6 +237,7 @@ function insertRow(
   ];
   const next: TableBlock = { ...block, rows: block.rows + 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   if (moveTo) {
     ctx.selStore.set(caret({ blockId: block.id, path: [insertAt, 0, 0], offset: 0 }));
   }
@@ -256,6 +264,7 @@ function insertCol(
   ]);
   const next: TableBlock = { ...block, cols: block.cols + 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   return true;
 }
 
@@ -270,6 +279,7 @@ function removeRow(ctx: CommandCtx, blockId?: string, rowHint?: number): boolean
   const cells = block.cells.filter((_, i) => i !== row);
   const next: TableBlock = { ...block, rows: block.rows - 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   const newRow = Math.min(row, next.rows - 1);
   ctx.selStore.set(caret({ blockId: block.id, path: [newRow, t.col, 0], offset: 0 }));
   return true;
@@ -286,6 +296,7 @@ function removeCol(ctx: CommandCtx, blockId?: string, colHint?: number): boolean
   const cells = block.cells.map((row) => row.filter((_, i) => i !== col));
   const next: TableBlock = { ...block, cols: block.cols - 1, cells };
   ctx.docStore.set(updateBlock(doc, next as Block));
+  recordChange({ kind: "resetBlock", blockId: block.id });
   const newCol = Math.min(col, next.cols - 1);
   ctx.selStore.set(caret({ blockId: block.id, path: [t.row, newCol, 0], offset: 0 }));
   return true;
@@ -422,17 +433,19 @@ export const tableCommandDefs: CommandDef<unknown>[] = [
       return removeCol(ctx, t.blockId, t.col);
     },
   },
-  { t: "table.nextCell", run: (ctx) => nextCell(ctx) },
-  { t: "table.prevCell", run: (ctx) => prevCell(ctx) },
-  { t: "table.arrowLeft", run: (ctx) => arrowLeft(ctx) },
-  { t: "table.arrowRight", run: (ctx) => arrowRight(ctx) },
-  { t: "table.arrowUp", run: (ctx) => arrowUp(ctx) },
-  { t: "table.arrowDown", run: (ctx) => arrowDown(ctx) },
+  // Pure caret motion — `readOnlySafe` so Tab / arrow navigation still walks
+  // a table in a read-only (diff / transcript) editor.
+  { t: "table.nextCell", readOnlySafe: true, run: (ctx) => nextCell(ctx) },
+  { t: "table.prevCell", readOnlySafe: true, run: (ctx) => prevCell(ctx) },
+  { t: "table.arrowLeft", readOnlySafe: true, run: (ctx) => arrowLeft(ctx) },
+  { t: "table.arrowRight", readOnlySafe: true, run: (ctx) => arrowRight(ctx) },
+  { t: "table.arrowUp", readOnlySafe: true, run: (ctx) => arrowUp(ctx) },
+  { t: "table.arrowDown", readOnlySafe: true, run: (ctx) => arrowDown(ctx) },
   // Columns navigation — Tab moves between columns.
-  { t: "columns.next", run: (ctx) => columnsNext(ctx) },
-  { t: "columns.prev", run: (ctx) => columnsPrev(ctx) },
-  { t: "columns.arrowLeft", run: (ctx) => columnsArrowLeft(ctx) },
-  { t: "columns.arrowRight", run: (ctx) => columnsArrowRight(ctx) },
+  { t: "columns.next", readOnlySafe: true, run: (ctx) => columnsNext(ctx) },
+  { t: "columns.prev", readOnlySafe: true, run: (ctx) => columnsPrev(ctx) },
+  { t: "columns.arrowLeft", readOnlySafe: true, run: (ctx) => columnsArrowLeft(ctx) },
+  { t: "columns.arrowRight", readOnlySafe: true, run: (ctx) => columnsArrowRight(ctx) },
   // Columns insert / remove.
   {
     t: "columns.insertCol",

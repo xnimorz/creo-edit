@@ -3,9 +3,29 @@ export type FracIndex = string;
 
 export type Mark = "b" | "i" | "u" | "s" | "code";
 
+/**
+ * View-only presentation carried on a run. Rendered onto the run's
+ * `<span data-run-index>` and nothing else — `attrs` is NOT part of mark
+ * toggling and does NOT round-trip through JSON / HTML / markdown.
+ *
+ * The intended producer is derived styling that the host recomputes from the
+ * text: syntax-highlight tokens (`tok-keyword`, `tok-string`, …), spell-check
+ * underlines, and similar. Because it is derived rather than authored,
+ * treating it as view state is the point — a reload recomputes it.
+ *
+ * Runs that differ only by `attrs` are never merged, so a token boundary
+ * survives `normalizeRuns`.
+ */
+export type RunAttrs = {
+  /** Class name(s) placed on the run's span. */
+  class?: string;
+};
+
 export type InlineRun = {
   text: string;
   marks?: ReadonlySet<Mark>;
+  /** Rendered on the run's span. Not part of mark toggling. */
+  attrs?: RunAttrs;
 };
 
 export type ParagraphBlock = {
@@ -161,3 +181,10 @@ export type Anchor = {
 export type Selection =
   | { kind: "caret"; at: Anchor }
   | { kind: "range"; anchor: Anchor; focus: Anchor };
+
+/**
+ * A directed span between two anchors. Unlike `Selection` this carries no
+ * caret semantics — it's the unit range decorations and inline widgets are
+ * described in.
+ */
+export type AnchorRange = { from: Anchor; to: Anchor };

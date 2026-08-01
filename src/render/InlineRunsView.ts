@@ -35,8 +35,16 @@ const RunView = view<{ run: InlineRun; index: number; empty?: boolean }>(({ prop
     // only on the synthetic placeholder run, never on real (even empty
     // textually) runs the model stores.
     const sentinelAttrs = empty ? { "data-empty": "true" } : {};
+    // View-only per-run styling (syntax tokens, diagnostics …). It lands on
+    // the run span itself rather than a wrapper, so it never changes the
+    // element count the anchor map walks.
+    const cls = run.attrs?.class;
+    const classAttr = cls ? { class: cls } : {};
     let inner = () => {
-      span({ "data-run-index": String(index), ...sentinelAttrs }, t);
+      span(
+        { "data-run-index": String(index), ...classAttr, ...sentinelAttrs },
+        t,
+      );
     };
     if (run.marks && run.marks.size) {
       for (const m of MARK_ORDER) {

@@ -32,10 +32,31 @@ export function getAnchorCodec(type: string): AnchorCodec | null {
 
 const ZWSP = "​";
 
-/** Sum of text-node lengths inside `el`, treating ZWSP placeholders as 0. */
+/**
+ * Marker attribute on an inline widget's root. Everything in this module —
+ * and therefore every consumer of the default text codec — treats a subtree
+ * carrying it as if it were not in the DOM at all: it contributes no
+ * characters to the offset walk, and the caret is never placed inside it.
+ *
+ * This is THE contract for inline widgets. A block that ships its own anchor
+ * codec must honour it too, or widgets in that block will shift every anchor
+ * after them on the line.
+ */
+export const INLINE_WIDGET_ATTR = "data-ce-inline-widget";
+
+function isWidget(node: Node): boolean {
+  return (
+    node.nodeType === 1 &&
+    (node as HTMLElement).hasAttribute?.(INLINE_WIDGET_ATTR) === true
+  );
+}
+
+/** Sum of text-node lengths inside `el`, treating ZWSP placeholders as 0 and
+ *  skipping inline-widget subtrees. */
 function visibleTextLength(el: HTMLElement): number {
   let n = 0;
   const walk = (node: Node): void => {
+    if (isWidget(node)) return;
     if (node.nodeType === 3) {
       const t = (node as Text).data;
       if (t !== ZWSP) n += t.length;
@@ -47,7 +68,34 @@ function visibleTextLength(el: HTMLElement): number {
   return n;
 }
 
-/** Visible-character offset from start of `scopeEl` to (hitNode, localOffset). */
+/**
+ * Visible text of `el` as the model sees it — ZWSP placeholders and inline
+ * widgets removed. Used by the IME composition diff, which compares the DOM
+ * against the model and would otherwise read a widget's text as a phantom
+ * insertion.
+ */
+export function visibleTextOf(el: HTMLElement): string {
+  let out = "";
+  const walk = (node: Node): void => {
+    if (isWidget(node)) return;
+    if (node.nodeType === 3) {
+      const t = (node as Text).data;
+      if (t !== ZWSP) out += t;
+      return;
+    }
+    for (const c of Array.from(node.childNodes)) walk(c);
+  };
+  walk(el);
+  return out;
+}
+
+/**
+ * Visible-character offset from start of `scopeEl` to (hitNode, localOffset).
+ *
+ * Hand-rolled rather than `Range.toString()` because the walk has to skip
+ * inline-widget subtrees, and a Range has no way to exclude a sub-tree from
+ * its own text.
+ */
 export function offsetWithinScope(
   scopeEl: HTMLElement,
   hitNode: Node,
@@ -58,24 +106,61 @@ export function offsetWithinScope(
     if (cmp & Node.DOCUMENT_POSITION_FOLLOWING) return visibleTextLength(scopeEl);
     return 0;
   }
-  const range = document.createRange();
-  try {
-    range.selectNodeContents(scopeEl);
-    range.setEnd(hitNode, Math.max(0, localOffset));
-    const text = range.toString();
-    return text.replace(new RegExp(ZWSP, "g"), "").length;
-  } catch {
-    return 0;
-  } finally {
-    range.detach?.();
-  }
+  let count = 0;
+  let result = 0;
+  let done = false;
+
+  const visit = (node: Node): void => {
+    if (done) return;
+    if (isWidget(node)) {
+      // A hit inside a widget resolves to the position just before it — the
+      // caret can never sit "inside" zero-width content.
+      if (node === hitNode || node.contains(hitNode)) {
+        result = count;
+        done = true;
+      }
+      return;
+    }
+    if (node.nodeType === 3) {
+      const data = (node as Text).data;
+      if (node === hitNode) {
+        result =
+          count + (data === ZWSP ? 0 : Math.min(Math.max(0, localOffset), data.length));
+        done = true;
+        return;
+      }
+      if (data !== ZWSP) count += data.length;
+      return;
+    }
+    const kids = Array.from(node.childNodes);
+    if (node === hitNode) {
+      // Element hit: `localOffset` is a child index.
+      const stop = Math.min(Math.max(0, localOffset), kids.length);
+      for (let i = 0; i < stop; i++) {
+        visit(kids[i]!);
+        if (done) return;
+      }
+      result = count;
+      done = true;
+      return;
+    }
+    for (const k of kids) {
+      visit(k);
+      if (done) return;
+    }
+  };
+
+  visit(scopeEl);
+  return done ? result : count;
 }
 
-/** Walk descendant text nodes to find the (node, offset) at `charOffset`. */
+/** Walk descendant text nodes to find the (node, offset) at `charOffset`,
+ *  skipping inline-widget subtrees so the caret never lands inside one. */
 export function findTextPoint(scopeEl: HTMLElement, charOffset: number): DomPoint {
   let remaining = charOffset;
   let last: DomPoint | null = null;
   const walk = (node: Node): DomPoint | null => {
+    if (isWidget(node)) return null;
     if (node.nodeType === 3) {
       const text = node as Text;
       const data = text.data;

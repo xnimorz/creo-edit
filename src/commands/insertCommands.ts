@@ -16,6 +16,11 @@ import {
   updateBlock,
 } from "../model/doc";
 import {
+  recordChange,
+  recordTextChange,
+  type DocChange,
+} from "../model/changes";
+import {
   anchorOffset,
   caret,
   caretAt,
@@ -97,6 +102,14 @@ function inlineMerge(
   stores.docStore.set(updateBlock(stores.docStore.get(), newBlock));
   let totalInserted = 0;
   for (const r of insertedRuns) totalInserted += r.text.length;
+  recordChange({
+    kind: "text",
+    blockId: cur.id,
+    container: [],
+    from: off,
+    to: off,
+    insertedLength: totalInserted,
+  });
   stores.selStore.set(caret(caretAt(cur.id, off + totalInserted)));
   return true;
 }
@@ -114,6 +127,12 @@ function splitAndInsert(
   // first pasted block's TYPE win: pasting a heading into an empty paragraph
   // should leave a heading, not a paragraph with the heading's text.
   const curIsEmpty = leftRuns.length === 0 && rightRuns.length === 0;
+  const curLen = sumRuns(cur.runs);
+  // Everything from the caret to the end of `cur` is replaced — either by the
+  // first pasted block's runs (text-bearing first) or by nothing (the right
+  // half moves into a trailing block). Anchors past the caret in `cur` are
+  // genuinely gone, so they map to null rather than to a guess.
+  const pending: DocChange[] = [];
 
   let workingDoc = stores.docStore.get();
   if (isTextBearingSpec(first)) {
@@ -121,6 +140,14 @@ function splitAndInsert(
       runs: TBB["runs"];
     }).runs;
     const newCurRuns = concatRuns(leftRuns, firstRuns);
+    pending.push({
+      kind: "text",
+      blockId: cur.id,
+      container: [],
+      from: off,
+      to: curLen,
+      insertedLength: sumRuns(firstRuns),
+    });
     if (curIsEmpty) {
       // Replace current block in place, adopting the first block's type.
       const replacement = upgradeBlockToSpec(cur, first, newCurRuns);
@@ -135,6 +162,14 @@ function splitAndInsert(
     // First inserted block is non-text (img / table) — keep current block's
     // left runs as-is, then we'll insert `first` as a new block right after.
     workingDoc = updateBlock(workingDoc, { ...cur, runs: leftRuns } as Block);
+    pending.push({
+      kind: "text",
+      blockId: cur.id,
+      container: [],
+      from: off,
+      to: curLen,
+      insertedLength: 0,
+    });
   }
 
   // Build the list of NEW blocks to insert after `cur`. That includes:
@@ -179,6 +214,13 @@ function splitAndInsert(
   const curPos = findPos(workingDoc, cur.id);
   workingDoc = insertManyAt(workingDoc, curPos + 1, newBlocks);
   stores.docStore.set(workingDoc);
+  for (const c of pending) recordChange(c);
+  for (let i = 0; i < newBlocks.length; i++) {
+    const id = newBlocks[i]!.id;
+    if (id) {
+      recordChange({ kind: "insertBlock", blockId: id, index: curPos + 1 + i });
+    }
+  }
 
   // Place caret at the END of the last inserted block's "logical content"
   // — that's the end of `last`'s runs (before rightRuns are appended).
@@ -232,6 +274,10 @@ function insertBlocksAfter(
   const pos = findPos(doc, afterId) + 1;
   const next = insertManyAt(doc, pos, blocks);
   stores.docStore.set(next);
+  for (let i = 0; i < blocks.length; i++) {
+    const id = blocks[i]!.id;
+    if (id) recordChange({ kind: "insertBlock", blockId: id, index: pos + i });
+  }
   // Caret to start of last inserted block.
   const lastId = blocks[blocks.length - 1]!.id ?? "";
   if (lastId) stores.selStore.set(caret(caretAt(lastId, 0)));
@@ -408,6 +454,7 @@ function collapseRange(stores: Stores): boolean {
         runs: newRuns,
       } as Block),
     );
+    recordTextChange(start, sOff, eOff, 0);
     stores.selStore.set(caret(caretAt(block.id, sOff)));
     return true;
   }
@@ -439,6 +486,39 @@ function collapseRange(stores: Stores): boolean {
   for (let i = startI + 1; i <= endI; i++) idsToRemove.push(doc.order[i]!);
   working = removeBlocks(working, idsToRemove);
   stores.docStore.set(working);
+  // Same emission shape as the structural collapse: truncate both surviving
+  // sides, drop the blocks in between, then fold the end block into the start.
+  const startLen = sumRuns((startBlock as TBB).runs);
+  if (startLen > sOff) {
+    recordChange({
+      kind: "text",
+      blockId: start.blockId,
+      container: [],
+      from: sOff,
+      to: startLen,
+      insertedLength: 0,
+    });
+  }
+  if (eOff > 0) {
+    recordChange({
+      kind: "text",
+      blockId: end.blockId,
+      container: [],
+      from: 0,
+      to: eOff,
+      insertedLength: 0,
+    });
+  }
+  for (const id of idsToRemove) {
+    if (id === end.blockId) continue;
+    recordChange({ kind: "removeBlock", blockId: id });
+  }
+  recordChange({
+    kind: "merge",
+    blockId: end.blockId,
+    into: start.blockId,
+    atOffset: sOff,
+  });
   stores.selStore.set(caret(caretAt(start.blockId, sOff)));
   return true;
 }

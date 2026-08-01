@@ -28,15 +28,11 @@ import {
 } from "../commands/imageCommands";
 import { deleteSelectedAtomic } from "../commands/imageCommands";
 import { isAtomicBlockType } from "../plugin/atomic";
-import { lookupAnchorCodec } from "../plugin/anchorCodec";
+import { lookupAnchorCodec, visibleTextOf } from "../plugin/anchorCodec";
 import { runsLengthAt } from "../plugin/runsAt";
 import { matchPluginKeymap } from "../plugin/keymapMatch";
 import type { Registry } from "../plugin/registry";
 import type { TriggerManager } from "../plugin/triggers";
-
-const ZWSP = "​";
-// Hoisted so the hot selection/composition paths don't recompile it per call.
-const ZWSP_RE = new RegExp(ZWSP, "g");
 
 /**
  * Schedule `cb` after the current render flush. Production: requestAnimationFrame
@@ -69,10 +65,20 @@ export type NativeInputOptions = {
   /** Trigger manager — watches text insertion + key events for plugin
    *  triggers (slash commands, mentions, etc.). */
   triggers: TriggerManager;
+  /**
+   * Whether the document currently accepts input. Re-read (never cached) so
+   * a host thunk can flip without recreating the editor. Defaults to always
+   * editable when omitted.
+   */
+  isEditable?: () => boolean;
 };
 
 export type NativeInputHandle = {
   destroy: () => void;
+  /** Re-read `isEditable()` and reflect it onto the root's contenteditable
+   *  attribute. Called by `editor.setEditable`, and on focus / pointerdown so
+   *  a thunk-driven flip lands before the user can type. */
+  syncEditable: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -90,10 +96,25 @@ export function attachNativeInput(
 ): NativeInputHandle {
   const { docStore, selStore } = stores;
 
+  // Read-only support. `contenteditable` reflects `isEditable()`, but the
+  // attribute alone is not enough — `dispatch()` is public, so the command
+  // dispatcher gates too (see createEditor). Here we only stop the browser
+  // from originating edits.
+  const isEditable = (): boolean => options.isEditable?.() !== false;
+
+  const syncEditable = (): void => {
+    root.setAttribute("contenteditable", isEditable() ? "true" : "false");
+  };
+
   // Make the root editable. Browser default = false, so we set it explicitly.
   // We also set spellcheck off for now — can be exposed as an option later.
-  root.setAttribute("contenteditable", "true");
+  syncEditable();
   root.setAttribute("spellcheck", "false");
+  // A thunk-valued `editable` can change without telling us. Re-sync on the
+  // events that precede any possible edit, so the attribute is never stale
+  // by the time a keystroke arrives.
+  root.addEventListener("focusin", syncEditable);
+  root.addEventListener("pointerdown", syncEditable, true);
 
   // -------------------------------------------------------------------------
   // Selection sync: native ↔ Anchor
@@ -401,6 +422,13 @@ export function attachNativeInput(
   const onBeforeInput = (e: InputEvent): void => {
     const t = e.inputType;
 
+    // Read-only: swallow everything, including composition, so the browser
+    // never writes into the DOM behind the model's back.
+    if (!isEditable()) {
+      e.preventDefault();
+      return;
+    }
+
     // IME composition — let the browser write into the DOM; we reconcile the
     // affected scope against the model on compositionend.
     if (
@@ -626,9 +654,15 @@ export function attachNativeInput(
     return runsLengthAt(block, a);
   };
 
-  /** DOM scope (element + visible textContent) for the given anchor.
+  /** DOM scope (element + visible text) for the given anchor.
    *  Pulls the scope via the AnchorCodec.domScope hook (table → <td>,
-   *  columns → <div data-col>, default → block element itself). */
+   *  columns → <div data-col>, default → block element itself).
+   *
+   *  `visibleTextOf` — not `textContent` — because inline widgets live in
+   *  this subtree and are not in the model. Reading their text here would
+   *  make the composition diff see a phantom insertion the size of the
+   *  widget (ghost text is multi-line; that would be catastrophic). ZWSP
+   *  placeholders are dropped by the same walk. */
   const domScope = (
     a: Anchor,
   ): { scope: HTMLElement; text: string } | null => {
@@ -637,11 +671,11 @@ export function attachNativeInput(
     const kind = blockEl.getAttribute("data-block-kind") ?? "";
     const codec = lookupAnchorCodec(kind);
     const scope = codec?.domScope?.(blockEl, a) ?? blockEl;
-    const text = (scope.textContent ?? "").replace(ZWSP_RE, "");
-    return { scope, text };
+    return { scope, text: visibleTextOf(scope) };
   };
 
   const onCompositionStart = (): void => {
+    if (!isEditable()) return;
     const sel = selStore.get();
     // If a range was selected, delete it first — we want a caret-only start
     // so the post-composition diff is unambiguous. Route through
@@ -732,6 +766,12 @@ export function attachNativeInput(
 
   const onCut = (e: ClipboardEvent): void => {
     if (!selectionInRoot()) return;
+    // Read-only: a cut would delete. Degrade to copy so the user still gets
+    // the content on the clipboard.
+    if (!isEditable()) {
+      onCopy(e);
+      return;
+    }
     const sel = selStore.get();
     if (sel.kind === "caret") return;
     e.preventDefault();
@@ -754,6 +794,10 @@ export function attachNativeInput(
 
   const onPaste = (e: ClipboardEvent): void => {
     if (!selectionInRoot()) return;
+    if (!isEditable()) {
+      e.preventDefault();
+      return;
+    }
     const data = e.clipboardData;
     if (!data) return;
     e.preventDefault();
@@ -809,8 +853,11 @@ export function attachNativeInput(
   // -------------------------------------------------------------------------
 
   return {
+    syncEditable,
     destroy: () => {
       document.removeEventListener("selectionchange", onSelectionChange);
+      root.removeEventListener("focusin", syncEditable);
+      root.removeEventListener("pointerdown", syncEditable, true);
       root.removeEventListener("beforeinput", onBeforeInput as EventListener);
       root.removeEventListener("keydown", onKeyDown);
       root.removeEventListener("compositionstart", onCompositionStart);

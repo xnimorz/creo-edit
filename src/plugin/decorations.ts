@@ -32,9 +32,17 @@ export type DecorationManagerOptions = {
 type Mounted = {
   def: DecorationDef;
   blockId: BlockId;
+  /** Index within the def's `targets()` list; 0 when `targets` is omitted. */
+  targetIndex: number;
   el: HTMLElement;
   cleanup: (() => void) | void;
 };
+
+/** Minimal rect shape — `uniformTargets` synthesizes these arithmetically
+ *  rather than calling getBoundingClientRect per target. */
+type Rect = { top: number; left: number; width: number; height: number };
+
+const DEFAULT_SLOT = 24;
 
 export class DecorationManager {
   private layer: HTMLElement;
@@ -142,21 +150,46 @@ export class DecorationManager {
     }
   }
 
+  /**
+   * Resolve a def's anchor elements inside a block. `targets` omitted means
+   * "the block element", i.e. exactly the pre-sub-block behaviour. A throwing
+   * or empty `targets()` yields no decorations rather than taking the layer
+   * down.
+   */
+  private resolveTargets(
+    def: DecorationDef,
+    block: Block,
+    blockEl: HTMLElement,
+  ): HTMLElement[] {
+    if (!def.targets) return [blockEl];
+    try {
+      return def.targets(block, blockEl) ?? [];
+    } catch {
+      return [];
+    }
+  }
+
   private sync(): void {
     const doc = this.opts.docStore.get();
     const wantKeys = new Set<string>();
     for (const id of doc.order) {
       const block = doc.byId.get(id)!;
+      const blockEl = findBlockElementById(this.opts.editorRoot, id);
+      if (!blockEl) continue;
       for (const def of this.opts.registry.decorations) {
         if (!def.match(block)) continue;
-        const key = `${def.id}:${id}`;
-        wantKeys.add(key);
-        if (!this.mounted.has(key)) {
-          this.mountDecoration(def, block);
+        const targets = this.resolveTargets(def, block, blockEl);
+        for (let i = 0; i < targets.length; i++) {
+          const key = `${def.id}:${id}:${i}`;
+          wantKeys.add(key);
+          if (!this.mounted.has(key)) {
+            this.mountDecoration(def, block, targets[i]!, i, key);
+          }
         }
       }
     }
-    // Unmount decorations whose blocks are gone.
+    // Unmount decorations whose block — or whose target — is gone. A code
+    // block losing a line drops that line's gutter entry here.
     for (const [key, m] of this.mounted) {
       if (!wantKeys.has(key)) {
         try { m.cleanup?.(); } catch {}
@@ -167,24 +200,35 @@ export class DecorationManager {
     this.position();
   }
 
-  private mountDecoration(def: DecorationDef, block: Block): void {
-    const blockEl = findBlockElementById(this.opts.editorRoot, block.id);
-    if (!blockEl) return;
+  private mountDecoration(
+    def: DecorationDef,
+    block: Block,
+    target: HTMLElement,
+    index: number,
+    key: string,
+  ): void {
     const el = document.createElement("div");
     el.className = `ce-deco ce-deco-${def.id} ce-deco-layer-${def.layer}`;
     el.dataset.blockId = block.id;
+    if (def.targets) el.dataset.targetIndex = String(index);
     Object.assign(el.style, {
       position: "absolute",
       pointerEvents: "auto",
     } as Partial<CSSStyleDeclaration>);
     let cleanup: (() => void) | void = undefined;
     try {
-      cleanup = def.mount(block, blockEl, el, this) ?? undefined;
+      cleanup = def.mount(block, target, el, this, index) ?? undefined;
     } catch {
       // Plugin error — drop without taking down the layer.
     }
     this.layer.appendChild(el);
-    this.mounted.set(`${def.id}:${block.id}`, { def, blockId: block.id, el, cleanup });
+    this.mounted.set(key, {
+      def,
+      blockId: block.id,
+      targetIndex: index,
+      el,
+      cleanup,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -193,18 +237,71 @@ export class DecorationManager {
 
   private position(): void {
     const layerRect = this.layer.getBoundingClientRect();
-    // Group mounted decorations by (blockId, layer) so we can stack
-    // multiple decorations in the same layer side-by-side instead of
-    // overlapping. Order within a (blockId, layer) group follows the
-    // plugin registration order (this.orderById, computed once at install).
+    const doc = this.opts.docStore.get();
+    const root = this.opts.editorRoot;
+
+    // Per-frame memos. `targets()` is called at most once per (def, block)
+    // per frame, and with `uniformTargets` we take exactly one layout read
+    // per (def, block) no matter how many targets there are.
+    const blockElCache = new Map<BlockId, HTMLElement | null>();
+    const targetCache = new Map<string, HTMLElement[]>();
+    const firstRectCache = new Map<string, Rect | null>();
+
+    const blockElFor = (id: BlockId): HTMLElement | null => {
+      let el = blockElCache.get(id);
+      if (el === undefined) {
+        el = findBlockElementById(root, id);
+        blockElCache.set(id, el);
+      }
+      return el;
+    };
+
+    const targetsFor = (def: DecorationDef, id: BlockId): HTMLElement[] => {
+      const key = `${def.id}::${id}`;
+      let t = targetCache.get(key);
+      if (t) return t;
+      const blockEl = blockElFor(id);
+      const block = doc.byId.get(id);
+      t = blockEl && block ? this.resolveTargets(def, block, blockEl) : [];
+      targetCache.set(key, t);
+      return t;
+    };
+
+    const rectFor = (
+      def: DecorationDef,
+      id: BlockId,
+      index: number,
+    ): Rect | null => {
+      const targets = targetsFor(def, id);
+      if (def.uniformTargets) {
+        if (index >= targets.length) return null;
+        const key = `${def.id}::${id}`;
+        let first = firstRectCache.get(key);
+        if (first === undefined) {
+          const el0 = targets[0];
+          first = el0 ? toRect(el0.getBoundingClientRect()) : null;
+          firstRectCache.set(key, first);
+        }
+        if (!first) return null;
+        if (index === 0) return first;
+        return { ...first, top: first.top + index * first.height };
+      }
+      const el = targets[index];
+      return el ? toRect(el.getBoundingClientRect()) : null;
+    };
+
+    // Group mounted decorations by (blockId, layer, targetIndex) so we can
+    // stack multiple decorations against the same anchor side-by-side
+    // instead of overlapping. Order within a group follows the plugin
+    // registration order (this.orderById, computed once at install).
     const orderById = this.orderById;
-    type Group = { blockId: string; layer: string; items: Mounted[] };
+    type Group = { blockId: BlockId; targetIndex: number; items: Mounted[] };
     const groups = new Map<string, Group>();
     for (const m of this.mounted.values()) {
-      const key = `${m.blockId}::${m.def.layer}`;
+      const key = `${m.blockId}::${m.def.layer}::${m.targetIndex}`;
       let g = groups.get(key);
       if (!g) {
-        g = { blockId: m.blockId, layer: m.def.layer, items: [] };
+        g = { blockId: m.blockId, targetIndex: m.targetIndex, items: [] };
         groups.set(key, g);
       }
       g.items.push(m);
@@ -214,18 +311,19 @@ export class DecorationManager {
         (a, b) =>
           (orderById.get(a.def.id) ?? 0) - (orderById.get(b.def.id) ?? 0),
       );
-    }
-    for (const g of groups.values()) {
-      const blockEl = findBlockElementById(this.opts.editorRoot, g.blockId);
-      if (!blockEl) {
-        for (const m of g.items) m.el.style.display = "none";
-        continue;
-      }
-      const r = blockEl.getBoundingClientRect();
+      // Each item in a group can have its own target list (different defs),
+      // but they share (block, layer, index) so their rects coincide in the
+      // common case. Resolve per item so a def with fewer targets simply
+      // hides instead of borrowing another def's geometry.
       for (let i = 0; i < g.items.length; i++) {
         const m = g.items[i]!;
+        const r = rectFor(m.def, g.blockId, g.targetIndex);
+        if (!r) {
+          m.el.style.display = "none";
+          continue;
+        }
         m.el.style.display = "";
-        const slot = layerSlotForLayer(m.def.layer, r, i, g.items.length);
+        const slot = layerSlotForLayer(m.def.layer, r, i, m.def.slotWidth);
         m.el.style.top = `${r.top - layerRect.top}px`;
         m.el.style.left = `${r.left - layerRect.left + slot.left}px`;
         m.el.style.width = `${slot.width ?? r.width}px`;
@@ -261,16 +359,20 @@ export class DecorationManager {
   };
 }
 
+function toRect(r: DOMRect): Rect {
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
+
 function layerSlotForLayer(
   layer: DecorationDef["layer"],
-  blockRect: DOMRect,
+  blockRect: Rect,
   index: number,
-  _total: number,
+  slotWidth?: number,
 ): { left: number; width?: number } {
   // Slot width matches the gutter "cell" reserved per-decoration so multiple
   // decorations in the same layer don't overlap. Layout: slots stack
   // outward from the block — slot 0 nearest, slot 1 further out, ...
-  const SLOT = 24;
+  const SLOT = slotWidth ?? DEFAULT_SLOT;
   switch (layer) {
     case "left":
       // Closest slot at left = -SLOT (right against the block), then -2*SLOT,

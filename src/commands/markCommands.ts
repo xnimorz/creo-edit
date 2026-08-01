@@ -129,6 +129,8 @@ function withMark(run: InlineRun, mark: Mark, add: boolean): InlineRun {
   const next = new Set<Mark>(cur);
   if (add) next.add(mark);
   else next.delete(mark);
-  if (next.size === 0) return { text: run.text };
-  return { text: run.text, marks: next };
+  // `attrs` is view-only and orthogonal to marks — carry it through unchanged.
+  const attrs = run.attrs ? { attrs: run.attrs } : {};
+  if (next.size === 0) return { text: run.text, ...attrs };
+  return { text: run.text, marks: next, ...attrs };
 }

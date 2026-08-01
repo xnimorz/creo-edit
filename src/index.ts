@@ -60,10 +60,27 @@ export type {
   ListItemBlock,
   Mark,
   ParagraphBlock,
+  RunAttrs,
   TableBlock,
   Anchor,
+  AnchorRange,
   Selection,
 } from "./model/types";
+
+// Position mapping — move an externally-held Anchor (review comment, LSP
+// diagnostic, bookmark) through an edit. Subscribe via `editor.onChange`.
+export { mapAnchor } from "./model/changes";
+export type {
+  DocChange,
+  TextChange,
+  SplitChange,
+  MergeChange,
+  InsertBlockChange,
+  RemoveBlockChange,
+  ResetBlockChange,
+  ReplaceDocChange,
+  MapBias,
+} from "./model/changes";
 
 export {
   emptyDoc,
@@ -104,6 +121,14 @@ export type {
   TriggerCtx,
   TriggerController,
   DecorationDef,
+  DecorationHandle,
+  DecorationViewport,
+  RangeDecorationDef,
+  InlineWidgetDef,
+  InlineWidgetPlacement,
+  BlockViewport,
+  SelfVirtualizedDef,
+  SelfVirtualizedProps,
   AnchorCodec,
   HtmlBlockCodec,
   HtmlParseCtx,
@@ -133,6 +158,21 @@ export {
 export { isAtomicBlockType, registerAtomic } from "./plugin/atomic";
 export { TriggerManager } from "./plugin/triggers";
 export { DecorationManager } from "./plugin/decorations";
+export { RangeDecorationManager } from "./plugin/rangeDecorations";
+export {
+  InlineWidgetManager,
+} from "./plugin/inlineWidgets";
+// The attribute an inline widget's root carries. Custom anchor codecs MUST
+// skip subtrees marked with it, or widgets shift every anchor after them.
+export { INLINE_WIDGET_ATTR, visibleTextOf } from "./plugin/anchorCodec";
+export {
+  registerSelfVirtualized,
+  getSelfVirtualized,
+  isSelfVirtualized,
+} from "./plugin/selfVirtualized";
+// Range decorations are painted with the CSS Custom Highlight API; there is
+// no DOM fallback (see `editor.supportsRangeDecorations`).
+export { isHighlightApiSupported } from "./dom/highlights";
 
 // Slash commands plugin
 export {

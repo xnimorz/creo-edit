@@ -22,9 +22,13 @@ export function attachDrop(
   root: HTMLElement,
   stores: DropStores,
   upload?: UploadFn,
+  /** Read-only gate — re-read per event so a thunk-valued `editable` works. */
+  isEditable?: () => boolean,
 ): DropHandle {
+  const editable = (): boolean => isEditable?.() !== false;
   const onDragOver = (e: Event) => {
     const ev = e as DragEvent;
+    if (!editable()) return;
     if (!ev.dataTransfer) return;
     // Allow drop only when there's at least one image item.
     const items = ev.dataTransfer.items;
@@ -45,6 +49,7 @@ export function attachDrop(
 
   const onDrop = (e: Event) => {
     const ev = e as DragEvent;
+    if (!editable()) return;
     const files = ev.dataTransfer?.files;
     if (!files || files.length === 0) return;
     let hasImage = false;

@@ -19,13 +19,13 @@ test.describe("Editor — typing and structure", () => {
     await h.type("hello world");
     // Move cursor between "hello" and " world".
     for (let i = 0; i < " world".length; i++) {
-      await h.page.keyboard.press("ArrowLeft");
+      await h.press("ArrowLeft");
     }
-    await h.page.keyboard.press("Enter");
+    await h.press("Enter");
     await expect(h.paragraphs()).toHaveCount(2);
     await expect(h.paragraphs().nth(0)).toHaveText("hello");
     await expect(h.paragraphs().nth(1)).toHaveText(" world");
-    await h.page.keyboard.press("Backspace");
+    await h.press("Backspace");
     await expect(h.paragraphs()).toHaveCount(1);
     await expect(h.paragraphs().nth(0)).toHaveText("hello world");
   });
@@ -36,10 +36,12 @@ test.describe("Editor — typing and structure", () => {
     const h = await EditorHarness.open(page);
     await h.focus();
     await h.type("hello world");
-    // Select "hello".
-    await h.page.keyboard.press("Home");
+    // Select "hello". Keystrokes go through `h.press` so each one settles
+    // before the next — Playwright fires them instantaneously otherwise, and
+    // the browser's own selectionchange coalescing can drop one.
+    await h.nav("lineStart");
     for (let i = 0; i < 5; i++) {
-      await h.page.keyboard.press(`Shift+ArrowRight`);
+      await h.press("Shift+ArrowRight");
     }
     await h.chord(`${h.mod}+b`);
     const strong = h.editor.locator("strong");
@@ -191,26 +193,64 @@ test.describe("Editor — images", () => {
   });
 });
 
+// Selection and caret are rendered by the BROWSER — the editor is a
+// controlled contentEditable, so there is no overlay to inspect. What these
+// tests guard is that the model selection and the native selection stay in
+// lockstep, which is the thing that actually used to break.
 test.describe("Editor — selection rendering", () => {
-  test("dragging a range with the keyboard renders selection rectangles", async ({
+  test("a keyboard-extended range is reflected in the native selection", async ({
     page,
   }) => {
     const h = await EditorHarness.open(page);
     await h.focus();
     await h.type("hello world");
-    await h.page.keyboard.press("Home");
+    await h.nav("lineStart");
     for (let i = 0; i < 5; i++) {
-      await h.page.keyboard.press("Shift+ArrowRight");
+      await h.press("Shift+ArrowRight");
     }
-    // Overlay renders one rect per visual line; "hello" sits on a single line.
-    await expect(h.page.locator(".creo-selection-rect")).toHaveCount(1);
+    // The model saw a range…
+    const sel = (await h.selection()) as unknown as {
+      kind: string;
+      anchor: { offset: number };
+      focus: { offset: number };
+    };
+    expect(sel.kind).toBe("range");
+    expect(sel.anchor.offset).toBe(0);
+    expect(sel.focus.offset).toBe(5);
+    // …and the browser is painting exactly that text, on one line box.
+    expect(await h.nativeSelectedText()).toBe("hello");
+    expect(await h.selectionRectCount()).toBe(1);
   });
 
-  test("collapsed selection shows a blinking caret div", async ({ page }) => {
+  test("a collapsed selection puts a measurable caret in the block", async ({
+    page,
+  }) => {
     const h = await EditorHarness.open(page);
     await h.focus();
     await h.type("x");
-    await expect(h.page.locator(".creo-caret")).toHaveCount(1);
+    const sel = (await h.selection()) as unknown as { kind: string };
+    expect(sel.kind).toBe("caret");
+    const rect = await h.caretRect();
+    expect(rect).not.toBeNull();
+    // Collapsed → zero-width, but it has a real line height and sits inside
+    // the paragraph it belongs to.
+    expect(rect!.height).toBeGreaterThan(0);
+    const box = (await h.paragraphs().first().boundingBox())!;
+    expect(rect!.left).toBeGreaterThanOrEqual(box.x - 2);
+    expect(rect!.left).toBeLessThanOrEqual(box.x + box.width + 2);
+  });
+
+  test("the model selection survives a document mutation", async ({ page }) => {
+    // Regression guard for the renderPending window: mutating a block
+    // replaces its text nodes, and the browser fires a selectionchange
+    // pointing at the detached ones. Without the guard the caret jumps to
+    // the start of the document on every keystroke.
+    const h = await EditorHarness.open(page);
+    await h.focus();
+    await h.type("abcdef");
+    const sel = (await h.selection()) as unknown as { at: { offset: number } };
+    expect(sel.at.offset).toBe(6);
+    expect(await h.nativeSelectedText()).toBe("");
   });
 });
 
@@ -240,21 +280,41 @@ test.describe("Editor — undo / redo", () => {
 });
 
 test.describe("Editor — IME composition", () => {
-  test("compositionupdate doesn't mutate the doc; commit happens on compositionend", async ({
+  test("a composition commits as a single insertion on compositionend", async ({
     page,
   }) => {
+    // Under contentEditable the browser writes IME output straight into the
+    // DOM and the editor reconciles on compositionend by diffing the scope's
+    // visible text against a pre-composition snapshot. `h.composition`
+    // simulates both halves — the events AND the DOM write.
     const h = await EditorHarness.open(page);
     await h.focus();
-    await h.composition(["に", "にほ", "にほん"], "日本");
+    await h.composition("日本");
     const p = h.editor.locator("p[data-block-id]");
     await expect(p).toContainText("日本");
-    // Single mutation — paragraph contains exactly one text node worth.
+    // Exactly one commit — no intermediate state leaked into the model.
     const json = await h.toJSON();
     const totalLen = json.blocks
       .filter((b) => b.type === "p")
       .flatMap((b) => b.runs ?? [])
       .reduce((n, r) => n + r.text.length, 0);
     expect(totalLen).toBe("日本".length);
+  });
+
+  test("a composition is one undo step", async ({ page }) => {
+    const h = await EditorHarness.open(page);
+    await h.focus();
+    await h.type("x");
+    // A composition reuses the `text:insert` history tag so it collapses into
+    // one undo — which also means it would coalesce with the typing right
+    // before it. Wait out the 500ms coalescing window so this test measures
+    // the composition alone.
+    await page.waitForTimeout(600);
+    await h.composition("にほん");
+    await expect(h.paragraphs().first()).toContainText("xにほん");
+    await h.undo();
+    // The whole multi-character composition rolls back at once.
+    await expect(h.paragraphs().first()).toHaveText("x");
   });
 });
 

@@ -4,19 +4,27 @@ import type { InputEventData, PointerEventData } from "creo";
 import { calendarPlugin, createEditor, type Mark } from "creo-edit";
 import "../../../src/plugins/styles.css";
 
-// Mode + initial-doc are URL-driven so the same example app can demonstrate
-// both regular and mono editing without separate routes:
-//   /          → regular
-//   /?mode=mono → monospace (good for code / markdown source)
-const __urlMode = (() => {
-  if (typeof window === "undefined") return "regular" as const;
-  const m = new URLSearchParams(window.location.search).get("mode");
-  return m === "mono" ? ("mono" as const) : ("regular" as const);
-})();
+// Editor config is URL-driven so the same example app can demonstrate every
+// mode without separate routes — and so the E2E suite can pin a config:
+//   /                → wysiwyg, non-virtualized
+//   /?mode=md        → raw markdown source view
+//   /?virtualized=1  → windowed rendering
+const __params = (() =>
+  typeof window === "undefined"
+    ? new URLSearchParams()
+    : new URLSearchParams(window.location.search))();
+
+const __urlMode = __params.get("mode") === "md" ? "md" : "wysiwyg";
+// Off by default: virtualization only mounts the blocks intersecting the
+// viewport, which makes "click at these coordinates" assertions depend on
+// scroll position. Tests that want it opt in.
+const __virtualized = __params.get("virtualized") === "1";
+const __readOnly = __params.get("editable") === "false";
 
 export const editor = createEditor({
   mode: __urlMode,
-  virtualized: true,
+  virtualized: __virtualized,
+  editable: !__readOnly,
   plugins: [calendarPlugin()],
   initial: {
     blocks: [
@@ -24,11 +32,11 @@ export const editor = createEditor({
       {
         type: "p",
         runs: [
-          { text: "This is a " },
-          { text: "no-contentEditable", marks: ["code"] },
+          { text: "This is a block-based rich text editor built on a " },
+          { text: "controlled contentEditable", marks: ["code"] },
           {
             text:
-              ", row-based rich text editor built on top of the Creo UI framework.",
+              ", on top of the Creo UI framework.",
           },
         ],
       },

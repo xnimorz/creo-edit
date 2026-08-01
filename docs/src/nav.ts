@@ -39,11 +39,17 @@ export const navSections: NavSection[] = [
     items: [{ title: "Architecture", slug: "architecture" }],
   },
   {
+    title: "Releases",
+    // Served straight from the repo-root CHANGELOG.md — see markdown/plugin.ts.
+    items: [{ title: "Changelog", slug: "changelog" }],
+  },
+  {
     title: "Demos",
     items: [
       { title: "Infinite scroll & calendar", slug: "non-editable-blocks" },
       { title: "Default demo with constructor", slug: "demo" },
       { title: "Large text & scroll with search", slug: "large-text-search" },
+      { title: "IDE affordances", slug: "ide-affordances" },
     ],
   },
 ];

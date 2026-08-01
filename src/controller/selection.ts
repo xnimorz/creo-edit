@@ -190,11 +190,23 @@ export function endOfDoc(doc: DocState): Anchor {
     const len = cell.reduce((n, run) => n + run.text.length, 0);
     return { blockId: lastId, path: [c, len], offset: len };
   }
-  // table — bottom-right cell, end of cell text.
-  const t = last as TableBlock;
-  const r = t.rows - 1;
-  const c = t.cols - 1;
-  const cell = t.cells[r]?.[c] ?? [];
-  const cellLen = cell.reduce((n, run) => n + run.text.length, 0);
-  return { blockId: lastId, path: [r, c, cellLen], offset: cellLen };
+  if (last.type === "table") {
+    // bottom-right cell, end of cell text.
+    const t = last as TableBlock;
+    const r = t.rows - 1;
+    const c = t.cols - 1;
+    const cell = t.cells[r]?.[c] ?? [];
+    const cellLen = cell.reduce((n, run) => n + run.text.length, 0);
+    return { blockId: lastId, path: [r, c, cellLen], offset: cellLen };
+  }
+  // Plugin-registered block kind. `isTextBearing()` only knows the built-in
+  // list, so a plugin block that carries top-level `runs` lands here — treat
+  // it like any other text-bearing block. Anything else gets the start of the
+  // block, which is always a valid anchor.
+  const runs = (last as { runs?: { text: string }[] }).runs;
+  if (Array.isArray(runs)) {
+    const len = runs.reduce((n, run) => n + run.text.length, 0);
+    return caretAt(lastId, len);
+  }
+  return { blockId: lastId, path: [0], offset: 0 };
 }

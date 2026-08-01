@@ -57,6 +57,50 @@ Virtualization isn't free. Block heights vary, measurement happens on mount, and
 - Blocks are heterogeneous in height (mixed text, large images, big tables).
 - You want predictable scroll performance regardless of document size.
 
+## Sub-block virtualization
+
+`VirtualDoc` windows over *blocks*. A 5,000-line file is one `code` block, so block-level windowing does nothing for it: all 5,000 lines mount, and a 32px estimate is wrong by two orders of magnitude — which also corrupts the scrollbar geometry for everything below it.
+
+Rather than turn `HeightIndex` into a two-level tree — making every block pay for a case only a few block kinds have — a block kind can declare that it manages its own internal windowing:
+
+```ts
+const longLogDef: BlockDef<LogBlock> = {
+  type: "log",
+  view: LogView,
+  selfVirtualized: {
+    // Called when the block changes, not per frame. Uniform rows make this
+    // arithmetic rather than measurement.
+    measureHeight: (block, { lineHeight }) => block.lines.length * lineHeight,
+  },
+};
+```
+
+When present, `VirtualDoc`:
+
+- stops observing that block with the `ResizeObserver` (its self-chosen height would otherwise fight the index it is already authoritative for — the exclusion is a plain `data-block-kind` test, since that attribute is already on the element);
+- trusts `measureHeight` for the outer index, **including while the block is off-screen**, so the scrollbar is right from the first frame;
+- passes the visible region down to the view as `viewport`, in the block's own coordinate space:
+
+```ts
+type BlockViewport = { top: number; bottom: number };  // px from the block's top
+
+const LogView = view<SelfVirtualizedProps<LogBlock>>(({ props }) => ({
+  render() {
+    const { block, viewport } = props();
+    const first = viewport ? Math.floor(viewport.top / LINE_H) : 0;
+    const last  = viewport ? Math.ceil(viewport.bottom / LINE_H) : block.lines.length - 1;
+    // …render lines [first, last] between two spacer divs of the
+    // appropriate height. The outer index sees one tall entry.
+  },
+}));
+```
+
+`viewport` is absent when the editor isn't virtualized, in which case render everything.
+
+Only opt in when the block is internally long **and** uniform enough for `measureHeight` to be cheap. A block that isn't simply doesn't declare `selfVirtualized` and behaves exactly as before.
+
+**A block that opts in owns its anchor codec's correctness.** A codec that walks mounted sub-elements — as the built-in `codeBlockCodec` walks `.ce-code-line` — will compute wrong offsets once some of those elements stop mounting. Ship a codec that accounts for your own spacers. This is why the built-in code block does *not* opt in.
+
 ## Caveats
 
 - **Find-in-page** (`Cmd+F` in the browser) only finds text in mounted blocks. There's no general fix — if browser find is essential, don't virtualize, or roll your own search UI on top of `docStore`.
