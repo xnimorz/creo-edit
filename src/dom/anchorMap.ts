@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Anchor, BlockId } from "../model/types";
+import type { DomPoint as CodecDomPoint } from "../plugin/types";
 import {
   defaultTextCodec,
   findOwningBlockEl,
@@ -100,4 +101,44 @@ export function anchorToDom(
   if (!kind) return null;
   const codec = lookupAnchorCodec(kind) ?? defaultTextCodec;
   return codec.anchorToDom(blockEl, anchor);
+}
+
+/**
+ * `anchorToDom` for a whole batch, positionally aligned with `anchors`.
+ *
+ * Two things it does that N separate calls cannot: the block element is
+ * looked up once per distinct block id instead of once per anchor, and a
+ * codec that implements `anchorsToDom` gets to answer all of its block's
+ * anchors in one pass over its DOM. For a syntax-highlighting host — one
+ * block, tens of thousands of anchors, most of them sharing a line — that is
+ * the difference between walking a line once per token and once per repaint.
+ */
+export function anchorsToDom(
+  anchors: readonly Anchor[],
+  root: HTMLElement,
+): (CodecDomPoint | null)[] {
+  const out: (CodecDomPoint | null)[] = new Array(anchors.length).fill(null);
+  if (anchors.length === 0) return out;
+  const byBlock = new Map<BlockId, number[]>();
+  for (let i = 0; i < anchors.length; i++) {
+    const id = anchors[i]!.blockId;
+    const bucket = byBlock.get(id);
+    if (bucket) bucket.push(i);
+    else byBlock.set(id, [i]);
+  }
+  for (const [blockId, indices] of byBlock) {
+    const blockEl = findBlockElementById(root, blockId);
+    if (!blockEl) continue; // block unmounted — leave nulls
+    const kind = blockEl.getAttribute("data-block-kind");
+    if (!kind) continue;
+    const codec = lookupAnchorCodec(kind) ?? defaultTextCodec;
+    if (codec.anchorsToDom) {
+      const group = indices.map((i) => anchors[i]!);
+      const points = codec.anchorsToDom(blockEl, group);
+      for (let k = 0; k < indices.length; k++) out[indices[k]!] = points[k] ?? null;
+      continue;
+    }
+    for (const i of indices) out[i] = codec.anchorToDom(blockEl, anchors[i]!);
+  }
+  return out;
 }

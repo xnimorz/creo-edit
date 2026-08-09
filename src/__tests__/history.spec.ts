@@ -6,6 +6,12 @@ import { createApp, HtmlRender } from "creo";
 import { createEditor } from "../createEditor";
 import { caretAt } from "../controller/selection";
 import { newBlockId } from "../model/doc";
+import {
+  createHistory,
+  HISTORY_CAP,
+  HISTORY_MAX_BLOCK_SLOTS,
+} from "../controller/history";
+import type { DocState, Selection } from "../model/types";
 
 afterEach(() => clearDom());
 
@@ -109,3 +115,56 @@ function blockText(editor: ReturnType<typeof createEditor>, id: string): string 
   for (const r of b.runs) s += r.text;
   return s;
 }
+
+// ---------------------------------------------------------------------------
+// Depth is bounded by retained cost as well as entry count: an entry pins a
+// whole `DocState`, whose `byId` map is one slot per block. At 50 000
+// one-line blocks, 250 unbounded steps grew the heap by 926MB.
+// ---------------------------------------------------------------------------
+
+describe("history depth caps", () => {
+  function fakeStores(blockCount: number) {
+    let doc: DocState = {
+      byId: new Map(),
+      order: Array.from({ length: blockCount }, (_v, i) => `b${i}`),
+    };
+    let sel: Selection = { kind: "caret", at: caretAt("b0", 0) };
+    const mkStore = <T,>(get: () => T, set: (v: T) => void) =>
+      ({ get, set, subscribe: () => () => {} }) as never;
+    return {
+      docStore: mkStore(() => doc, (v: DocState) => { doc = v; }),
+      selStore: mkStore(() => sel, (v: Selection) => { sel = v; }),
+      // A distinct doc identity per edit, the way a real mutation produces one.
+      touch: () => { doc = { byId: doc.byId, order: doc.order.slice() }; },
+    };
+  }
+
+  it("keeps the full entry cap for ordinary documents", () => {
+    const s = fakeStores(50);
+    const h = createHistory({ docStore: s.docStore, selStore: s.selStore });
+    for (let i = 0; i < HISTORY_CAP + 40; i++) {
+      h.record(`edit:${i}`);
+      s.touch();
+    }
+    let depth = 0;
+    while (h.undo()) depth++;
+    expect(depth).toBe(HISTORY_CAP);
+  });
+
+  it("trades depth for bounded memory on a very large document", () => {
+    const blocks = 50_000;
+    const s = fakeStores(blocks);
+    const h = createHistory({ docStore: s.docStore, selStore: s.selStore });
+    for (let i = 0; i < HISTORY_CAP; i++) {
+      h.record(`edit:${i}`);
+      s.touch();
+    }
+    let depth = 0;
+    while (h.undo()) depth++;
+    // Bounded by cost, not by count…
+    expect(depth).toBeLessThan(HISTORY_CAP);
+    expect(depth * blocks).toBeLessThanOrEqual(HISTORY_MAX_BLOCK_SLOTS);
+    // …but never trimmed down to nothing.
+    expect(depth).toBeGreaterThanOrEqual(10);
+  });
+});

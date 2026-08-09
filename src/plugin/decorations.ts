@@ -18,7 +18,8 @@
 import type { Store } from "creo";
 import type { Block, BlockId, DocState } from "../model/types";
 import type { DecorationDef } from "./types";
-import { findBlockElementById } from "../dom/anchorMap";
+import { onMountedBlocksChanged } from "../dom/mountSignal";
+import { scrollSourceFor } from "../dom/scroll";
 import type { Registry } from "./registry";
 
 export type DecorationManagerOptions = {
@@ -50,6 +51,8 @@ export class DecorationManager {
   private rafQueued = false;
   private rafSyncRequested = false;
   private unsub: (() => void) | null = null;
+  private unsubMounts: (() => void) | null = null;
+  private scrollSource: HTMLElement | Window;
   private resizeObserver: ResizeObserver | null = null;
   /** Hovered block id — surfaced to decorations via dataset on the layer
    *  so they can style themselves with sibling CSS or read it directly. */
@@ -85,8 +88,22 @@ export class DecorationManager {
       this.resizeObserver = new ResizeObserver(() => this.schedulePosition());
       this.resizeObserver.observe(opts.editorRoot);
     }
-    window.addEventListener("scroll", this.schedulePosition, { passive: true });
+    // The editor's own scroll container, not `window` — decorations are
+    // positioned from viewport rects, so they have to re-place when the text
+    // moves under them, and `scroll` doesn't bubble out of an `overflow: auto`
+    // pane. See dom/scroll.ts.
+    this.scrollSource = scrollSourceFor(opts.editorRoot);
+    this.scrollSource.addEventListener("scroll", this.schedulePosition, {
+      passive: true,
+    } as never);
     window.addEventListener("resize", this.schedulePosition);
+    // Blocks mounting / unmounting under virtualization changes which blocks
+    // want decorations at all.
+    this.unsubMounts = onMountedBlocksChanged((root) => {
+      if (root === opts.editorRoot || opts.editorRoot.contains(root)) {
+        this.scheduleSync();
+      }
+    });
 
     // Initial sync.
     this.sync();
@@ -94,9 +111,11 @@ export class DecorationManager {
 
   destroy(): void {
     this.unsub?.();
+    this.unsubMounts?.();
+    this.unsubMounts = null;
     this.opts.editorRoot.removeEventListener("pointermove", this.onPointerMove);
     this.opts.editorRoot.removeEventListener("pointerleave", this.onPointerLeave);
-    window.removeEventListener("scroll", this.schedulePosition);
+    this.scrollSource.removeEventListener("scroll", this.schedulePosition);
     window.removeEventListener("resize", this.schedulePosition);
     this.resizeObserver?.disconnect();
     for (const m of this.mounted.values()) {
@@ -169,13 +188,37 @@ export class DecorationManager {
     }
   }
 
+  /**
+   * BlockId → mounted block element, in document order, from ONE query.
+   *
+   * A decoration can only exist against a block that is in the DOM, so the
+   * mounted set — not `doc.order` — is the right thing to iterate. Walking
+   * the document instead meant a `querySelector` per block to discover that
+   * almost all of them are windowed out: at 50 000 blocks that was ~1.2s per
+   * sync, and `sync` runs on every doc change, so every keystroke.
+   */
+  private mountedBlockEls(): Map<BlockId, HTMLElement> {
+    const out = new Map<BlockId, HTMLElement>();
+    const els = this.opts.editorRoot.querySelectorAll<HTMLElement>(
+      "[data-block-kind][data-block-id]",
+    );
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i]!;
+      const id = el.getAttribute("data-block-id") as BlockId | null;
+      if (id && !out.has(id)) out.set(id, el);
+    }
+    return out;
+  }
+
   private sync(): void {
     const doc = this.opts.docStore.get();
+    const els = this.mountedBlockEls();
     const wantKeys = new Set<string>();
-    for (const id of doc.order) {
-      const block = doc.byId.get(id)!;
-      const blockEl = findBlockElementById(this.opts.editorRoot, id);
-      if (!blockEl) continue;
+    for (const [id, blockEl] of els) {
+      // A block element can outlive its model entry for a frame while the
+      // renderer catches up; it gets no decorations until it agrees.
+      const block = doc.byId.get(id);
+      if (!block) continue;
       for (const def of this.opts.registry.decorations) {
         if (!def.match(block)) continue;
         const targets = this.resolveTargets(def, block, blockEl);
@@ -197,7 +240,7 @@ export class DecorationManager {
         this.mounted.delete(key);
       }
     }
-    this.position();
+    this.position(els);
   }
 
   private mountDecoration(
@@ -235,26 +278,21 @@ export class DecorationManager {
   // Position — set absolute coords from each block's bounding rect.
   // -------------------------------------------------------------------------
 
-  private position(): void {
+  /** `els` is the mounted-block map when the caller already built one
+   *  (`sync`); the scroll/resize path builds its own. */
+  private position(els?: Map<BlockId, HTMLElement>): void {
     const layerRect = this.layer.getBoundingClientRect();
     const doc = this.opts.docStore.get();
-    const root = this.opts.editorRoot;
 
     // Per-frame memos. `targets()` is called at most once per (def, block)
     // per frame, and with `uniformTargets` we take exactly one layout read
     // per (def, block) no matter how many targets there are.
-    const blockElCache = new Map<BlockId, HTMLElement | null>();
+    const blockEls = els ?? this.mountedBlockEls();
     const targetCache = new Map<string, HTMLElement[]>();
     const firstRectCache = new Map<string, Rect | null>();
 
-    const blockElFor = (id: BlockId): HTMLElement | null => {
-      let el = blockElCache.get(id);
-      if (el === undefined) {
-        el = findBlockElementById(root, id);
-        blockElCache.set(id, el);
-      }
-      return el;
-    };
+    const blockElFor = (id: BlockId): HTMLElement | null =>
+      blockEls.get(id) ?? null;
 
     const targetsFor = (def: DecorationDef, id: BlockId): HTMLElement[] => {
       const key = `${def.id}::${id}`;

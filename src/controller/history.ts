@@ -29,6 +29,28 @@ export type HistoryStores = {
 export const COALESCE_MS = 500;
 export const HISTORY_CAP = 200;
 
+/**
+ * Second cap, in retained block slots rather than entries.
+ *
+ * An entry holds a whole `DocState`. Blocks are shared between versions, but
+ * `byId` is a fresh `Map` per edit, so each entry pins one map of
+ * `order.length` slots — measured at ~92 bytes each. On a document of one
+ * block per line that is fine at 2 000 lines (≈37MB for a full 200-deep
+ * history) and ruinous at 50 000: 250 distinct undo steps grew the heap by
+ * 926MB in a direct measurement.
+ *
+ * So depth is bounded by cost as well as by count. 1.5M slots is ~140MB,
+ * which buys the full 200 steps up to ~7 500 blocks and degrades gracefully
+ * past that (≈30 steps at 50 000) instead of running the tab out of memory.
+ * `MIN_ENTRIES` keeps undo usable no matter how large the document is.
+ *
+ * The real fix is for an entry to hold an inverse patch — the handful of
+ * blocks the edit touched — rather than a whole document version, at which
+ * point neither cap has to think about size. Until then, this is the bound.
+ */
+export const HISTORY_MAX_BLOCK_SLOTS = 1_500_000;
+const MIN_ENTRIES = 10;
+
 export function createHistory(stores: HistoryStores) {
   const undoStack: HistoryEntry[] = [];
   const redoStack: HistoryEntry[] = [];
@@ -61,7 +83,19 @@ export function createHistory(stores: HistoryStores) {
       tag,
       ts: now,
     });
-    if (undoStack.length > HISTORY_CAP) undoStack.shift();
+    trim();
+  };
+
+  /** Drop the oldest entries until both caps are satisfied. */
+  const trim = (): void => {
+    while (undoStack.length > HISTORY_CAP) undoStack.shift();
+    if (undoStack.length <= MIN_ENTRIES) return;
+    let slots = 0;
+    for (const e of undoStack) slots += e.doc.order.length;
+    for (const e of redoStack) slots += e.doc.order.length;
+    while (slots > HISTORY_MAX_BLOCK_SLOTS && undoStack.length > MIN_ENTRIES) {
+      slots -= undoStack.shift()!.doc.order.length;
+    }
   };
 
   const undo = (): boolean => {

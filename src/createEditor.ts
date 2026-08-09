@@ -46,6 +46,7 @@ import {
   type NativeInputHandle,
 } from "./input/nativeInput";
 import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
+import { blockTextOf } from "./model/blockText";
 import {
   collectChanges,
   mapAnchor as mapAnchorPure,
@@ -322,7 +323,19 @@ export type Editor = {
    * docs site without reallocating the input pipeline & DOM listeners).
    */
   setDoc: (doc: SerializedDoc) => void;
+  /**
+   * Serialize the whole document. Memoized on `docStore` identity, so calling
+   * it repeatedly between edits is free — hosts that hash, diff or re-derive
+   * from the doc on every keystroke don't each pay a full walk.
+   */
   toJSON: () => SerializedDoc;
+  /**
+   * Plain text straight off the model — the whole document (blocks joined by
+   * `\n`), or one block when `blockId` is given. Cheaper and more direct than
+   * `toJSON()` for hosts that only want characters: hashing the buffer,
+   * diffing against disk, computing line starts, feeding a language server.
+   */
+  getText: (blockId?: BlockId) => string;
   /**
    * Append `specs` to the end of the doc. Preserves all existing block
    * identities (no full rebuild) so existing renders stay; the renderer's
@@ -370,12 +383,23 @@ export type Editor = {
    */
   supportsRangeDecorations: () => boolean;
   /**
-   * Force a recompute + repaint of every registered range decoration. The
+   * Request a recompute + repaint of every registered range decoration. The
    * manager already refreshes on doc / scroll / block-mount changes; call
    * this when the state a source reads (a comment list, a diagnostics array)
    * changed without the document changing.
+   *
+   * Coalesced into the next animation frame, so calling it from a view
+   * lifecycle hook — the natural place, since that's where you learn your
+   * diagnostics moved — keeps the repaint off the keystroke's own task, and N
+   * calls in one frame cost one repaint.
    */
   refreshRangeDecorations: () => void;
+  /**
+   * Repaint every range decoration NOW, before returning. Only for callers
+   * that must observe the painted highlights synchronously (tests, a
+   * measurement pass); prefer `refreshRangeDecorations()` everywhere else.
+   */
+  refreshRangeDecorationsSync: () => void;
   /**
    * Recompute and re-place every registered inline widget. The manager
    * already syncs on document, selection and viewport changes; call this when
@@ -690,7 +714,35 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     emitChanges([{ kind: "replaceDoc" }]);
   };
 
-  const toJSON = (): SerializedDoc => serializeDoc(docStore.get());
+  // Serialization is O(doc) and hosts call it far more often than they think
+  // — once to hash the buffer, once per diagnostic, once to diff against
+  // disk. `DocState` is replaced wholesale on every mutation, so its identity
+  // is an exact cache key: one serialize per document version, no matter how
+  // many callers ask.
+  let jsonCacheDoc: DocState | null = null;
+  let jsonCache: SerializedDoc | null = null;
+  const toJSON = (): SerializedDoc => {
+    const doc = docStore.get();
+    if (jsonCacheDoc === doc && jsonCache) return jsonCache;
+    const out = serializeDoc(doc);
+    jsonCacheDoc = doc;
+    jsonCache = out;
+    return out;
+  };
+
+  const getText = (blockId?: BlockId): string => {
+    const doc = docStore.get();
+    if (blockId !== undefined) {
+      const b = doc.byId.get(blockId);
+      return b ? blockTextOf(b) : "";
+    }
+    const parts: string[] = [];
+    for (const id of doc.order) {
+      const b = doc.byId.get(id);
+      if (b) parts.push(blockTextOf(b));
+    }
+    return parts.join("\n");
+  };
 
   // ---------------------------------------------------------------------
   // appendBlocks / prependBlocks — identity-preserving doc growth used by
@@ -976,6 +1028,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
                   docStore,
                   selStore,
                   estimatedHeight: opts.virtualEstimatedHeight,
+                  // Without this the virtualizer resolves "the first editor
+                  // in the document", which is the wrong one as soon as a
+                  // page holds two.
+                  editorId,
                 });
               } else {
                 DocView({ doc: doc.get() });
@@ -1002,6 +1058,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     setDocFromHTML,
     setDoc,
     toJSON,
+    getText,
     appendBlocks,
     prependBlocks,
     focus,
@@ -1011,7 +1068,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     registry,
     scrollToBlock,
     supportsRangeDecorations: () => RangeDecorationManager.isSupported(),
-    refreshRangeDecorations: () => rangeDecorations?.refresh(),
+    refreshRangeDecorations: () => rangeDecorations?.schedule(),
+    refreshRangeDecorationsSync: () => rangeDecorations?.refresh(),
     refreshInlineWidgets: () => inlineWidgets?.sync(),
   };
 }
