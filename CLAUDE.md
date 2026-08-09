@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `bun run typecheck` — `tsc --noEmit -p tsconfig.json`.
 - `src/__perf__/` holds perf-style specs that also run under `bun test`.
 
-`creo` is declared as a peer-dep (`>=0.2.6`); the published package has no other runtime deps.
+`creo` is declared as a peer-dep (`>=0.2.9`); the published package has no other runtime deps.
 
 ## Sub-projects
 

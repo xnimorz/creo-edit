@@ -4,7 +4,7 @@
     "": {
       "name": "creo-editor-docs",
       "dependencies": {
-        "creo": "^0.2.8",
+        "creo": "^0.2.9",
         "creo-router": "^0.2.7",
         "highlight.js": "^11.10.0",
         "marked": "^14.1.3",
@@ -131,7 +131,7 @@
 
     "bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
 
-    "creo": ["creo@0.2.8", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-GBA3cX/UXUmrAfDEIY/Pr0F/rRy+LnuZQibJoC3TekR5PHo+Rh5R8a3xpbKapNQpv1zNWHZbQ6skQnQ77NbSzg=="],
+    "creo": ["creo@0.2.9", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-7Ab2f7sK+WlN36wAHts/HKjnOkRSUJ6yvMWdZEYRnImgtKQ47txOusatNm00o0JMrlTmsDtOXOOMiXOIMoLoUA=="],
 
     "creo-router": ["creo-router@0.2.7", "", { "peerDependencies": { "creo": ">=0.2.7" } }, "sha512-8ddJdWdL2zvk/mHJPLF44PPQ0jRqx1rXCojqSrdsorE8pF0WVkJ0pIuxyaaiqSuYFV8x6ZsbLiSjgyMKUAuP9A=="],
 

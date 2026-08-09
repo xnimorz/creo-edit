@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "creo": "^0.2.8",
+    "creo": "^0.2.9",
     "creo-router": "^0.2.7",
     "highlight.js": "^11.10.0",
     "marked": "^14.1.3",
