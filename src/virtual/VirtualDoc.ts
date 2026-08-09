@@ -6,6 +6,8 @@ import {
   getSelfVirtualized,
   isSelfVirtualized,
 } from "../plugin/selfVirtualized";
+import { notifyMountedBlocksChanged } from "../dom/mountSignal";
+import { scrollAncestor } from "../dom/scroll";
 import { HeightIndex } from "./heightIndex";
 
 /**
@@ -31,6 +33,15 @@ export type VirtualDocProps = {
   overscan?: number;
   /** Optional fixed viewport height (else read from window.innerHeight). */
   viewportHeight?: number;
+  /**
+   * The owning editor's `data-creo-edit` id. Without it the root is resolved
+   * as "the first editor in the document", which is wrong the moment a page
+   * holds two of them — the virtualizer would measure one editor's blocks and
+   * announce mount changes against the other's root. `createEditor` always
+   * passes it; the prop is optional only so existing direct callers keep
+   * working.
+   */
+  editorId?: string;
 };
 
 const DEFAULT_ESTIMATED = 32;
@@ -79,6 +90,9 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   >();
   /** Per-kind line-height, read off a mounted element once. */
   const lineHeightByType = new Map<string, number>();
+
+  /** This VirtualDoc's own editor root — exact when `editorId` is supplied. */
+  const currentRoot = (): HTMLElement | null => rootFor(props().editorId);
 
   const lineHeightFor = (type: string): number => {
     const cached = lineHeightByType.get(type);
@@ -166,10 +180,16 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   // the block is already authoritative for — the two would fight every frame.
   // `data-block-kind` is already on the element, so the exclusion is a plain
   // attribute test with nothing extra to thread through.
-  const refreshObservations = (root: HTMLElement) => {
+  //
+  // It also reports whether the mounted SET changed, which is the signal the
+  // overlay managers subscribe to (see dom/mountSignal.ts). A text edit
+  // re-renders one block in place and leaves the set alone, so this stays
+  // quiet on the typing path.
+  const refreshObservations = (root: HTMLElement): boolean => {
     const els = root.querySelectorAll<HTMLElement>(
       "[data-block-kind][data-block-id]",
     );
+    let changed = false;
     const seen = new Set<BlockId>();
     const seenSelf = new Set<BlockId>();
     for (let k = 0; k < els.length; k++) {
@@ -178,6 +198,7 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
       if (!id) continue;
       const kind = el.getAttribute("data-block-kind") ?? "";
       if (isSelfVirtualized(kind)) {
+        if (!selfElByBlock.has(id)) changed = true;
         seenSelf.add(id);
         // If it used to be observed (kind changed under it), stop.
         const prevObserved = elByBlock.get(id);
@@ -191,6 +212,7 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
       seen.add(id);
       const prev = elByBlock.get(id);
       if (prev !== el) {
+        if (!prev) changed = true;
         if (prev) resizeObserver?.unobserve(prev);
         elByBlock.set(id, el);
         resizeObserver?.observe(el);
@@ -200,11 +222,16 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
       if (!seen.has(id)) {
         resizeObserver?.unobserve(el);
         elByBlock.delete(id);
+        changed = true;
       }
     }
     for (const id of selfElByBlock.keys()) {
-      if (!seenSelf.has(id)) selfElByBlock.delete(id);
+      if (!seenSelf.has(id)) {
+        selfElByBlock.delete(id);
+        changed = true;
+      }
     }
+    return changed;
   };
 
   const measureAll = () => {
@@ -308,9 +335,14 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
     },
     onUpdateAfter() {
       const root = currentRoot();
-      if (root) refreshObservations(root);
+      let mountsChanged = false;
+      if (root) mountsChanged = refreshObservations(root);
       syncIndex();
       measureAll();
+      // Scrolling changes which blocks exist in the DOM without changing the
+      // document, so this is the only chance the overlay managers get to know
+      // an anchor of theirs just became resolvable.
+      if (root && mountsChanged) notifyMountedBlocksChanged(root);
     },
     render() {
       syncIndex();
@@ -407,23 +439,16 @@ function readViewportHeight(): number {
   return h > 0 ? h : 800;
 }
 
-function currentRoot(): HTMLElement | null {
-  // The VirtualDoc is mounted inside the editor root; we don't currently
-  // pass that root in, so fall back to the first one in the document. Tests
-  // mount one editor at a time, real apps too.
-  return document.querySelector("[data-creo-edit]") as HTMLElement | null;
-}
-
-function scrollAncestor(el: HTMLElement): HTMLElement | null {
-  let cur: HTMLElement | null = el.parentElement;
-  while (cur) {
-    const style = window.getComputedStyle(cur);
-    if (
-      /(auto|scroll|overlay)/.test(
-        style.overflowY + style.overflowX + style.overflow,
-      )
-    ) return cur;
-    cur = cur.parentElement;
-  }
-  return null;
+/**
+ * The editor root this VirtualDoc lives inside.
+ *
+ * With an `editorId` the lookup is exact. Without one it degrades to "the
+ * first editor in the document" — correct for the single-editor page, and the
+ * only thing available to a caller that renders VirtualDoc directly.
+ */
+function rootFor(editorId?: string): HTMLElement | null {
+  const sel = editorId
+    ? `[data-creo-edit="${editorId.replace(/(["\\])/g, "\\$1")}"]`
+    : "[data-creo-edit]";
+  return document.querySelector(sel) as HTMLElement | null;
 }

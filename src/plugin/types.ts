@@ -66,6 +66,21 @@ export type AnchorCodec = {
   anchorToDom(blockEl: HTMLElement, a: Anchor): DomPoint | null;
 
   /**
+   * Optional bulk form of `anchorToDom`, positionally aligned with `anchors`.
+   *
+   * A range-decoration repaint resolves two anchors per range and thousands
+   * of ranges per frame, most of them landing on the same handful of
+   * sub-elements. A codec that can answer a whole batch with one pass over
+   * its DOM (the code block sorts by offset and walks its lines once) should
+   * implement this; everything else is served correctly, just more slowly, by
+   * the default of calling `anchorToDom` per anchor.
+   *
+   * `anchors` arrive in whatever order the caller had them — implementations
+   * that need sorted input must sort a copy and restore the original order.
+   */
+  anchorsToDom?(blockEl: HTMLElement, anchors: readonly Anchor[]): (DomPoint | null)[];
+
+  /**
    * Return the scope element for IME composition diffing — e.g. the active
    * <td> for a table caret, or the active <div data-col> for columns.
    * Defaults to the block element itself for blocks without sub-scopes.
@@ -338,6 +353,22 @@ export type DecorationDef = {
 export type DecorationViewport = {
   firstBlock: BlockId;
   lastBlock: BlockId;
+  /**
+   * Visible half-open character window `[from, to)` within a block, when the
+   * block renders sub-items the manager can measure — code-block lines today.
+   * Returns null when the block is fully on screen, isn't measurable, or the
+   * environment has no layout.
+   *
+   * `firstBlock` / `lastBlock` alone cannot express anything about a document
+   * that IS one block: for a whole file in a single `code` block they are a
+   * constant, so a source honouring "return only what intersects `viewport`"
+   * still had to return every token range in the file to paint the fifty
+   * lines on screen. This is how it narrows that.
+   *
+   * Optional, and absent on hosts that build a viewport themselves — always
+   * feature-test before calling.
+   */
+  windowIn?: (block: BlockId) => { from: number; to: number } | null;
 };
 
 export type RangeDecorationDef = {

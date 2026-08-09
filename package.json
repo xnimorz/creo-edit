@@ -1,6 +1,6 @@
 {
   "name": "creo-edit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Row-based rich-text editor framework on a controlled contentEditable, built on Creo. Cursor state separate from document state, CRDT-friendly fractional row ordering, O(1) per-keystroke renders, optional virtualization, first-class mobile.",
   "type": "module",
   "license": "MIT",
@@ -43,10 +43,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "creo": ">=0.2.8"
+    "creo": ">=0.2.9"
   },
   "devDependencies": {
-    "creo": "^0.2.8",
+    "creo": "^0.2.9",
     "typescript": "^5",
     "@types/bun": "latest",
     "happy-dom": "^20.8.4"

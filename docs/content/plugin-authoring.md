@@ -177,9 +177,32 @@ const diagnostics: EditorPlugin = {
 }
 ```
 
-Sources are re-run on document change, scroll / resize, and block mount / unmount (virtualization). Call `editor.refreshRangeDecorations()` when the state the source reads changed on its own.
+Sources are re-run on document change, scroll / resize, and block mount / unmount (virtualization). Call `editor.refreshRangeDecorations()` when the state the source reads changed on its own — it is coalesced into the next animation frame, so calling it from a view lifecycle hook (the natural place, since that's where you learn your diagnostics moved) keeps the repaint off the keystroke's own task and N calls in a frame cost one repaint. `refreshRangeDecorationsSync()` is there for the rare caller that must observe the painted highlights before it returns.
 
 Highlight names are document-global, so namespace `className` when more than one editor is on the page.
+
+### Scoping a source to what's on screen
+
+`ranges(doc, viewport)` is asked for "only what intersects `viewport`", and `viewport.firstBlock` / `lastBlock` express that fine for a normal document. They express nothing for a document that *is* one block — a whole file in one `code` block, where both are the same constant and a tokenizer would have to hand over every token range in the file to paint the fifty lines on screen.
+
+`viewport.windowIn(blockId)` closes that gap. It returns the visible half-open character window `{ from, to }` inside a block that renders measurable sub-items (code-block lines today), or `null` when the block is fully mounted, isn't measurable, or the environment has no layout — `null` means "no window, return everything", not "return nothing".
+
+```ts
+ranges(doc, viewport) {
+  const all = this.tokenRanges(doc);
+  const win = viewport?.windowIn?.(doc.order[0]);
+  if (!win) return all;
+  return all.filter((r) => r.to.offset > win.from && r.from.offset < win.to);
+}
+```
+
+The manager adds a viewport of slack either side, so scrolling doesn't expose unpainted text before the next repaint lands.
+
+### Custom code-block views
+
+The built-in `code` view publishes each line's model start offset as `data-line-start` (exported as `LINE_START_ATTR`). That is what lets the anchor codec binary-search for the line owning an offset instead of walking every line and summing lengths — the difference between a repaint that scales with the number of tokens and one that scales with tokens × lines.
+
+A host rendering its own code-block view stays correct without it (the codec falls back to the walk), but should emit it on every line to keep the fast path.
 
 **No fallback.** Where the API is unavailable, nothing is painted — a DOM fallback would have to split spans, which the character-offset walk would then see. Branch on `editor.supportsRangeDecorations()` and render your own affordance (a gutter marker via a sub-block decoration, say) rather than assuming a paint happened.
 

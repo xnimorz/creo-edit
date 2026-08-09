@@ -5,7 +5,9 @@ import { createApp, HtmlRender } from "creo";
 
 import { createEditor } from "../createEditor";
 import type { AnchorRange, DocState } from "../model/types";
+import type { SerializedBlock } from "../createEditor";
 import type { DecorationViewport, EditorPlugin } from "../plugin/types";
+import { notifyMountedBlocksChanged } from "../dom/mountSignal";
 
 // ---------------------------------------------------------------------------
 // happy-dom ships no CSS Custom Highlight API, so stub the two globals the
@@ -50,11 +52,17 @@ afterEach(() => {
 
 const flush = () => new Promise((r) => queueMicrotask(() => r(undefined)));
 
-function mount(plugins: EditorPlugin[]) {
+function mount(
+  plugins: EditorPlugin[],
+  opts: { scrollable?: boolean; blocks?: SerializedBlock[] } = {},
+) {
   const container = makeContainer();
+  // Must be set before the managers construct — they resolve their scroll
+  // source once, at construction.
+  if (opts.scrollable) container.style.overflowY = "auto";
   const editor = createEditor({
     initial: {
-      blocks: [
+      blocks: opts.blocks ?? [
         { type: "p", runs: [{ text: "hello world" }] },
         { type: "p", runs: [{ text: "second line" }] },
       ],
@@ -148,7 +156,91 @@ describe("range decorations", () => {
       spanPlugin({ onCall: (v) => { seen = v; } }),
     ]);
     const order = editor.docStore.get().order;
-    expect(seen).toEqual({ firstBlock: order[0]!, lastBlock: order[1]! });
+    expect(seen?.firstBlock).toBe(order[0]!);
+    expect(seen?.lastBlock).toBe(order[1]!);
+  });
+
+  it("repaints on the editor's own scroller, not on window scroll", async () => {
+    let calls = 0;
+    const { container } = mount([spanPlugin({ onCall: () => { calls++; } })], {
+      scrollable: true,
+    });
+    calls = 0;
+    // `scroll` doesn't bubble; an editor inside its own overflow pane never
+    // hands one to `window`, so listening there saw nothing when the text
+    // moved and everything when the page did.
+    window.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(calls).toBe(0);
+
+    container.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(calls).toBe(1);
+  });
+
+  it("repaints when the renderer says the mounted blocks changed", async () => {
+    let calls = 0;
+    const { container } = mount([spanPlugin({ onCall: () => { calls++; } })]);
+    const root = container.querySelector<HTMLElement>("[data-creo-edit]")!;
+    calls = 0;
+    notifyMountedBlocksChanged(root);
+    await flush();
+    expect(calls).toBe(1);
+
+    // A signal from some other editor on the page is not ours to repaint for.
+    calls = 0;
+    notifyMountedBlocksChanged(document.createElement("div"));
+    await flush();
+    expect(calls).toBe(0);
+  });
+
+  it("reports the visible character window of a code block", () => {
+    let seen: DecorationViewport | null | undefined;
+    const { container, editor } = mount(
+      [spanPlugin({ onCall: (v) => { seen = v; } })],
+      {
+        scrollable: true,
+        blocks: [
+          {
+            type: "code",
+            runs: [{ text: Array.from({ length: 100 }, (_v, i) => `line ${i}`).join("\n") }],
+          },
+        ],
+      },
+    );
+    const blockId = editor.docStore.get().order[0]!;
+    const blockEl = container.querySelector<HTMLElement>(".ce-code-block")!;
+    // happy-dom has no layout — fake just the two rects `windowIn` reads: a
+    // 60px pane scrolled so lines 20..25 are on screen, over 100 10px lines.
+    Object.defineProperty(container, "clientHeight", {
+      value: 60,
+      configurable: true,
+    });
+    const rect = (top: number, height: number) =>
+      ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    container.getBoundingClientRect = () => rect(0, 60);
+    blockEl.getBoundingClientRect = () => rect(-200, 1000);
+
+    editor.refreshRangeDecorationsSync();
+    // Viewport is lines 20..26; the manager adds a viewport of slack each way,
+    // so lines 14..32. Line n starts at n * "line n".length-ish — assert
+    // against the DOM's own published starts rather than recomputing them.
+    const starts = Array.from(
+      blockEl.querySelectorAll<HTMLElement>(".ce-code-line"),
+    ).map((el) => Number(el.getAttribute("data-line-start")));
+    const win = seen!.windowIn!(blockId);
+    expect(win).toEqual({ from: starts[14]!, to: starts[33]! });
+  });
+
+  it("offers a per-block character window, null for unmeasurable blocks", () => {
+    let seen: DecorationViewport | null | undefined;
+    const { editor } = mount([spanPlugin({ onCall: (v) => { seen = v; } })]);
+    const order = editor.docStore.get().order;
+    // happy-dom has no layout, so nothing is measurable — the contract says
+    // that reads as "no window, paint everything", not as an empty window.
+    expect(typeof seen?.windowIn).toBe("function");
+    expect(seen!.windowIn!(order[0]!)).toBeNull();
+    expect(seen!.windowIn!("not-a-block" as never)).toBeNull();
   });
 
   it("repaints after a document change", async () => {
@@ -176,6 +268,28 @@ describe("range decorations", () => {
     );
   });
 
+  it("coalesces refreshRangeDecorations() into one deferred repaint", async () => {
+    let calls = 0;
+    const { editor } = mount([spanPlugin({ onCall: () => { calls++; } })]);
+    calls = 0;
+    editor.refreshRangeDecorations();
+    editor.refreshRangeDecorations();
+    editor.refreshRangeDecorations();
+    // Nothing yet — the whole point is to keep the repaint off the caller's
+    // task, so a host can call this from a lifecycle hook.
+    expect(calls).toBe(0);
+    await flush();
+    expect(calls).toBe(1);
+  });
+
+  it("refreshRangeDecorationsSync() repaints before returning", () => {
+    let calls = 0;
+    const { editor } = mount([spanPlugin({ onCall: () => { calls++; } })]);
+    calls = 0;
+    editor.refreshRangeDecorationsSync();
+    expect(calls).toBe(1);
+  });
+
   it("clears its highlight when the source returns nothing", async () => {
     let empty = false;
     const { editor } = mount([
@@ -191,6 +305,7 @@ describe("range decorations", () => {
     expect(registered.get("creo-test-span")!.ranges.length).toBe(1);
     empty = true;
     editor.refreshRangeDecorations();
+    await flush();
     // Still registered (so the name is reset) but with no ranges.
     expect(registered.get("creo-test-span")!.ranges.length).toBe(0);
   });

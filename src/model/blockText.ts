@@ -31,6 +31,43 @@ export function blockTextLength(block: TextBearingBlock): number {
   return runsLength(block.runs);
 }
 
+/** Concatenated text of a run list. */
+export function runsText(runs: InlineRun[]): string {
+  let s = "";
+  for (const r of runs) s += r.text;
+  return s;
+}
+
+/**
+ * Plain text of any block, exactly as the anchor model counts characters:
+ * a text-bearing block is its runs concatenated (so a `code` block's `\n`s
+ * come through as themselves), cells are joined by `\t` and table rows by
+ * `\n`, and atomic blocks contribute nothing.
+ *
+ * This is the model-side read that `editor.getText()` is built on — no DOM,
+ * no serialization codecs, no escaping.
+ */
+export function blockTextOf(block: Block): string {
+  if (isTextBearing(block)) return runsText(block.runs);
+  if (block.type === "table") {
+    const rows: string[] = [];
+    for (let r = 0; r < block.rows; r++) {
+      const cols: string[] = [];
+      for (let c = 0; c < block.cols; c++) {
+        cols.push(runsText(block.cells[r]?.[c] ?? []));
+      }
+      rows.push(cols.join("\t"));
+    }
+    return rows.join("\n");
+  }
+  if (block.type === "columns") {
+    const cols: string[] = [];
+    for (let c = 0; c < block.cols; c++) cols.push(runsText(block.cells[c] ?? []));
+    return cols.join("\t");
+  }
+  return "";
+}
+
 function marksEqual(
   a: ReadonlySet<Mark> | undefined,
   b: ReadonlySet<Mark> | undefined,

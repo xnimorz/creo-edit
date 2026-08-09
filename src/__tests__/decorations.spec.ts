@@ -6,6 +6,8 @@ import { createApp, HtmlRender } from "creo";
 import { createEditor } from "../createEditor";
 import { addBlockPlugin } from "../plugins/add-block";
 import { dragHandlePlugin } from "../plugins/drag-handle";
+import { notifyMountedBlocksChanged } from "../dom/mountSignal";
+import type { BlockSpec } from "../model/types";
 
 afterEach(() => {
   clearDom();
@@ -103,5 +105,92 @@ describe("decoration manager", () => {
     // The new block should be at index 1 (above the second).
     expect(afterOrder[1]).not.toBe(beforeOrder[1]);
     expect(afterOrder[2]).toBe(beforeOrder[1]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Windowed documents. A decoration can only exist against a block that is
+  // in the DOM, so the manager iterates the mounted set. It used to walk
+  // `doc.order` with a `querySelector` per block — at 50 000 blocks that was
+  // ~1.2s per sync, and sync runs on every doc change.
+  // -------------------------------------------------------------------------
+
+  function mountVirtualized(n: number) {
+    const root = makeContainer();
+    const blocks: BlockSpec[] = Array.from({ length: n }, (_v, i) => ({
+      type: "p" as const,
+      runs: [{ text: `line ${i}` }],
+    })) as BlockSpec[];
+    const editor = createEditor({
+      initial: { blocks: blocks as never },
+      plugins: [addBlockPlugin({ hoverOnly: false })] as never,
+      virtualized: true,
+      virtualEstimatedHeight: 20,
+    });
+    createApp(
+      () => editor.EditorView(),
+      new HtmlRender(root),
+      SYNC_SCHEDULER,
+    ).mount();
+    return { root, editor };
+  }
+
+  it("decorates only the blocks that are actually mounted", async () => {
+    const { root } = mountVirtualized(5000);
+    await new Promise((r) => queueMicrotask(() => r(undefined)));
+    const mountedBlocks = root.querySelectorAll("[data-block-kind]").length;
+    const decos = document.querySelectorAll(".ce-deco-add-block").length;
+    expect(mountedBlocks).toBeGreaterThan(0);
+    expect(mountedBlocks).toBeLessThan(5000);
+    expect(decos).toBe(mountedBlocks);
+  });
+
+  it("every decoration points at a block that exists in the DOM", async () => {
+    const { root } = mountVirtualized(5000);
+    await new Promise((r) => queueMicrotask(() => r(undefined)));
+    for (const el of Array.from(
+      document.querySelectorAll<HTMLElement>(".ce-deco-add-block"),
+    )) {
+      const id = el.dataset.blockId!;
+      expect(root.querySelector(`[data-block-kind][data-block-id="${id}"]`)).toBeTruthy();
+    }
+  });
+
+  it("follows the window when virtualized scrolling remounts blocks", async () => {
+    // Scrolling changes which blocks exist without changing the document, so
+    // the doc subscription can't see it. VirtualDoc announces the new mounted
+    // set (dom/mountSignal.ts) and the manager re-syncs off that.
+    const { root } = mountVirtualized(5000);
+    await new Promise((r) => queueMicrotask(() => r(undefined)));
+    const idsOf = (sel: string) =>
+      new Set(
+        Array.from(document.querySelectorAll<HTMLElement>(sel)).map(
+          (el) => el.dataset.blockId!,
+        ),
+      );
+    const before = idsOf(".ce-deco-add-block");
+    expect(before.size).toBeGreaterThan(0);
+
+    try {
+      Object.defineProperty(window, "scrollY", {
+        value: 40_000,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((r) => queueMicrotask(() => r(undefined)));
+
+      const mountedIds = new Set(
+        Array.from(
+          root.querySelectorAll<HTMLElement>("[data-block-kind][data-block-id]"),
+        ).map((el) => el.getAttribute("data-block-id")!),
+      );
+      const after = idsOf(".ce-deco-add-block");
+      // The window really moved, and the decorations moved with it — no
+      // orphans left pointing at blocks that are no longer in the DOM.
+      expect([...after].some((id) => !before.has(id))).toBe(true);
+      expect([...after].every((id) => mountedIds.has(id))).toBe(true);
+      expect(after.size).toBe(mountedIds.size);
+    } finally {
+      Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+    }
   });
 });

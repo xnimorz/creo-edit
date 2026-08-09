@@ -42,6 +42,7 @@ type Editor = {
   setDoc: (doc: SerializedDoc) => void;
   setDocFromHTML: (html: string) => void;
   toJSON: () => SerializedDoc;
+  getText: (blockId?: BlockId) => string;
   appendBlocks: (specs: BlockInsertInput[]) => BlockId[];
   prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
   focus: () => void;
@@ -61,7 +62,8 @@ type Editor = {
 
   // Plugin overlays
   supportsRangeDecorations: () => boolean;
-  refreshRangeDecorations: () => void;
+  refreshRangeDecorations: () => void;      // coalesced into the next frame
+  refreshRangeDecorationsSync: () => void;  // repaints before returning
   refreshInlineWidgets: () => void;
 };
 ```
@@ -154,6 +156,14 @@ See [HTML interop](#/html-interop) for which HTML constructs round-trip.
 ### `toJSON()`
 
 Returns a `SerializedDoc` — a plain JSON-safe object suitable for storage. Round-trips losslessly through `createEditor({ initial: doc })`.
+
+The result is memoized on the document's identity, so calling it repeatedly between edits costs nothing — one serialization per document version, however many callers ask.
+
+### `getText(blockId?)`
+
+Plain text straight off the model: the whole document with blocks joined by `\n`, or one block when `blockId` is given. Table cells join with `\t` across and `\n` down; atomic blocks (images) contribute nothing.
+
+Characters are counted exactly the way anchors count them — a `code` block's newlines are real characters in both — so `getText(id).slice(0, anchor.offset)` is the text before that anchor. Reach for this rather than `toJSON()` when you only want characters: hashing the buffer, diffing against disk, computing line starts, feeding a language server.
 
 ### `focus()` / `blur()`
 

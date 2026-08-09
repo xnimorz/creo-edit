@@ -36,6 +36,7 @@
 import type { Store } from "creo";
 import type { Anchor, BlockId, DocState, Selection } from "../model/types";
 import { anchorToDom } from "../dom/anchorMap";
+import { scrollSourceFor } from "../dom/scroll";
 import { INLINE_WIDGET_ATTR } from "./anchorCodec";
 import type { DecorationViewport, InlineWidgetDef } from "./types";
 import type { Registry } from "./registry";
@@ -60,13 +61,20 @@ export class InlineWidgetManager {
   private unsubDoc: (() => void) | null = null;
   private unsubSel: (() => void) | null = null;
   private rafQueued = false;
+  private scrollSource: HTMLElement | Window;
 
   constructor(private opts: InlineWidgetManagerOptions) {
     this.unsubDoc = opts.docStore.subscribe(() => this.schedule());
     // Ghost text is positioned at the caret, so selection moves matter as
     // much as document edits.
     this.unsubSel = opts.selStore.subscribe(() => this.schedule());
-    window.addEventListener("scroll", this.schedule, { passive: true });
+    // The editor's own scroll container, not `window` — scroll doesn't
+    // bubble, so an editor in an `overflow: auto` pane never reaches window.
+    // See dom/scroll.ts.
+    this.scrollSource = scrollSourceFor(opts.editorRoot);
+    this.scrollSource.addEventListener("scroll", this.schedule, {
+      passive: true,
+    } as never);
     window.addEventListener("resize", this.schedule);
     this.sync();
   }
@@ -76,7 +84,7 @@ export class InlineWidgetManager {
     this.unsubSel?.();
     this.unsubDoc = null;
     this.unsubSel = null;
-    window.removeEventListener("scroll", this.schedule);
+    this.scrollSource.removeEventListener("scroll", this.schedule);
     window.removeEventListener("resize", this.schedule);
     for (const m of this.mounted.values()) this.unmountOne(m);
     this.mounted.clear();

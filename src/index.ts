@@ -35,8 +35,24 @@ export { isCoarsePointer } from "./input/mobile";
 export {
   domToAnchor,
   anchorToDom,
+  // Batch form — resolves many anchors in one pass, grouping by block and
+  // (for code blocks) by line. What the range-decoration repaint uses; worth
+  // reaching for in any host that resolves anchors by the thousand.
+  anchorsToDom,
   findBlockElementById,
 } from "./dom/anchorMap";
+
+// A host rendering its own code-block view should publish each line's model
+// start offset under this attribute — that is what turns anchor resolution
+// from "walk every line" into a binary search. Omitting it stays correct.
+export { LINE_START_ATTR } from "./plugin/anchorCodec";
+
+// Overlay managers repaint when the mounted block set changes. A host that
+// does its own windowing (instead of `virtualized: true`) should say so.
+export {
+  onMountedBlocksChanged,
+  notifyMountedBlocksChanged,
+} from "./dom/mountSignal";
 
 // Virtualization
 export { VirtualDoc } from "./virtual/VirtualDoc";
