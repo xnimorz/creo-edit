@@ -20,18 +20,20 @@ import type {
   TriggerCtx,
   TriggerDef,
 } from "../../plugin/types";
-import type { Mark } from "../../model/types";
+import type { MarkAttrs, MarkName } from "../../model/types";
 
-type RuleResult = "applied" | "skipped";
+export type RuleResult = "applied" | "skipped";
 
-type BlockRule = {
+export type BlockRule = {
   /** Pattern matched against the prefix of the block's runs text — must
    *  capture the leading markup so we know how many chars to delete. */
   pattern: RegExp;
   apply(ctx: TriggerCtx): RuleResult;
 };
 
-const blockRules: BlockRule[] = [
+/** The shipped block rules. Exported so a host can filter, reorder or extend
+ *  them instead of shipping a second plugin beside this one. */
+export const defaultBlockRules: BlockRule[] = [
   // Headings: `# ` … `###### `
   ...[1, 2, 3, 4, 5, 6].map((lvl) => ({
     pattern: new RegExp(`^${"#".repeat(lvl)} $`),
@@ -79,7 +81,8 @@ const blockRules: BlockRule[] = [
  *  applying then collapsing back. Used for inline rules like `**foo**`. */
 function applyInlineMark(
   ctx: TriggerCtx,
-  mark: Mark,
+  mark: MarkName,
+  attrs: MarkAttrs,
   matchLen: number,
   innerLen: number,
   delimLen: number,
@@ -108,7 +111,7 @@ function applyInlineMark(
   path[lastIdx] = innerEnd;
   const endA = { blockId: at.blockId, path: [...path], offset: innerEnd };
   ctx.selStore.set({ kind: "range", anchor: startA, focus: endA });
-  ctx.dispatch({ t: "toggleMark", mark });
+  ctx.dispatch({ t: "toggleMark", mark, attrs });
   // Delete the OPENING delimiter still sitting before the (now-marked) inner
   // text — place the caret at innerStart, then backspace delimLen chars.
   const newPath = [...at.path];
@@ -124,17 +127,20 @@ function applyInlineMark(
   );
 }
 
-type InlineRule = {
+export type InlineRule = {
   /** Closing trigger char that should fire the rule. */
   closer: string;
   /** Pattern matched against the run text up to and INCLUDING the just-
    *  inserted `closer`. The first capture group is the inner text. */
   pattern: RegExp;
   delimLen: number;
-  mark: Mark;
+  mark: MarkName;
+  /** Attrs applied with the mark. Omit for the boolean marks. */
+  attrs?: MarkAttrs;
 };
 
-const inlineRules: InlineRule[] = [
+/** The shipped inline rules — see `defaultBlockRules`. */
+export const defaultInlineRules: InlineRule[] = [
   // **bold**
   { closer: "*", pattern: /\*\*([^*\n]+)\*\*$/, delimLen: 2, mark: "b" },
   // __bold__
@@ -172,13 +178,13 @@ function getBlockPrefixUpToCaret(ctx: TriggerCtx): string | null {
   return s;
 }
 
-function makeSpaceTrigger(): TriggerDef {
+function makeSpaceTrigger(rules: readonly BlockRule[]): TriggerDef {
   return {
     match: " ",
     open(ctx) {
       const prefix = getBlockPrefixUpToCaret(ctx);
       if (prefix === null) return null;
-      for (const rule of blockRules) {
+      for (const rule of rules) {
         if (rule.pattern.test(prefix)) {
           rule.apply(ctx);
           break;
@@ -191,19 +197,29 @@ function makeSpaceTrigger(): TriggerDef {
   };
 }
 
-function makeInlineTrigger(closer: string): TriggerDef {
+function makeInlineTrigger(
+  closer: string,
+  rules: readonly InlineRule[],
+): TriggerDef {
   return {
     match: closer,
     open(ctx) {
       const prefix = getBlockPrefixUpToCaret(ctx);
       if (prefix === null) return null;
-      for (const rule of inlineRules) {
+      for (const rule of rules) {
         if (rule.closer !== closer) continue;
         const m = rule.pattern.exec(prefix);
         if (!m) continue;
         const inner = m[1] ?? "";
         if (inner.length === 0) continue;
-        applyInlineMark(ctx, rule.mark, m[0]!.length, inner.length, rule.delimLen);
+        applyInlineMark(
+          ctx,
+          rule.mark,
+          rule.attrs ?? null,
+          m[0]!.length,
+          inner.length,
+          rule.delimLen,
+        );
         break;
       }
       return null;
@@ -212,15 +228,44 @@ function makeInlineTrigger(closer: string): TriggerDef {
 }
 
 
-export function mdShortcutsPlugin(): EditorPlugin {
+export type MdShortcutsOptions = {
+  /**
+   * Replace the block-prefix rules outright. Defaults to
+   * `defaultBlockRules`; pass `[...defaultBlockRules, myRule]` to extend, or
+   * a filtered copy to drop the ones you don't want.
+   */
+  blockRules?: BlockRule[];
+  /** Same, for the inline mark rules. Defaults to `defaultInlineRules`. */
+  inlineRules?: InlineRule[];
+  /**
+   * Rule patterns to drop from whichever set is in use, matched by their
+   * `pattern.source`. Sugar for the common "everything except `1. `" case,
+   * so a host doesn't have to reproduce the default array to remove one
+   * entry from it.
+   */
+  disable?: (string | RegExp)[];
+};
+
+export function mdShortcutsPlugin(
+  opts: MdShortcutsOptions = {},
+): EditorPlugin {
+  const disabled = new Set(
+    (opts.disable ?? []).map((d) => (typeof d === "string" ? d : d.source)),
+  );
+  const keep = <T extends { pattern: RegExp }>(rules: T[]): T[] =>
+    disabled.size === 0 ? rules : rules.filter((r) => !disabled.has(r.pattern.source));
+
+  const blocks = keep(opts.blockRules ?? defaultBlockRules);
+  const inline = keep(opts.inlineRules ?? defaultInlineRules);
+  // One trigger per distinct closing character — registering a trigger for a
+  // closer no rule uses would intercept the keystroke for nothing.
+  const closers = [...new Set(inline.map((r) => r.closer))];
+
   return {
     name: "md-shortcuts",
     triggers: [
-      makeSpaceTrigger(),
-      makeInlineTrigger("*"),
-      makeInlineTrigger("_"),
-      makeInlineTrigger("~"),
-      makeInlineTrigger("`"),
+      ...(blocks.length ? [makeSpaceTrigger(blocks)] : []),
+      ...closers.map((c) => makeInlineTrigger(c, inline)),
     ],
   };
 }

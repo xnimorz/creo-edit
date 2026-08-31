@@ -14,15 +14,10 @@
 // open your own picker or directly insert a fixed block kind).
 // ---------------------------------------------------------------------------
 
-import { generateBetween } from "../../model/fractional";
 import { newBlockId } from "../../model/doc";
-import type {
-  Block,
-  BlockSpec,
-  DocState,
-  Selection,
-} from "../../model/types";
-import type { DispatchableCommand } from "../../createEditor";
+import { closestEditor } from "../../dom/editorRef";
+import type { Editor } from "../../createEditor";
+import type { Block } from "../../model/types";
 import type { EditorPlugin } from "../../plugin/types";
 import {
   defaultSlashItems,
@@ -103,16 +98,9 @@ function openAddMenu(
   // The block element captured at mount may have been replaced by a
   // creo re-render; fall back to a fresh document-level lookup so the
   // editor reference stays reachable.
-  let editorRoot = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
-  if (!editorRoot) {
-    editorRoot = document.querySelector("[data-creo-edit]") as HTMLElement | null;
-  }
-  if (!editorRoot) return;
-  const editor = (editorRoot as unknown as { __creoEdit?: {
-    docStore: { get: () => DocState; set: (d: DocState) => void };
-    selStore: { set: (s: Selection) => void };
-    dispatch: (cmd: DispatchableCommand) => void;
-  } }).__creoEdit;
+  const editor =
+    closestEditor(blockEl) ??
+    closestEditor(document.querySelector("[data-creo-edit]"));
   if (!editor) return;
 
   const r = btn.getBoundingClientRect();
@@ -150,13 +138,8 @@ function openAddMenu(
       // 3. Run the item's action — most items dispatch setBlockType /
       //    toggleList / insertTable etc. against the current selection,
       //    which is now the newly-inserted paragraph.
-      const cmdCtx = {
-        docStore: editor.docStore,
-        selStore: editor.selStore,
-        dispatch: editor.dispatch,
-      };
       try {
-        it.run(cmdCtx as never);
+        it.run(editor.commandCtx);
       } catch {
         // Item handler error — leave the empty paragraph in place.
       }
@@ -196,37 +179,26 @@ function openAddMenu(
   }, 0);
 }
 
-/** Insert an empty paragraph immediately before `beforeBlockId`. Returns
- *  the new block's id, or null on failure. */
+/**
+ * Insert an empty paragraph immediately before `beforeBlockId`. Returns the
+ * new block's id, or null on failure.
+ *
+ * Goes through `dispatch` rather than mutating `docStore` directly, which is
+ * what gives the insert an undo step and puts an `insertBlock` change on
+ * `editor.onChange` — it used to do neither, so a host persisting off the
+ * change stream never saw blocks added with the "+" button.
+ */
 function insertParagraphAbove(
-  editor: {
-    docStore: { get: () => DocState; set: (d: DocState) => void };
-  },
+  editor: Editor,
   beforeBlockId: string,
 ): string | null {
-  const doc = editor.docStore.get();
-  const idx = doc.order.indexOf(beforeBlockId);
-  if (idx < 0) return null;
-  const prevId = idx === 0 ? null : doc.order[idx - 1] ?? null;
-  const prevIdx = prevId ? doc.byId.get(prevId)!.index : null;
-  const nextIdx = doc.byId.get(beforeBlockId)!.index;
-  let newIdx: string;
-  try {
-    newIdx = generateBetween(prevIdx, nextIdx);
-  } catch {
-    return null;
-  }
-  const newId = newBlockId();
-  const newBlock: BlockSpec & { index: string } = {
-    id: newId,
-    type: "p",
-    runs: [],
-    index: newIdx,
-  };
-  const nextById = new Map(doc.byId);
-  nextById.set(newId, newBlock as unknown as Block);
-  const nextOrder = [...doc.order];
-  nextOrder.splice(idx, 0, newId);
-  editor.docStore.set({ byId: nextById, order: nextOrder });
-  return newId;
+  const id = newBlockId();
+  const ok = editor.dispatch({
+    t: "insertBlocks",
+    payload: {
+      blocks: [{ id, type: "p", runs: [] }],
+      before: beforeBlockId,
+    },
+  });
+  return ok ? id : null;
 }

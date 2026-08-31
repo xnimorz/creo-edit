@@ -86,10 +86,61 @@ export type ResetBlockChange = {
   blockId: BlockId;
 };
 
-/** The whole document was replaced (setDoc / setDocFromHTML / undo / redo).
- *  No anchor survives. */
+/**
+ * A block moved to a different position in `doc.order`. Its content and id
+ * are unchanged, so every anchor inside it stays valid — but a consumer
+ * persisting document ORDER off this stream has to learn about it, which is
+ * why a reorder is not simply silent.
+ */
+export type MoveBlockChange = {
+  kind: "moveBlock";
+  blockId: BlockId;
+  /** Position in `doc.order` before and after the move. */
+  from: number;
+  to: number;
+};
+
+/**
+ * Inline formatting changed over a character span. No character moved, so no
+ * anchor needs mapping — this exists so the stream is a complete op log
+ * rather than only a position-mapping feed. A host persisting off `onChange`
+ * that ignored these would write back text with the marks stripped.
+ */
+export type FormatChange = {
+  kind: "format";
+  blockId: BlockId;
+  container: number[];
+  from: number;
+  to: number;
+  /** The mark that changed. */
+  mark: string;
+  /** True when it was applied, false when cleared. */
+  added: boolean;
+};
+
+/**
+ * A block's non-text attributes changed — its `type` (paragraph → heading),
+ * a list item's `ordered` / `depth`, a code block's `lang`. Content offsets
+ * are untouched, so anchors survive.
+ */
+export type BlockAttrsChange = {
+  kind: "blockAttrs";
+  blockId: BlockId;
+  /** The block's type AFTER the change. */
+  type: string;
+};
+
+/**
+ * The whole document was replaced. No anchor survives.
+ *
+ * `reason` distinguishes the four callers, because "the user pressed undo"
+ * and "the host swapped documents" want different responses from a consumer:
+ * a persistence layer should write back on `setDoc` but usually not re-derive
+ * its whole cache on `undo`.
+ */
 export type ReplaceDocChange = {
   kind: "replaceDoc";
+  reason?: "setDoc" | "setDocFromHTML" | "undo" | "redo";
 };
 
 export type DocChange =
@@ -99,6 +150,9 @@ export type DocChange =
   | InsertBlockChange
   | RemoveBlockChange
   | ResetBlockChange
+  | MoveBlockChange
+  | FormatChange
+  | BlockAttrsChange
   | ReplaceDocChange;
 
 // ---------------------------------------------------------------------------
@@ -215,8 +269,13 @@ function applyOne(a: Anchor, c: DocChange, bias: MapBias): Anchor | null {
       return a.blockId === c.blockId ? null : a;
 
     case "insertBlock":
-      // Adding a block never moves an offset inside another block, and
-      // anchors are block-id-relative rather than document-ordinal.
+    case "moveBlock":
+    case "format":
+    case "blockAttrs":
+      // None of these move a character inside a block, and anchors are
+      // block-id-relative rather than document-ordinal — so an anchor passes
+      // through untouched. They are in the stream for consumers that need a
+      // complete op log, not for position mapping.
       return a;
 
     case "merge": {

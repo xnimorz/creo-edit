@@ -25,7 +25,19 @@ import {
   outdentList as cmdOutdentList,
   toggleList as cmdToggleList,
 } from "./commands/listCommands";
-import { toggleMark as cmdToggleMark } from "./commands/markCommands";
+import {
+  removeMark as cmdRemoveMark,
+  toggleMark as cmdToggleMark,
+} from "./commands/markCommands";
+import {
+  insertBlocks as cmdInsertBlocks,
+  moveBlock as cmdMoveBlock,
+  removeBlocksCmd,
+  replaceBlocks as cmdReplaceBlocks,
+  type InsertBlocksPayload,
+  type MoveBlockPayload,
+} from "./commands/blockCommands";
+import { clearEditorRef, setEditorRef } from "./dom/editorRef";
 import {
   mergeBackward as cmdMergeBackward,
   mergeForward as cmdMergeForward,
@@ -38,7 +50,7 @@ import {
   deleteForward as cmdDeleteForward,
   insertText as cmdInsertText,
 } from "./commands/textCommands";
-import { endOfDoc } from "./controller/selection";
+import { clampSelection, endOfDoc } from "./controller/selection";
 import { createHistory, type History } from "./controller/history";
 import { attachAutoRebalance } from "./model/rebalance";
 import {
@@ -50,16 +62,19 @@ import { blockTextOf } from "./model/blockText";
 import {
   collectChanges,
   mapAnchor as mapAnchorPure,
+  recordChange,
   type DocChange,
   type MapBias,
 } from "./model/changes";
 import type {
   Anchor,
+  Block,
   BlockId,
   BlockSpec,
   DistOmit,
   DocState,
-  Mark,
+  MarkAttrs,
+  MarkName,
   Selection,
 } from "./model/types";
 
@@ -79,11 +94,12 @@ import {
   deserializeBlock as registryDeserializeBlock,
   serializeBlock as registrySerializeBlock,
 } from "./plugin/serializeCodec";
+import { registerUnknownBlockType } from "./plugin/unknownBlock";
 import { TriggerManager } from "./plugin/triggers";
 import { DecorationManager } from "./plugin/decorations";
 import { RangeDecorationManager } from "./plugin/rangeDecorations";
 import { InlineWidgetManager } from "./plugin/inlineWidgets";
-import type { EditorPlugin } from "./plugin/types";
+import type { CommandCtx, EditorPlugin, PasteCtx } from "./plugin/types";
 
 let __editorIdCounter = 0;
 
@@ -91,10 +107,17 @@ let __editorIdCounter = 0;
 // Public-facing types
 // ---------------------------------------------------------------------------
 
-export type SerializedRun = {
-  text: string;
-  marks?: string[]; // mark identifiers
-};
+/**
+ * Wire form of one inline run. `marks` is `{ name: attrs }` — attrs is `null`
+ * for the boolean marks (`b`, `i`, `u`, `s`, `code`) and an object for marks
+ * that carry data (`link` → `{ href, title? }`).
+ *
+ * The pre-0.4 `string[]` form is still accepted on read, so documents saved
+ * before marks carried data load unchanged; `toJSON()` always emits the
+ * object form.
+ */
+import type { SerializedRun } from "./model/runSerialize";
+export type { SerializedRun };
 
 /**
  * SerializedBlock — wire shape the editor reads from `setDoc()` and emits
@@ -173,6 +196,19 @@ export type EditorViewProps = {
   class?: string;
 };
 
+/** Options for the wholesale-replacement APIs (`setDoc`, `setDocFromHTML`). */
+export type SetDocOptions = {
+  /** Re-clamp the current selection onto the new document instead of jumping
+   *  to end-of-doc. Only meaningful when block ids are stable across the
+   *  swap. Default false. */
+  preserveSelection?: boolean;
+  /** Keep the undo stack across the swap. Default false — undoing across a
+   *  document swap restores the OLD document, which is rarely what a host
+   *  routing between documents wants, and exactly what an in-place refresh
+   *  does. */
+  preserveHistory?: boolean;
+};
+
 /**
  * Built-in command shape. Plugin commands dispatch through the same
  * `dispatch()` entry point using the `{ t: string; payload?: unknown }`
@@ -187,7 +223,8 @@ export type Command =
   | { t: "mergeBackward" }
   | { t: "mergeForward" }
   | { t: "setBlockType"; payload: SetBlockTypePayload }
-  | { t: "toggleMark"; mark: Mark }
+  | { t: "toggleMark"; mark: MarkName; attrs?: MarkAttrs }
+  | { t: "removeMark"; mark: MarkName }
   | { t: "toggleList"; ordered: boolean }
   | { t: "indentList" }
   | { t: "outdentList" }
@@ -204,7 +241,11 @@ export type Command =
   | { t: "tableInsertCol"; where: "before" | "after" }
   | { t: "tableRemoveRow" }
   | { t: "tableRemoveCol" }
-  | { t: "moveCursor"; to: Anchor; extend?: boolean };
+  | { t: "moveCursor"; to: Anchor; extend?: boolean }
+  | { t: "moveBlock"; payload: MoveBlockPayload }
+  | { t: "insertBlocks"; payload: InsertBlocksPayload }
+  | { t: "removeBlocks"; blockIds: BlockId[] }
+  | { t: "replaceBlocks"; blocks: BlockInsertInput[] };
 
 /** Anything dispatchable — the typed `Command` union for built-ins, plus the
  *  open `{ t: string; payload?: unknown }` shape for plugin commands. */
@@ -265,6 +306,18 @@ export type EditorOptions = {
    * Default: true.
    */
   editable?: boolean | (() => boolean);
+  /**
+   * What to do with serialized blocks whose type has no registered codec.
+   * Default `"preserve"` — they round-trip opaquely instead of vanishing.
+   * See `UnknownBlockPolicy`.
+   */
+  unknownBlocks?: UnknownBlockPolicy;
+  /**
+   * Turn native spellcheck on for the editable root. Off by default because
+   * the browser's red squiggles fight with `rangeDecorations` on a code or
+   * diff view; a prose editor generally wants it on.
+   */
+  spellcheck?: boolean;
 };
 
 export type Editor = {
@@ -315,14 +368,22 @@ export type Editor = {
    *  `contenteditable` attribute. */
   setEditable: (editable: boolean) => void;
   EditorView: PublicView<EditorViewProps, void>;
-  setDocFromHTML: (html: string) => void;
+  setDocFromHTML: (html: string, opts?: SetDocOptions) => void;
   /**
-   * Replace the entire document with a SerializedDoc. Resets selection to
-   * the end and clears history — used for swapping content on top of a
-   * long-lived editor instance (e.g. routing between different docs in a
+   * Replace the entire document with a SerializedDoc. By default resets the
+   * selection to end-of-doc and clears history — used for swapping content on
+   * top of a long-lived editor instance (e.g. routing between documents in a
    * docs site without reallocating the input pipeline & DOM listeners).
+   * `opts.preserveSelection` / `opts.preserveHistory` opt out of each.
+   *
+   * For changes arriving on the SAME document from outside — a sync engine, an
+   * agent, a collaborator — prefer the targeted commands
+   * (`replaceBlocks`, `insertBlocks`, `removeBlocks`, `moveBlock` via
+   * `dispatch`). They preserve untouched block identity, the caret and the
+   * undo stack, and emit per-block `DocChange`s an `onChange` consumer can map
+   * anchors through — none of which a wholesale replacement can do.
    */
-  setDoc: (doc: SerializedDoc) => void;
+  setDoc: (doc: SerializedDoc, opts?: SetDocOptions) => void;
   /**
    * Serialize the whole document. Memoized on `docStore` identity, so calling
    * it repeatedly between edits is free — hosts that hash, diff or re-derive
@@ -363,6 +424,14 @@ export type Editor = {
   /** Plugin registry for this editor instance — exposed for advanced
    *  consumers (devtools, the M3 trigger manager, etc.). */
   registry: Registry;
+  /**
+   * The `CommandCtx` this editor's commands run with. Hand it to anything
+   * that takes command-shaped actions — a slash-menu item's `run`, a toolbar
+   * button — instead of assembling `{ docStore, selStore }` by hand, which is
+   * how those call sites ended up mutating the stores directly and emitting
+   * no changes.
+   */
+  commandCtx: CommandCtx;
   /**
    * Scroll a block into view by id. Works for both virtualized and
    * non-virtualized editors — for virtualized off-screen blocks, jumps
@@ -408,20 +477,53 @@ export type Editor = {
    * trip.
    */
   refreshInlineWidgets: () => void;
+  /**
+   * Tear down the input pipeline, drop handlers, viewport tracking, overlay
+   * managers, trigger manager and every plugin's `onInit` teardown /
+   * `onDestroy`, and clear the change listeners and the root's editor
+   * reference. Idempotent. The DOM the renderer produced is the host's to
+   * unmount.
+   */
+  destroy: () => void;
 };
 
 // ---------------------------------------------------------------------------
 // Serialization helpers — registry-driven per-block.
 // ---------------------------------------------------------------------------
 
-function deserializeDoc(s: SerializedDoc): DocState {
+/**
+ * What to do with a block whose type has no registered codec — a document
+ * written by a client that had a plugin this one doesn't.
+ *
+ *  - `"preserve"` (default): keep it as an opaque, non-editable block that
+ *    round-trips its original JSON byte-for-byte through the next `toJSON()`.
+ *    Nothing is lost by opening a document in a client missing a plugin.
+ *  - `"drop"`: discard it (the pre-0.4 behaviour, silent data loss).
+ *  - `"throw"`: refuse the whole document.
+ */
+export type UnknownBlockPolicy = "preserve" | "drop" | "throw";
+
+function deserializeDoc(
+  s: SerializedDoc,
+  policy: UnknownBlockPolicy = "preserve",
+): DocState {
   const blocks: BlockSpec[] = [];
   for (const sb of s.blocks) {
     const id = sb.id ?? newBlockId();
-    const decoded = registryDeserializeBlock(sb.type, sb, id);
+    let decoded = registryDeserializeBlock(sb.type, sb, id);
+    if (!decoded) {
+      if (policy === "throw") {
+        throw new Error(
+          `creo-edit: no block codec registered for type "${sb.type}". ` +
+            `Install the plugin that provides it, or set ` +
+            `\`unknownBlocks: "preserve"\` to round-trip it opaquely.`,
+        );
+      }
+      if (policy === "drop") continue;
+      registerUnknownBlockType(sb.type);
+      decoded = registryDeserializeBlock(sb.type, sb, id);
+    }
     if (decoded) blocks.push(decoded);
-    // Unknown block types are silently dropped — same posture the old
-    // exhaustive switch took for unrecognized variants.
   }
   return docFromBlocks(blocks);
 }
@@ -454,6 +556,7 @@ const BUILTIN_COMMANDS = new Set<string>([
   "mergeForward",
   "setBlockType",
   "toggleMark",
+  "removeMark",
   "toggleList",
   "indentList",
   "outdentList",
@@ -465,6 +568,10 @@ const BUILTIN_COMMANDS = new Set<string>([
   "tableRemoveRow",
   "tableRemoveCol",
   "moveCursor",
+  "moveBlock",
+  "insertBlocks",
+  "removeBlocks",
+  "replaceBlocks",
 ]);
 
 /** Built-ins that never touch the document, so they survive read-only mode. */
@@ -493,11 +600,11 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // Install plugins BEFORE we touch any block-bearing state so the
   // serialize codec, anchor codecs, and view registry are ready.
   const registry = new Registry();
-  for (const p of defaultPlugins) registry.install(p);
-  if (opts.plugins) for (const p of opts.plugins) registry.install(p);
+  const installedPlugins: EditorPlugin[] = [...defaultPlugins, ...(opts.plugins ?? [])];
+  for (const p of installedPlugins) registry.install(p);
 
   const initialDoc = opts.initial
-    ? deserializeDoc(opts.initial)
+    ? deserializeDoc(opts.initial, opts.unknownBlocks ?? "preserve")
     : seedEmpty();
   const docStore = store.new<DocState>(initialDoc);
 
@@ -518,13 +625,33 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   void rangeDecorations;
   void inlineWidgets;
 
-  const history: History = createHistory({ docStore, selStore });
+  // The registry supplies the coalescing rule, so a plugin's
+  // `historyCoalescePrefixes` finally has an effect — it was collected into
+  // `Registry.coalescePrefixes` and never consulted, because `createHistory`
+  // hard-coded `tag.startsWith("text:")`.
+  const history: History = createHistory({ docStore, selStore }, registry);
   // Microtask rebalance — keeps fractional indices short under adversarial
   // insertion patterns. No-op on every doc change unless any key has
   // outgrown the soft threshold.
   attachAutoRebalance(docStore);
 
-  const ctx = { docStore, selStore };
+  // The command context every command — built-in and plugin — receives.
+  // `dispatch` and `editor` are filled by closure/getter rather than by value
+  // because both are defined further down; nothing reads them until a command
+  // actually runs, by which point both exist.
+  let editorSelf: Editor | null = null;
+  const ctx: CommandCtx = {
+    docStore,
+    selStore,
+    dispatch: ((a: unknown, b?: unknown): boolean =>
+      typeof a === "string"
+        ? dispatch({ t: a, payload: b })
+        : dispatch(a as DispatchableCommand)) as CommandCtx["dispatch"],
+    change: recordChange,
+    get editor(): Editor {
+      return editorSelf!;
+    },
+  };
 
   // -------------------------------------------------------------------------
   // Read-only support. `editableOpt` holds whatever the host supplied — a
@@ -551,6 +678,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     docStore,
     selStore,
     dispatch: (cmd) => dispatchRef?.(cmd),
+    commandCtx: ctx,
   });
 
   // ---- Change stream -----------------------------------------------------
@@ -608,9 +736,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       case "setBlockType":
         cmdSetBlockType(ctx, (cmd as Extract<Command, { t: "setBlockType" }>).payload);
         return true;
-      case "toggleMark":
-        cmdToggleMark(ctx, (cmd as Extract<Command, { t: "toggleMark" }>).mark);
-        return true;
+      case "toggleMark": {
+        const c = cmd as Extract<Command, { t: "toggleMark" }>;
+        return cmdToggleMark(ctx, c.mark, c.attrs ?? null);
+      }
+      case "removeMark":
+        return cmdRemoveMark(ctx, (cmd as Extract<Command, { t: "removeMark" }>).mark);
       case "toggleList":
         cmdToggleList(ctx, (cmd as Extract<Command, { t: "toggleList" }>).ordered);
         return true;
@@ -648,6 +779,23 @@ export function createEditor(opts: EditorOptions = {}): Editor {
         moveTo(ctx, c.to, c.extend === true);
         return true;
       }
+      case "moveBlock":
+        return cmdMoveBlock(ctx, (cmd as Extract<Command, { t: "moveBlock" }>).payload);
+      case "insertBlocks":
+        return cmdInsertBlocks(
+          ctx,
+          (cmd as Extract<Command, { t: "insertBlocks" }>).payload,
+        );
+      case "removeBlocks":
+        return removeBlocksCmd(
+          ctx,
+          (cmd as Extract<Command, { t: "removeBlocks" }>).blockIds,
+        );
+      case "replaceBlocks":
+        return cmdReplaceBlocks(
+          ctx,
+          (cmd as Extract<Command, { t: "replaceBlocks" }>).blocks,
+        );
       default: {
         // Plugin command — route through the registry. Payload shape is
         // plugin-defined; built-ins handled above don't reach this branch.
@@ -691,27 +839,61 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // subscribers get `replaceDoc` and re-derive.
   const undo = (): void => {
     if (!isEditable()) return;
-    if (history.undo()) emitChanges([{ kind: "replaceDoc" }]);
+    if (history.undo()) emitChanges([{ kind: "replaceDoc", reason: "undo" }]);
   };
   const redo = (): void => {
     if (!isEditable()) return;
-    if (history.redo()) emitChanges([{ kind: "replaceDoc" }]);
+    if (history.redo()) emitChanges([{ kind: "replaceDoc", reason: "redo" }]);
   };
 
-  const setDocFromHTML = (html: string): void => {
+  /**
+   * Swap the document wholesale. `preserveSelection` re-clamps the current
+   * caret onto the new document instead of jumping to the end, and
+   * `preserveHistory` keeps the undo stack — both off by default, which is
+   * the old behaviour and the right one for "the host routed to a different
+   * document".
+   *
+   * For changes arriving from OUTSIDE on the SAME document — a sync engine, an
+   * agent, a collaborator — reach for `replaceBlocks` / `insertBlocks` /
+   * `removeBlocks` / `moveBlock` instead. They keep every untouched block's
+   * identity (so the renderer re-renders only what moved), keep the caret, keep
+   * undo, and emit per-block changes an `onChange` consumer can map anchors
+   * through. `setDoc` can do none of that: it is a replacement, and it says so.
+   */
+  const applyReplacement = (
+    next: DocState,
+    reason: "setDoc" | "setDocFromHTML",
+    replaceOpts?: SetDocOptions,
+  ): void => {
+    const prevSel = selStore.get();
+    docStore.set(next);
+    selStore.set(
+      replaceOpts?.preserveSelection
+        ? clampSelection(next, prevSel)
+        : defaultSelection(next),
+    );
+    if (!replaceOpts?.preserveHistory) history.reset();
+    emitChanges([{ kind: "replaceDoc", reason }]);
+  };
+
+  const setDocFromHTML = (html: string, htmlOpts?: SetDocOptions): void => {
     const blocks = parseHTML(html);
     if (blocks.length === 0) return;
-    docStore.set(docFromBlocks(blocks));
-    selStore.set(defaultSelection(docStore.get()));
-    history.reset();
-    emitChanges([{ kind: "replaceDoc" }]);
+    applyReplacement(docFromBlocks(blocks), "setDocFromHTML", htmlOpts);
   };
 
-  const setDoc = (s: SerializedDoc): void => {
-    docStore.set(deserializeDoc(s));
-    selStore.set(defaultSelection(docStore.get()));
-    history.reset();
-    emitChanges([{ kind: "replaceDoc" }]);
+  const setDoc = (s: SerializedDoc, setOpts?: SetDocOptions): void => {
+    // Plugin doc-level deserialize hooks run before the block codecs, in
+    // registration order, so a plugin can migrate or unwrap the payload.
+    let wire: SerializedDoc = s;
+    for (const p of installedPlugins) {
+      if (p.deserializeDoc) wire = p.deserializeDoc(wire as never) as SerializedDoc;
+    }
+    applyReplacement(
+      deserializeDoc(wire, opts.unknownBlocks ?? "preserve"),
+      "setDoc",
+      setOpts,
+    );
   };
 
   // Serialization is O(doc) and hosts call it far more often than they think
@@ -724,7 +906,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   const toJSON = (): SerializedDoc => {
     const doc = docStore.get();
     if (jsonCacheDoc === doc && jsonCache) return jsonCache;
-    const out = serializeDoc(doc);
+    let out = serializeDoc(doc);
+    for (const p of installedPlugins) {
+      if (p.serializeDoc) out = p.serializeDoc(out as never) as SerializedDoc;
+    }
     jsonCacheDoc = doc;
     jsonCache = out;
     return out;
@@ -799,9 +984,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     const order = docStore.get().order;
     const idx = order.indexOf(blockId);
     if (idx < 0) return;
-    const root = document.querySelector(
-      `[data-creo-edit="${editorId}"]`,
-    ) as HTMLElement | null;
+    const root = getRoot();
     if (!root) return;
     const escaped = blockId.replace(/(["\\])/g, "\\$1");
     const el = root.querySelector(
@@ -828,16 +1011,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   };
 
   const focus = (): void => {
-    const root = document.querySelector(
-      `[data-creo-edit="${editorId}"]`,
-    ) as HTMLElement | null;
-    root?.focus();
+    getRoot()?.focus();
   };
   const blur = (): void => {
-    const root = document.querySelector(
-      `[data-creo-edit="${editorId}"]`,
-    ) as HTMLElement | null;
-    root?.blur();
+    getRoot()?.blur();
   };
 
   // Cmd+A selects the editable "section" surrounding the caret — the run
@@ -921,6 +1098,77 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     a.path.length === b.path.length &&
     a.path.every((v, i) => v === b.path[i]);
 
+  // ---- Plugin paste hooks --------------------------------------------
+  // Read the clipboard flavours once and offer them to each plugin in
+  // registration order; the first `true` claims the event.
+  const runPasteHooks = (e: ClipboardEvent): boolean => {
+    if (!installedPlugins.some((p) => p.onPaste)) return false;
+    const data = e.clipboardData;
+    const pasteCtx: PasteCtx = {
+      event: e,
+      html: data?.getData("text/html") ?? "",
+      text: data?.getData("text/plain") ?? "",
+      files: data?.files ? Array.from(data.files) : [],
+      docStore,
+      selStore,
+      editor: editorSelf!,
+    };
+    for (const p of installedPlugins) {
+      try {
+        if (p.onPaste?.(pasteCtx) === true) return true;
+      } catch {
+        // A misbehaving hook must not swallow the paste.
+      }
+    }
+    return false;
+  };
+
+  // ---- Root element ----------------------------------------------------
+  // Captured at mount rather than re-resolved with `document.querySelector`
+  // on every call: the query form returns null before mount (so `focus()` was
+  // a silent no-op) and finds nothing at all inside a shadow root, since the
+  // document-level query cannot cross the boundary.
+  let rootEl: HTMLElement | null = null;
+  const getRoot = (): HTMLElement | null => rootEl;
+
+  // ---- Teardown --------------------------------------------------------
+  const pluginTeardowns: (() => void)[] = [];
+  let destroyed = false;
+  const destroy = (): void => {
+    if (destroyed) return;
+    destroyed = true;
+    nativeInput?.destroy();
+    nativeInput = null;
+    drop?.destroy();
+    drop = null;
+    viewport?.destroy();
+    viewport = null;
+    decorations?.destroy();
+    decorations = null;
+    rangeDecorations?.destroy();
+    rangeDecorations = null;
+    inlineWidgets?.destroy();
+    inlineWidgets = null;
+    triggers.destroy();
+    for (const t of pluginTeardowns.splice(0)) {
+      try {
+        t();
+      } catch {
+        // One plugin's failed teardown must not strand the others.
+      }
+    }
+    for (const p of installedPlugins) {
+      try {
+        p.onDestroy?.(editorSelf!);
+      } catch {
+        // Same.
+      }
+    }
+    changeListeners.clear();
+    if (rootEl) clearEditorRef(rootEl);
+    rootEl = null;
+  };
+
   // EditorView — minimal contentEditable wrapper. The browser handles caret,
   // drag-selection, IME composition, and the long-press OS context menu;
   // attachNativeInput intercepts beforeinput and translates it into commands.
@@ -937,18 +1185,13 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             `[data-creo-edit="${editorId}"]`,
           ) as HTMLElement | null;
           if (!root) return;
-          // Expose the editor stores on the root so decoration plugins
-          // (drag handle, add-block) can access docStore/selStore without
-          // an explicit handle argument. Marked as a hidden property so
-          // it doesn't clutter the DOM inspector.
-          (root as unknown as { __creoEdit?: unknown }).__creoEdit = {
-            docStore,
-            selStore,
-            dispatch,
-            appendBlocks,
-            prependBlocks,
-            scrollToBlock,
-          };
+          rootEl = root;
+          // Publish the editor on its root so decorations and block views —
+          // which the renderer creates, and which therefore receive no editor
+          // argument — can walk up and find it (`dom/editorRef`). It is the
+          // whole typed `Editor` now, not an ad-hoc bag of five fields.
+          setEditorRef(root, editorSelf!);
+          root.spellcheck = opts.spellcheck === true;
           nativeInput = attachNativeInput(
             root,
             { docStore, selStore },
@@ -959,6 +1202,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               selectAll: () => handleSelectAll(),
               uploadImage: opts.uploadImage,
               registry,
+              commandCtx: ctx,
+              onPaste: runPasteHooks,
               triggers,
               isEditable,
             },
@@ -1044,7 +1289,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     },
   );
 
-  return {
+  const editor: Editor = {
     docStore,
     selStore,
     dispatch,
@@ -1066,12 +1311,30 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     getMode,
     setMode,
     registry,
+    commandCtx: ctx,
     scrollToBlock,
     supportsRangeDecorations: () => RangeDecorationManager.isSupported(),
     refreshRangeDecorations: () => rangeDecorations?.schedule(),
     refreshRangeDecorationsSync: () => rangeDecorations?.refresh(),
     refreshInlineWidgets: () => inlineWidgets?.sync(),
+    destroy,
   };
+  editorSelf = editor;
+
+  // Plugin init runs last, so a plugin can look up another plugin's commands
+  // and hold the editor handle. Not a DOM hook — the root is not mounted yet.
+  for (const p of installedPlugins) {
+    try {
+      const teardown = p.onInit?.(editor);
+      if (teardown) pluginTeardowns.push(teardown);
+    } catch (err) {
+      // One plugin failing to initialise must not take the editor down with
+      // it — the rest of the document still has to load.
+      console.error(`creo-edit: plugin "${p.name}" onInit failed`, err);
+    }
+  }
+
+  return editor;
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import type {
 import { runsAt } from "./runsAt";
 import type {
   TriggerController,
+  CommandCtx,
   TriggerCtx,
   TriggerDef,
 } from "./types";
@@ -31,6 +32,9 @@ export type TriggerManagerOptions = {
   docStore: Store<DocState>;
   selStore: Store<Selection>;
   dispatch: (cmd: DispatchableCommand) => void;
+  /** The editor's command context, handed to each trigger so its UI can run
+   *  command-shaped actions without assembling a partial ctx of its own. */
+  commandCtx: CommandCtx;
 };
 
 type ActiveState = {
@@ -155,6 +159,7 @@ export class TriggerManager {
             this.opts.dispatch(args[0] as DispatchableCommand);
           }
         },
+        commandCtx: this.opts.commandCtx,
         caretRect: () => caretRect(),
         close: () => this.close(),
       };

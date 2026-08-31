@@ -32,6 +32,7 @@ import { lookupAnchorCodec, visibleTextOf } from "../plugin/anchorCodec";
 import { runsLengthAt } from "../plugin/runsAt";
 import { matchPluginKeymap } from "../plugin/keymapMatch";
 import type { Registry } from "../plugin/registry";
+import type { CommandCtx } from "../plugin/types";
 import type { TriggerManager } from "../plugin/triggers";
 
 /**
@@ -62,6 +63,12 @@ export type NativeInputOptions = {
   uploadImage?: UploadFn;
   /** Plugin registry — keymap matching, command dispatch for plugin chords. */
   registry: Registry;
+  /** The editor's command context — handed to plugin keymap predicates and
+   *  commands so they get `dispatch` / `change` / `editor`, not just stores. */
+  commandCtx: CommandCtx;
+  /** Plugin paste hooks, in registration order. The first one returning true
+   *  claims the event and the built-in clipboard path is skipped. */
+  onPaste?: (e: ClipboardEvent) => boolean;
   /** Trigger manager — watches text insertion + key events for plugin
    *  triggers (slash commands, mentions, etc.). */
   triggers: TriggerManager;
@@ -568,7 +575,7 @@ export function attachNativeInput(
     // any user-registered chord. The matcher checks chord + `when`
     // predicate; the command may still no-op (return false), in which case
     // we fall through to the built-in keymap and browser default.
-    const ctx = { docStore, selStore };
+    const ctx = options.commandCtx;
     const hit = matchPluginKeymap(e, options.registry.keymap, ctx);
     if (hit) {
       const ok = options.registry.runCommand(
@@ -800,6 +807,12 @@ export function attachNativeInput(
     }
     const data = e.clipboardData;
     if (!data) return;
+    // Plugin paste hooks get first refusal — before preventDefault, so a hook
+    // that declines leaves the event exactly as it found it.
+    if (options.onPaste?.(e)) {
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     // Image files take priority over text — copy-image-from-browser sets
     // both, but the user clearly wants the image when one is available.

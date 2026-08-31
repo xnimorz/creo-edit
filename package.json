@@ -1,6 +1,6 @@
 {
   "name": "creo-edit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Row-based rich-text editor framework on a controlled contentEditable, built on Creo. Cursor state separate from document state, CRDT-friendly fractional row ordering, O(1) per-keystroke renders, optional virtualization, first-class mobile.",
   "type": "module",
   "license": "MIT",

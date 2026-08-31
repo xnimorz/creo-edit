@@ -12,29 +12,30 @@
 // degrade to plainer text.
 // ---------------------------------------------------------------------------
 
+import { deserializeMarks } from "../model/marks";
+import { orderedMarkDefs } from "../plugin/markRegistry";
+import { getMarkdownCodec } from "./blockCodec";
 import type { SerializedBlock, SerializedDoc, SerializedRun } from "../createEditor";
-
-const MARK_OPEN: Record<string, string> = {
-  b: "**",
-  i: "*",
-  s: "~~",
-  code: "`",
-};
-const MARK_CLOSE = MARK_OPEN;
-const MARK_ORDER = ["code", "b", "i", "s"] as const;
 
 function runsToMarkdown(runs: SerializedRun[]): string {
   let out = "";
   for (const r of runs) {
-    if (!r.marks || r.marks.length === 0) {
+    const marks = deserializeMarks(r.marks);
+    if (!marks || marks.size === 0) {
       out += escapeInline(r.text);
       continue;
     }
-    const ordered = MARK_ORDER.filter((m) => r.marks!.includes(m));
     let s = escapeInline(r.text);
-    // Inside-out wrap so the last marker closes first.
-    for (const m of ordered.slice().reverse()) {
-      s = `${MARK_OPEN[m]}${s}${MARK_CLOSE[m]}`;
+    // Registry order is innermost-first, matching how the runs render; wrap
+    // in that same order so the outermost marker closes last.
+    for (const def of orderedMarkDefs()) {
+      if (!def.markdown) continue;
+      const attrs = marks.get(def.name);
+      if (attrs === undefined) continue;
+      s =
+        typeof def.markdown === "function"
+          ? def.markdown(s, attrs)
+          : `${def.markdown.open}${s}${def.markdown.close}`;
     }
     out += s;
   }
@@ -61,6 +62,13 @@ function blockToMarkdown(
   if (block.type !== "li" && state.listKind !== null) {
     state.listKind = null;
     state.olCounter = 0;
+  }
+  // A registered codec wins — that is how a plugin block reaches markdown at
+  // all, and how a host overrides a built-in rendering.
+  const codec = getMarkdownCodec(block.type);
+  if (codec) {
+    const md = codec.serialize(block as never, state);
+    if (md !== null) return md;
   }
   switch (block.type) {
     case "p":
@@ -124,6 +132,11 @@ function blockToMarkdown(
     case "date-marker": {
       return `<div data-block-kind="date-marker" data-date="${block.date}"></div>`;
     }
+    default:
+      // A plugin block with no markdown codec. Emitting nothing is the honest
+      // answer — better a gap than a mangled approximation of a block shape
+      // this module knows nothing about.
+      return "";
   }
 }
 

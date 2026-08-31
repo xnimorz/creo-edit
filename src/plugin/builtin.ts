@@ -30,6 +30,12 @@ import {
   defaultTextCodec,
   imageCodec,
 } from "./anchorCodec";
+import { collectRuns, escapeHtml, runsToHtml } from "../clipboard/inlineHtml";
+import {
+  deserializeRun,
+  serializeRun,
+  type SerializedRun,
+} from "../model/runSerialize";
 import type { BlockDef, EditorPlugin } from "./types";
 import { cellsPlugin } from "../plugins/cells";
 
@@ -37,105 +43,10 @@ import { cellsPlugin } from "../plugins/cells";
 // Helpers shared across built-in plugins.
 // ---------------------------------------------------------------------------
 
-const ALLOWED_MARKS = new Set<Mark>(["b", "i", "u", "s", "code"]);
-
-type SerializedRun = { text: string; marks?: string[] };
-
-function deserializeRun(r: SerializedRun): InlineRun {
-  if (!r.marks || r.marks.length === 0) return { text: r.text };
-  const marks = new Set<Mark>();
-  for (const m of r.marks) if (ALLOWED_MARKS.has(m as Mark)) marks.add(m as Mark);
-  return marks.size === 0 ? { text: r.text } : { text: r.text, marks };
-}
-
-function serializeRun(r: InlineRun): SerializedRun {
-  if (!r.marks || r.marks.size === 0) return { text: r.text };
-  return { text: r.text, marks: [...r.marks] };
-}
-
-// ---------------------------------------------------------------------------
-// HTML inline collection — shared by every text-bearing parser.
-// ---------------------------------------------------------------------------
-
-const MARK_TAGS: Record<string, Mark> = {
-  b: "b",
-  strong: "b",
-  i: "i",
-  em: "i",
-  u: "u",
-  s: "s",
-  strike: "s",
-  del: "s",
-  code: "code",
-};
-
-function runsFor(node: Node, marks: Mark[]): InlineRun[] {
-  if (node.nodeType === 3) {
-    const t = (node as Text).data;
-    if (t.length === 0) return [];
-    return [
-      {
-        text: t,
-        ...(marks.length ? { marks: new Set(marks) } : {}),
-      },
-    ];
-  }
-  if (node.nodeType !== 1) return [];
-  const el = node as HTMLElement;
-  const tag = el.tagName.toLowerCase();
-  if (tag === "br") {
-    return [{ text: "\n", ...(marks.length ? { marks: new Set(marks) } : {}) }];
-  }
-  const additional = MARK_TAGS[tag];
-  const nextMarks = additional ? [...marks, additional] : marks;
-  const out: InlineRun[] = [];
-  for (const c of Array.from(el.childNodes)) out.push(...runsFor(c, nextMarks));
-  return out;
-}
-
-function collectRuns(el: HTMLElement, marks: Mark[]): InlineRun[] {
-  const out: InlineRun[] = [];
-  for (const c of Array.from(el.childNodes)) out.push(...runsFor(c, marks));
-  return out.filter((r) => r.text.length > 0);
-}
-
-// ---------------------------------------------------------------------------
-// HTML serialization helpers.
-// ---------------------------------------------------------------------------
-
-const MARK_TAGS_SER: Record<Mark, string> = {
-  b: "strong",
-  i: "em",
-  u: "u",
-  s: "s",
-  code: "code",
-};
-
-const MARK_ORDER: Mark[] = ["code", "b", "i", "u", "s"];
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function runsToHtml(runs: InlineRun[]): string {
-  let out = "";
-  for (const r of runs) {
-    let inner = escapeHtml(r.text);
-    if (r.marks && r.marks.size) {
-      for (const m of MARK_ORDER) {
-        if (!r.marks.has(m)) continue;
-        const tag = MARK_TAGS_SER[m];
-        inner = `<${tag}>${inner}</${tag}>`;
-      }
-    }
-    out += inner;
-  }
-  return out;
-}
+// Inline runs — HTML parsing/serialization and the JSON wire form both live
+// in shared modules driven by the mark registry (see `clipboard/inlineHtml`
+// and `model/runSerialize`). They used to be copied here, in `plugins/cells`
+// and in `clipboard/htmlParser`, each with its own hard-coded five-mark table.
 
 function numAttr(el: HTMLElement, name: string): number | undefined {
   const v = el.getAttribute(name);

@@ -19,6 +19,8 @@
 import type { Store } from "creo";
 import type { BlockId, DocState, Selection } from "../../model/types";
 import type { CommandCtx, EditorPlugin } from "../../plugin/types";
+import { getEditorRef } from "../../dom/editorRef";
+import type { Editor } from "../../createEditor";
 import { searchDoc, type SearchMatch, type SearchOpts } from "./engine";
 import {
   clearHighlights,
@@ -44,15 +46,8 @@ export type {
 } from "./types";
 export type { SearchMatch, SearchOpts } from "./engine";
 
-// Internal — minimum surface from `__creoEdit` we depend on.
-type EditorHandle = {
-  docStore: Store<DocState>;
-  selStore: Store<Selection>;
-  scrollToBlock: (
-    blockId: BlockId,
-    opts?: { block?: "start" | "center" | "end" | "nearest"; behavior?: ScrollBehavior },
-  ) => void;
-};
+// The editor published on the root by `dom/editorRef`.
+type EditorHandle = Editor;
 
 const ROOT_FLAG = "__creoSearchMounted";
 const COMMAND_OPEN = "search.open";
@@ -78,7 +73,7 @@ export function searchPlugin(opts: SearchOptions = {}): EditorPlugin {
     const roots = document.querySelectorAll<HTMLElement>("[data-creo-edit]");
     for (let i = 0; i < roots.length; i++) {
       const r = roots[i]!;
-      const e = (r as unknown as { __creoEdit?: EditorHandle }).__creoEdit;
+      const e = getEditorRef(r);
       if (e?.docStore === ctx.docStore) return wiredByRoot.get(r) ?? null;
     }
     return null;
@@ -131,8 +126,7 @@ export function searchPlugin(opts: SearchOptions = {}): EditorPlugin {
           if ((root as unknown as Record<string, unknown>)[ROOT_FLAG]) return;
           (root as unknown as Record<string, unknown>)[ROOT_FLAG] = true;
 
-          const editor = (root as unknown as { __creoEdit?: EditorHandle })
-            .__creoEdit;
+          const editor = getEditorRef(root);
           if (!editor) {
             (root as unknown as Record<string, unknown>)[ROOT_FLAG] = false;
             return;

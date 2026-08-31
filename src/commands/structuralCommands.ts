@@ -305,6 +305,10 @@ export function setBlockType(
       return false;
   }
   docStore.set(updateBlock(doc, next));
+  // Content offsets are untouched (the runs are carried across verbatim), so
+  // no anchor moves — but a consumer persisting off `onChange` has to learn
+  // the block became a heading.
+  recordChange({ kind: "blockAttrs", blockId: block.id, type: next.type });
   return true;
 }
 

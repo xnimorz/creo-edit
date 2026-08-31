@@ -61,14 +61,7 @@ export function slashCommandsPlugin(opts: SlashOptions = {}): EditorPlugin {
         }
       };
 
-      const cmdCtx: CommandCtx & { dispatch: (cmd: DispatchableCommand) => void } = {
-        docStore: ctx.docStore,
-        selStore: ctx.selStore,
-        // Pass the full command object through (don't extract `payload`) so
-        // typed built-ins like `{ t: "insertTable", rows, cols }` keep their
-        // flat fields instead of arriving as `{ t, payload: undefined }`.
-        dispatch: (cmd) => ctx.dispatch(cmd as never),
-      };
+      const cmdCtx: CommandCtx = ctx.commandCtx;
 
       const menu = mountSlashMenu({
         items,

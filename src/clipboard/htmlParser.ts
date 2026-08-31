@@ -17,7 +17,12 @@
 
 import { newBlockId } from "../model/doc";
 import { getHtmlParserForTag } from "../plugin/htmlCodec";
-import type { BlockSpec, InlineRun, Mark } from "../model/types";
+// Inline runs (and therefore mark parsing) come from the shared, mark-registry
+// -driven collector so the structural walker here, the per-block plugin
+// codecs, and the cells codecs all agree on what an <a> or <strong> means.
+import { collectRuns, runsFromNode } from "./inlineHtml";
+import { NO_MARKS } from "../model/marks";
+import type { BlockSpec, InlineRun, MarkSet } from "../model/types";
 
 /**
  * Parse a fragment of HTML into a sanitized list of BlockSpec.
@@ -41,7 +46,7 @@ export function parseHTML(html: string): BlockSpec[] {
   const frag = tpl.content;
   const out: BlockSpec[] = [];
   for (const node of Array.from(frag.childNodes)) {
-    walkBlock(node, [], out);
+    walkBlock(node, NO_MARKS, out);
   }
   if (out.length === 0) {
     const text = collectText(frag);
@@ -84,14 +89,14 @@ const PARAGRAPH_WRAPPER_TAGS = new Set([
   "blockquote",
 ]);
 
-function walkBlock(node: Node, marks: Mark[], out: BlockSpec[]): void {
+function walkBlock(node: Node, marks: MarkSet, out: BlockSpec[]): void {
   if (node.nodeType === 3) {
     const t = (node as Text).data;
     if (t.trim().length === 0) return;
     out.push({
       id: newBlockId(),
       type: "p",
-      runs: [{ text: t, ...(marks.length ? { marks: new Set(marks) } : {}) }],
+      runs: [marks.size ? { text: t, marks } : { text: t }],
     });
     return;
   }
@@ -149,7 +154,7 @@ function walkList(
   listEl: HTMLElement,
   ordered: boolean,
   depth: 0 | 1 | 2 | 3,
-  marks: Mark[],
+  marks: MarkSet,
   out: BlockSpec[],
 ): void {
   for (const child of Array.from(listEl.children)) {
@@ -161,7 +166,7 @@ function walkList(
         const t = (c as HTMLElement).tagName.toLowerCase();
         if (t === "ul" || t === "ol") continue;
       }
-      runs.push(...runsFor(c, marks));
+      runs.push(...runsFromNode(c, marks));
     }
     out.push({
       id: newBlockId(),
@@ -180,57 +185,6 @@ function walkList(
       }
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Inline-runs collection — kept here so the structural walker (lists,
-// fallbacks) can build runs without going through the plugin registry.
-// ---------------------------------------------------------------------------
-
-const MARK_TAGS: Record<string, Mark> = {
-  b: "b",
-  strong: "b",
-  i: "i",
-  em: "i",
-  u: "u",
-  s: "s",
-  strike: "s",
-  del: "s",
-  code: "code",
-};
-
-function runsFor(node: Node, marks: Mark[]): InlineRun[] {
-  if (node.nodeType === 3) {
-    const t = (node as Text).data;
-    if (t.length === 0) return [];
-    return [
-      {
-        text: t,
-        ...(marks.length ? { marks: new Set(marks) } : {}),
-      },
-    ];
-  }
-  if (node.nodeType !== 1) return [];
-  const el = node as HTMLElement;
-  const tag = el.tagName.toLowerCase();
-  if (tag === "br") {
-    return [{ text: "\n", ...(marks.length ? { marks: new Set(marks) } : {}) }];
-  }
-  const additional = MARK_TAGS[tag];
-  const nextMarks = additional ? [...marks, additional] : marks;
-  const out: InlineRun[] = [];
-  for (const c of Array.from(el.childNodes)) {
-    out.push(...runsFor(c, nextMarks));
-  }
-  return out;
-}
-
-function collectRuns(el: HTMLElement, marks: Mark[]): InlineRun[] {
-  const out: InlineRun[] = [];
-  for (const c of Array.from(el.childNodes)) {
-    out.push(...runsFor(c, marks));
-  }
-  return out.filter((r) => r.text.length > 0);
 }
 
 function collectText(node: Node): string {

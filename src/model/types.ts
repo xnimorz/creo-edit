@@ -1,7 +1,43 @@
 export type BlockId = string;
 export type FracIndex = string;
 
-export type Mark = "b" | "i" | "u" | "s" | "code";
+/**
+ * Name of an inline mark. The five built-in boolean marks plus the built-in
+ * `link`; the open `string & {}` tail keeps plugin-registered mark names
+ * assignable while the literals still autocomplete.
+ */
+export type MarkName =
+  | "b"
+  | "i"
+  | "u"
+  | "s"
+  | "code"
+  | "link"
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {});
+
+/**
+ * Data a mark carries. `null` for the boolean marks (`b`, `i`, …); an object
+ * for marks that need a payload — `link` carries `LinkAttrs`, a comment mark
+ * would carry a thread id.
+ *
+ * Values are compared shallowly with `===` when deciding whether two runs
+ * merge, so keep them primitives.
+ */
+export type MarkAttrs = Record<string, unknown> | null;
+
+/** Attrs of the built-in `link` mark. */
+export type LinkAttrs = { href: string; title?: string };
+
+/**
+ * The marks on one run: name → attrs. A map rather than a set so a mark can
+ * carry data. Helpers live in `model/marks.ts` (`hasMark`, `markAttrs`,
+ * `withMark`, `marksEqual`, …) — prefer them over touching the map directly.
+ */
+export type MarkSet = ReadonlyMap<MarkName, MarkAttrs>;
+
+/** @deprecated Alias of `MarkName`, kept so existing imports keep compiling. */
+export type Mark = MarkName;
 
 /**
  * View-only presentation carried on a run. Rendered onto the run's
@@ -23,7 +59,7 @@ export type RunAttrs = {
 
 export type InlineRun = {
   text: string;
-  marks?: ReadonlySet<Mark>;
+  marks?: MarkSet;
   /** Rendered on the run's span. Not part of mark toggling. */
   attrs?: RunAttrs;
 };

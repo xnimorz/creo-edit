@@ -8,17 +8,30 @@
 // release commits the reorder via the doc store.
 // ---------------------------------------------------------------------------
 
-import { generateBetween } from "../../model/fractional";
 import { newBlockId } from "../../model/doc";
+import { closestEditor } from "../../dom/editorRef";
 import type {
   Block,
   BlockId,
   ColumnsBlock,
   DocState,
   InlineRun,
-  Selection,
 } from "../../model/types";
-import type { EditorPlugin } from "../../plugin/types";
+import type { CommandCtx, EditorPlugin } from "../../plugin/types";
+
+// Both mutations below are registered COMMANDS rather than direct
+// `docStore.set()` calls. Going through `dispatch` is what gives a drag its
+// undo step and what puts a `DocChange` on `editor.onChange` — a reorder used
+// to be invisible to both, so a host persisting off the change stream silently
+// dropped every drag the user made.
+const CMD_MOVE = "dragHandle.move";
+const CMD_SIDE_DROP = "dragHandle.sideDrop";
+
+type SideDropPayload = {
+  draggedId: BlockId;
+  targetId: BlockId;
+  side: "left" | "right";
+};
 
 type DropPos = "before" | "after" | "left" | "right";
 
@@ -34,6 +47,19 @@ export function dragHandlePlugin(
 
   return {
     name: "drag-handle",
+    commands: [
+      {
+        t: CMD_SIDE_DROP,
+        run(ctx, payload) {
+          const p = payload as SideDropPayload;
+          const doc = ctx.docStore.get();
+          const dragged = doc.byId.get(p.draggedId);
+          const target = doc.byId.get(p.targetId);
+          if (!dragged || !target) return false;
+          return sideDrop(ctx, doc, dragged, target, p.side);
+        },
+      },
+    ],
     decorations: [
       {
         id: "drag-handle",
@@ -248,42 +274,26 @@ function reorderTo(
   targetId: BlockId,
   pos: DropPos,
 ): void {
-  const editorRoot = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
-  if (!editorRoot) return;
-  const editor = (editorRoot as unknown as { __creoEdit?: {
-    docStore: { get: () => DocState; set: (d: DocState) => void };
-    selStore?: { set: (s: Selection) => void };
-  } }).__creoEdit;
+  const editor = closestEditor(blockEl);
   if (!editor) return;
   const doc = editor.docStore.get();
-  const draggedBlock = doc.byId.get(draggedId);
-  const targetBlock = doc.byId.get(targetId);
-  if (!draggedBlock || !targetBlock) return;
+  if (!doc.byId.has(draggedId) || !doc.byId.has(targetId)) return;
   if (pos === "left" || pos === "right") {
-    sideDrop(editor, doc, draggedBlock, targetBlock, pos);
+    editor.dispatch({
+      t: CMD_SIDE_DROP,
+      payload: { draggedId, targetId, side: pos } satisfies SideDropPayload,
+    });
     return;
   }
-  const order = doc.order;
-  const tIdx = order.indexOf(targetId);
+  // Compute the target index in the order WITHOUT the dragged block, which is
+  // the coordinate space `moveBlock` works in.
+  const rest = doc.order.filter((id) => id !== draggedId);
+  const tIdx = rest.indexOf(targetId);
   if (tIdx < 0) return;
-  const newOrder = order.filter((id) => id !== draggedId);
-  const newTIdx = newOrder.indexOf(targetId);
-  if (newTIdx < 0) return;
-  const insertAt = pos === "before" ? newTIdx : newTIdx + 1;
-  const prevId = insertAt === 0 ? null : newOrder[insertAt - 1] ?? null;
-  const nextId = insertAt === newOrder.length ? null : newOrder[insertAt] ?? null;
-  const prevIdx = prevId ? doc.byId.get(prevId)!.index : null;
-  const nextIdx = nextId ? doc.byId.get(nextId)!.index : null;
-  let newIdx: string;
-  try {
-    newIdx = generateBetween(prevIdx, nextIdx);
-  } catch {
-    return;
-  }
-  const nextById = new Map(doc.byId);
-  nextById.set(draggedId, { ...(draggedBlock as Block), index: newIdx } as Block);
-  newOrder.splice(insertAt, 0, draggedId);
-  editor.docStore.set({ byId: nextById, order: newOrder });
+  editor.dispatch({
+    t: "moveBlock",
+    payload: { blockId: draggedId, toIndex: pos === "before" ? tIdx : tIdx + 1 },
+  });
 }
 
 /** Extract inline runs from a block. Text-bearing blocks return `runs`;
@@ -301,15 +311,12 @@ function blockToRuns(block: Block): InlineRun[] {
  *  is already a columns block, append/prepend a new column from dragged.
  *  Otherwise wrap target+dragged into a fresh 2-column columns block. */
 function sideDrop(
-  editor: {
-    docStore: { get: () => DocState; set: (d: DocState) => void };
-    selStore?: { set: (s: Selection) => void };
-  },
+  ctx: CommandCtx,
   doc: DocState,
   draggedBlock: Block,
   targetBlock: Block,
   side: "left" | "right",
-): void {
+): boolean {
   const draggedRuns = blockToRuns(draggedBlock);
   // Build the new columns block content.
   let nextColumns: ColumnsBlock;
@@ -349,9 +356,22 @@ function sideDrop(
   const nextOrder = doc.order
     .filter((id) => id !== draggedBlock.id)
     .map((id) => (id === targetBlock.id && targetBlock.type !== "columns" ? nextColumns.id : id));
-  editor.docStore.set({ byId: nextById, order: nextOrder });
+  ctx.docStore.set({ byId: nextById, order: nextOrder });
+  // The dragged block and (for a fresh wrap) the target are gone, replaced by
+  // a columns block whose internal shape no anchor can be mapped into.
+  ctx.change({ kind: "removeBlock", blockId: draggedBlock.id });
+  if (targetBlock.type === "columns") {
+    ctx.change({ kind: "resetBlock", blockId: nextColumns.id });
+  } else {
+    ctx.change({ kind: "removeBlock", blockId: targetBlock.id });
+    ctx.change({
+      kind: "insertBlock",
+      blockId: nextColumns.id,
+      index: nextOrder.indexOf(nextColumns.id),
+    });
+  }
   // Place the caret at the start of the dragged column.
-  if (editor.selStore) {
+  {
     const colIndex =
       targetBlock.type === "columns"
         ? side === "left"
@@ -360,9 +380,10 @@ function sideDrop(
         : side === "left"
           ? 0
           : 1;
-    editor.selStore.set({
+    ctx.selStore.set({
       kind: "caret",
       at: { blockId: nextColumns.id, path: [colIndex, 0], offset: 0 },
     });
   }
+  return true;
 }
