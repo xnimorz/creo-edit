@@ -1,20 +1,34 @@
-import { _ } from "creo";
-import { code, em, s, span, strong, u, view } from "creo";
-import type { InlineRun, Mark } from "../model/types";
+import { html, span, view } from "creo";
+import { orderedMarkDefs } from "../plugin/markRegistry";
+import type { InlineRun } from "../model/types";
 
 /**
  * Render a sequence of inline runs as keyed spans.
  *
  * Each run becomes one DOM span with `data-run-index` for caret math, then the
- * spans are wrapped from inside-out by their marks (stable, deterministic
- * order: code → b → i → u → s). Wrapping order is fixed so toggling marks
- * doesn't shuffle the DOM tree.
+ * spans are wrapped from inside-out by their marks. Wrapping order comes from
+ * the mark registry's `order` (code → b → i → u → s → link by default) and is
+ * fixed, so toggling a mark never reshuffles the DOM tree under a run.
+ *
+ * A mark's `domAttrs(attrs)` supplies the wrapper's attributes — that is how
+ * `link` gets its `href`. A registered mark with no `tag` renders nothing of
+ * its own; it exists in the model only.
  *
  * Empty runs are skipped — but if all runs are empty / list is empty, we emit
  * a single zero-width-space span so the block keeps a measurable line box.
  */
 
-const MARK_ORDER: Mark[] = ["code", "b", "i", "u", "s"];
+// Creo builds one view per tag; cache them so a repaint doesn't allocate a
+// fresh view identity per marked run (which would defeat reconciliation).
+const tagViews = new Map<string, ReturnType<typeof html>>();
+function tagView(tag: string): ReturnType<typeof html> {
+  let v = tagViews.get(tag);
+  if (!v) {
+    v = html(tag);
+    tagViews.set(tag, v);
+  }
+  return v;
+}
 
 const ZWSP = "​";
 
@@ -47,36 +61,16 @@ const RunView = view<{ run: InlineRun; index: number; empty?: boolean }>(({ prop
       );
     };
     if (run.marks && run.marks.size) {
-      for (const m of MARK_ORDER) {
-        if (!run.marks.has(m)) continue;
+      for (const def of orderedMarkDefs()) {
+        if (!def.tag) continue;
+        const attrs = run.marks.get(def.name);
+        if (attrs === undefined) continue; // mark absent (null = present, no attrs)
         const child = inner;
-        switch (m) {
-          case "code":
-            inner = () => {
-              code(_, child);
-            };
-            break;
-          case "b":
-            inner = () => {
-              strong(_, child);
-            };
-            break;
-          case "i":
-            inner = () => {
-              em(_, child);
-            };
-            break;
-          case "u":
-            inner = () => {
-              u(_, child);
-            };
-            break;
-          case "s":
-            inner = () => {
-              s(_, child);
-            };
-            break;
-        }
+        const El = tagView(def.tag);
+        const domAttrs = def.domAttrs?.(attrs) ?? {};
+        inner = () => {
+          El(domAttrs as never, child);
+        };
       }
     }
     inner();

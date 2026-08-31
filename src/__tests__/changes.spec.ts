@@ -204,17 +204,33 @@ describe("change emission", () => {
     ]);
   });
 
-  it("commands that move no text emit nothing", () => {
+  it("formatting and block-attr changes are reported, caret motion is not", () => {
     const { editor, batches } = mount(twoParas);
     const id = editor.docStore.get().order[0]!;
     editor.selStore.set({ kind: "range", anchor: A(id, 0), focus: A(id, 5) });
     editor.dispatch({ t: "toggleMark", mark: "b" });
     editor.dispatch({ t: "setBlockType", payload: { type: "h2" } });
     editor.dispatch({ t: "moveCursor", to: A(id, 1) });
-    expect(batches).toEqual([]);
+    // Neither moves a character, so `mapAnchor` passes anchors through — but
+    // both must reach a consumer persisting off the stream, or it writes back
+    // a document with the mark and the heading missing.
+    expect(batches).toEqual([
+      [
+        {
+          kind: "format",
+          blockId: id,
+          container: [],
+          from: 0,
+          to: 5,
+          mark: "b",
+          added: true,
+        },
+      ],
+      [{ kind: "blockAttrs", blockId: id, type: "h2" }],
+    ]);
   });
 
-  it("undo / redo / setDoc report replaceDoc", () => {
+  it("undo / redo / setDoc report replaceDoc with a reason", () => {
     const { editor, batches } = mount(twoParas);
     const id = editor.docStore.get().order[0]!;
     editor.selStore.set({ kind: "caret", at: A(id, 0) });
@@ -223,9 +239,9 @@ describe("change emission", () => {
     editor.redo();
     editor.setDoc(twoParas);
     expect(batches.slice(1)).toEqual([
-      [{ kind: "replaceDoc" }],
-      [{ kind: "replaceDoc" }],
-      [{ kind: "replaceDoc" }],
+      [{ kind: "replaceDoc", reason: "undo" }],
+      [{ kind: "replaceDoc", reason: "redo" }],
+      [{ kind: "replaceDoc", reason: "setDoc" }],
     ]);
   });
 

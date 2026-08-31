@@ -6,10 +6,15 @@ import type { DocState, Selection } from "../model/types";
  * stash the previous (doc, sel) before each mutation and let undo restore
  * it.
  *
- * Coalescing rule: consecutive `insertText` / `deleteBackward` ops within
- * 500ms collapse into a single undo entry. This matches Notion / Google
- * Docs UX — typing a sentence then hitting Cmd+Z removes the whole sentence,
- * not the last character.
+ * Coalescing rule: consecutive ops with the SAME tag, within 500ms, whose tag
+ * the coalesce policy accepts, collapse into a single undo entry. This matches
+ * Notion / Google Docs UX — typing a sentence then hitting Cmd+Z removes the
+ * whole sentence, not the last character.
+ *
+ * The policy comes from the plugin registry (`Registry.shouldCoalesce`), so a
+ * plugin declaring `historyCoalescePrefixes: ["myPlugin:typing"]` gets the same
+ * collapsing for its own streaming command. The default, used when no policy
+ * is supplied, is the built-in `"text:"` prefix alone.
  */
 
 export type HistoryEntry = {
@@ -51,7 +56,18 @@ export const HISTORY_CAP = 200;
 export const HISTORY_MAX_BLOCK_SLOTS = 1_500_000;
 const MIN_ENTRIES = 10;
 
-export function createHistory(stores: HistoryStores) {
+/** The coalescing policy. `Registry` satisfies this; tests can pass a stub or
+ *  omit it entirely for the default "text:" behaviour. */
+export type CoalescePolicy = { shouldCoalesce(tag: string): boolean };
+
+const DEFAULT_COALESCE: CoalescePolicy = {
+  shouldCoalesce: (tag) => tag.startsWith("text:"),
+};
+
+export function createHistory(
+  stores: HistoryStores,
+  coalescePolicy: CoalescePolicy = DEFAULT_COALESCE,
+) {
   const undoStack: HistoryEntry[] = [];
   const redoStack: HistoryEntry[] = [];
   let pinned = false;
@@ -69,7 +85,7 @@ export function createHistory(stores: HistoryStores) {
     const coalesce =
       top != null &&
       top.tag === tag &&
-      tag.startsWith("text:") &&
+      coalescePolicy.shouldCoalesce(tag) &&
       now - top.ts < COALESCE_MS;
     if (coalesce) {
       // Don't push another entry — the existing one's snapshot pre-dates

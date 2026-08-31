@@ -240,8 +240,25 @@ export function findTextPoints(
   return out;
 }
 
-/** Default codec — text-bearing blocks land here when they don't register
- *  their own. Path encoding: [charOffset]. */
+/**
+ * Default codec — text-bearing blocks land here when they don't register
+ * their own. Path encoding: [charOffset].
+ *
+ * WARNING for custom block views: this counts **every** visible text node
+ * under the block element, not just the runs. Any chrome your view renders
+ * inside the block — a checkbox label, a "3 replies" badge, a language pill
+ * on a code fence — is counted as document text, and every anchor after it is
+ * off by that many characters. Two ways out, both cheap:
+ *
+ *   1. Mark the chrome with `INLINE_WIDGET_ATTR` (`data-ce-inline-widget`).
+ *      The walk skips those subtrees, and so do the IME composition diff and
+ *      the selection sync.
+ *   2. Ship a custom `anchorCodec` on the `BlockDef` that knows the view's
+ *      real shape.
+ *
+ * A ZWSP text node is already treated as zero-width, which is how the empty
+ * -paragraph placeholder stays invisible to the count.
+ */
 export const defaultTextCodec: AnchorCodec = {
   domToAnchor(blockEl, hit, off) {
     const blockId = blockEl.getAttribute("data-block-id");

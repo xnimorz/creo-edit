@@ -11,12 +11,16 @@
 
 import type { PublicView } from "creo";
 import { newBlockId } from "../../model/doc";
+import {
+  deserializeRun,
+  serializeRun,
+  type SerializedRun,
+} from "../../model/runSerialize";
 import type {
   Block,
   BlockSpec,
   ColumnsBlock,
   InlineRun,
-  Mark,
   TableBlock,
 } from "../../model/types";
 import type {
@@ -38,22 +42,6 @@ import {
 import { ColumnsViewPlugin, TableViewPlugin } from "./views";
 import { isInColumns, isInTable, tableCommandDefs } from "./commands";
 import { columnsControlsDecoration, tableControlsDecoration } from "./controls";
-
-const ALLOWED_MARKS = new Set<Mark>(["b", "i", "u", "s", "code"]);
-
-type SerializedRun = { text: string; marks?: string[] };
-
-function deserializeRun(r: SerializedRun): InlineRun {
-  if (!r.marks || r.marks.length === 0) return { text: r.text };
-  const marks = new Set<Mark>();
-  for (const m of r.marks) if (ALLOWED_MARKS.has(m as Mark)) marks.add(m as Mark);
-  return marks.size === 0 ? { text: r.text } : { text: r.text, marks };
-}
-
-function serializeRun(r: InlineRun): SerializedRun {
-  if (!r.marks || r.marks.size === 0) return { text: r.text };
-  return { text: r.text, marks: [...r.marks] };
-}
 
 const tableDef: BlockDef<TableBlock> = {
   type: "table",

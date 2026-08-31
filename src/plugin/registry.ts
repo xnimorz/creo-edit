@@ -18,6 +18,9 @@ import { registerHtmlBlockCodec } from "./htmlCodec";
 import { registerRunsAt } from "./runsAt";
 import { registerSerializeCodec } from "./serializeCodec";
 import { registerSelfVirtualized } from "./selfVirtualized";
+import { registerTextBearing } from "./textBearing";
+import { registerMark } from "./markRegistry";
+import { registerMarkdownCodec } from "../markdown/blockCodec";
 import type {
   CommandCtx,
   CommandDef,
@@ -60,8 +63,19 @@ export class Registry {
           registerAnchorCodec(def.type, atomicCodec);
         }
         if (def.isAtomic) registerAtomic(def.type);
+        // Mirror the text-bearing flag into the module-global set the text
+        // commands gate on. Inference when omitted: atomic blocks never bear
+        // text; a block shipping its own `runsAt` addresses nested slots
+        // (table cells, columns) rather than a top-level `runs` field;
+        // anything else is assumed to carry `runs`, which is the shape a
+        // paragraph-like plugin block has.
+        registerTextBearing(
+          def.type,
+          def.isTextBearing ?? (def.isAtomic ? false : !def.runsAt),
+        );
         if (def.htmlCodec) registerHtmlBlockCodec(def.type, def.htmlCodec);
         if (def.serializeCodec) registerSerializeCodec(def.type, def.serializeCodec);
+        if (def.markdownCodec) registerMarkdownCodec(def.type, def.markdownCodec);
         if (def.selfVirtualized) {
           registerSelfVirtualized(def.type, def.selfVirtualized as never);
         }
@@ -69,6 +83,9 @@ export class Registry {
         // We import-and-call there too so the renderer can resolve by type.
         registerView(def.type, def.view as never);
       }
+    }
+    if (plugin.marks) {
+      for (const m of plugin.marks) registerMark(m);
     }
     if (plugin.commands) {
       for (const c of plugin.commands) this.commands.set(c.t, c);

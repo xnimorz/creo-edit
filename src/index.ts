@@ -15,7 +15,51 @@ export type {
   SerializedDoc,
   SerializedRun,
   EditorMode,
+  SetDocOptions,
+  UnknownBlockPolicy,
+  // The sanctioned wire shape for a plugin-introduced block type. Cast
+  // through it when building `SerializedDoc.blocks` for a type outside the
+  // built-in union — the runtime codec registry dispatches on `type` and
+  // carries the extra fields through untouched.
+  ExternalSerializedBlock,
 } from "./createEditor";
+
+// ---------------------------------------------------------------------------
+// Selection & navigation
+//
+// Anchor construction, comparison and clamping. `clampSelection` is what a
+// host applies after writing into the document from outside (a remote patch,
+// an agent) so the caret lands somewhere that still exists.
+// ---------------------------------------------------------------------------
+
+export {
+  caret,
+  caretAt,
+  range as selectionRange,
+  anchorOffset,
+  withCharOffset,
+  isCaret,
+  selectionStart,
+  selectionEnd,
+  compareAnchors,
+  orderedRange,
+  clampAnchor,
+  clampSelection,
+  endOfDoc,
+} from "./controller/selection";
+
+export {
+  nextAnchor,
+  prevAnchor,
+  homeOfBlock,
+  endOfBlock,
+  homeOfDoc,
+  endOfDocAnchor,
+  blockAbove,
+  blockBelow,
+  nextWord,
+  prevWord,
+} from "./controller/navigation";
 
 // Render layer (advanced consumers)
 export { DocView } from "./render/DocView";
@@ -59,6 +103,37 @@ export { VirtualDoc } from "./virtual/VirtualDoc";
 export { HeightIndex } from "./virtual/heightIndex";
 
 // Model
+// Mark helpers — marks are a `ReadonlyMap<MarkName, MarkAttrs>`, so reach for
+// these rather than treating the map as a set of strings.
+export {
+  NO_MARKS,
+  marksOf,
+  hasMark,
+  markAttrs,
+  linkHref,
+  withMark,
+  withoutMark,
+  marksEqual,
+} from "./model/marks";
+export { serializeRun, deserializeRun } from "./model/runSerialize";
+
+// Mark registry — rendering / HTML / markdown for a mark name. The six
+// built-ins (b, i, u, s, code, link) are pre-registered.
+export {
+  registerMark,
+  getMarkDef,
+  orderedMarkDefs,
+  markDefForTag,
+  safeHref,
+} from "./plugin/markRegistry";
+
+// Text-bearing registry — mirrors `BlockDef.isTextBearing`. `isTextBearing`
+// is what `splitBlock` / `mergeBackward` / `setBlockType` / `toggleMark` gate
+// on, so a plugin block that wants Enter to work must be registered here
+// (declaring the flag on its `BlockDef` does it).
+export { isTextBearing, blockTextOf, runsText, runsLength } from "./model/blockText";
+export { isTextBearingType, registerTextBearing } from "./plugin/textBearing";
+
 export type {
   Block,
   BlockId,
@@ -73,8 +148,12 @@ export type {
   HeadingLevel,
   ImageBlock,
   InlineRun,
+  LinkAttrs,
   ListItemBlock,
   Mark,
+  MarkAttrs,
+  MarkName,
+  MarkSet,
   ParagraphBlock,
   RunAttrs,
   TableBlock,
@@ -94,6 +173,9 @@ export type {
   InsertBlockChange,
   RemoveBlockChange,
   ResetBlockChange,
+  MoveBlockChange,
+  FormatChange,
+  BlockAttrsChange,
   ReplaceDocChange,
   MapBias,
 } from "./model/changes";
@@ -154,7 +236,31 @@ export type {
   DomPoint,
 } from "./plugin/types";
 
+// NOTE: block, codec, view and mark registries are module-GLOBAL, keyed by
+// type/mark name. Registration is additive and last-write-wins, so two
+// editors on one page share them — which is what makes "register the table
+// codec once" work, and what means two differing implementations registered
+// for the SAME type collide. Namespace plugin block types and mark names.
 export { Registry } from "./plugin/registry";
+export {
+  registerUnknownBlockType,
+  isOpaqueBlock,
+  OPAQUE_PAYLOAD,
+} from "./plugin/unknownBlock";
+export { registerMarkdownCodec, getMarkdownCodec } from "./markdown/blockCodec";
+export type { MarkdownBlockCodec } from "./markdown/blockCodec";
+export type { MarkDef } from "./plugin/markRegistry";
+export type { PasteCtx, SerializedDocLike } from "./plugin/types";
+
+// The editor handle published on the DOM root. A decoration or block view
+// receives an element and no editor argument — this is how it reaches one.
+export {
+  closestEditor,
+  getEditorRef,
+  setEditorRef,
+  EDITOR_REF_KEY,
+  EDITOR_ROOT_ATTR,
+} from "./dom/editorRef";
 export {
   defaultPlugins,
   paragraphPlugin,
@@ -207,7 +313,14 @@ export { addBlockPlugin, type AddBlockOptions } from "./plugins/add-block";
 
 // Markdown shortcut input rules — typing `# `, `**foo**`, `- `, etc.
 // auto-applies the matching block type or mark.
-export { mdShortcutsPlugin } from "./plugins/md-shortcuts";
+export {
+  mdShortcutsPlugin,
+  defaultBlockRules as mdDefaultBlockRules,
+  defaultInlineRules as mdDefaultInlineRules,
+  type MdShortcutsOptions,
+  type BlockRule as MdBlockRule,
+  type InlineRule as MdInlineRule,
+} from "./plugins/md-shortcuts";
 
 // Calendar plugin — example non-editable atomic block.
 export {

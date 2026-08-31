@@ -1,3 +1,4 @@
+import { marksEqual } from "../../model/marks";
 import { div, pre, view, _ } from "creo";
 import type { CodeBlock, InlineRun } from "../../model/types";
 import { withRunText } from "../../model/blockText";
@@ -63,14 +64,7 @@ function runsEqual(a: InlineRun[], b: InlineRun[]): boolean {
     if (x === y) continue;
     if (x.text !== y.text) return false;
     if (x.attrs?.class !== y.attrs?.class) return false;
-    const xm = x.marks;
-    const ym = y.marks;
-    if (!xm || xm.size === 0) {
-      if (ym && ym.size > 0) return false;
-      continue;
-    }
-    if (!ym || xm.size !== ym.size) return false;
-    for (const m of xm) if (!ym.has(m)) return false;
+    if (!marksEqual(x.marks, y.marks)) return false;
   }
   return true;
 }

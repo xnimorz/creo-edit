@@ -1,4 +1,6 @@
-import type { Block, InlineRun, Mark, RunAttrs } from "./types";
+import { isTextBearingType } from "../plugin/textBearing";
+import { marksEqual } from "./marks";
+import type { Block, InlineRun, MarkSet, RunAttrs } from "./types";
 
 /** Blocks whose content is a single InlineRun[] (paragraphs, headings, list items). */
 export type TextBearingBlock = Extract<
@@ -6,18 +8,24 @@ export type TextBearingBlock = Extract<
   { runs: InlineRun[] }
 >;
 
+/**
+ * Does this block carry a top-level `runs: InlineRun[]` the text commands can
+ * operate on?
+ *
+ * Registry-driven (`plugin/textBearing`), not a hard-coded list — a plugin
+ * block declaring `isTextBearing: true` gets Enter, Backspace-merge,
+ * `setBlockType` and mark toggling on the same terms as a paragraph. The
+ * runtime `runs` check is the backstop: a block registered as text-bearing
+ * that turns out not to carry runs is reported as not text-bearing rather
+ * than crashing the command mid-edit.
+ *
+ * The predicate narrows to the built-in union member for callers' benefit;
+ * a plugin block is not in that union but is structurally identical where it
+ * matters (`.runs`), which is all any caller reads.
+ */
 export function isTextBearing(block: Block): block is TextBearingBlock {
-  return (
-    block.type === "p" ||
-    block.type === "h1" ||
-    block.type === "h2" ||
-    block.type === "h3" ||
-    block.type === "h4" ||
-    block.type === "h5" ||
-    block.type === "h6" ||
-    block.type === "li" ||
-    block.type === "code"
-  );
+  if (!isTextBearingType(block.type)) return false;
+  return Array.isArray((block as { runs?: unknown }).runs);
 }
 
 /** Total length of plain text across all runs of a text-bearing block. */
@@ -68,20 +76,7 @@ export function blockTextOf(block: Block): string {
   return "";
 }
 
-function marksEqual(
-  a: ReadonlySet<Mark> | undefined,
-  b: ReadonlySet<Mark> | undefined,
-): boolean {
-  if (a === b) return true;
-  const an = a ? a.size : 0;
-  const bn = b ? b.size : 0;
-  if (an !== bn) return false;
-  if (an === 0) return true;
-  for (const m of a!) if (!b!.has(m)) return false;
-  return true;
-}
-
-function attrsEqual(
+function runAttrsEqual(
   a: RunAttrs | undefined,
   b: RunAttrs | undefined,
 ): boolean {
@@ -113,7 +108,7 @@ export function normalizeRuns(runs: InlineRun[]): InlineRun[] {
   for (const r of runs) {
     if (r.text.length === 0) continue;
     const last = out[out.length - 1];
-    if (last && marksEqual(last.marks, r.marks) && attrsEqual(last.attrs, r.attrs)) {
+    if (last && marksEqual(last.marks, r.marks) && runAttrsEqual(last.attrs, r.attrs)) {
       out[out.length - 1] = withRunText(last, last.text + r.text);
     } else {
       out.push(r);
@@ -165,7 +160,7 @@ export function locateRun(runs: InlineRun[], offset: number): RunPos {
 export function marksAt(
   runs: InlineRun[],
   offset: number,
-): ReadonlySet<Mark> | undefined {
+): MarkSet | undefined {
   // At absolute start (or empty) there is nothing to inherit — check first so
   // the common start-of-block insert skips the run scan entirely.
   if (offset === 0 || runs.length === 0) return undefined;
@@ -180,7 +175,7 @@ export function insertText(
   runs: InlineRun[],
   offset: number,
   text: string,
-  marks?: ReadonlySet<Mark>,
+  marks?: MarkSet,
 ): InlineRun[] {
   if (text.length === 0) return runs;
   const pos = locateRun(runs, offset);

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { marksOf } from "../../model/marks";
 import "../../__tests__/setup";
 import { clearDom, makeContainer } from "../../__tests__/setup";
 import { createApp, HtmlRender } from "creo";
@@ -72,7 +73,7 @@ describe("anchorMap — paragraph", () => {
         type: "p",
         runs: [
           { text: "hi " },
-          { text: "bold", marks: new Set(["b"] as const) },
+          { text: "bold", marks: marksOf(["b"]) },
           { text: " end" },
         ],
       }),

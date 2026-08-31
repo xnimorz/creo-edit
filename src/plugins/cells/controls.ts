@@ -6,20 +6,15 @@
 // toolbar stays open while the user is actively editing a cell.
 // ---------------------------------------------------------------------------
 
-import type { ColumnsBlock, DocState, Selection, TableBlock } from "../../model/types";
+import type { ColumnsBlock, Selection, TableBlock } from "../../model/types";
 import type { DecorationDef } from "../../plugin/types";
-import type { DispatchableCommand } from "../../createEditor";
+import { closestEditor } from "../../dom/editorRef";
+import type { Editor } from "../../createEditor";
 
-type EditorRef = {
-  docStore: { get: () => DocState; set: (d: DocState) => void };
-  selStore: { get: () => Selection; set: (s: Selection) => void; subscribe?: (fn: () => void) => () => void };
-  dispatch: (cmd: DispatchableCommand) => void;
-};
+type EditorRef = Editor;
 
 function findEditor(blockEl: HTMLElement): EditorRef | null {
-  const root = blockEl.closest("[data-creo-edit]") as HTMLElement | null;
-  if (!root) return null;
-  return (root as unknown as { __creoEdit?: EditorRef }).__creoEdit ?? null;
+  return closestEditor(blockEl);
 }
 
 function makeButton(label: string, title: string): HTMLButtonElement {

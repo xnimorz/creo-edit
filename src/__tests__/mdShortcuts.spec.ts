@@ -4,7 +4,10 @@ import { clearDom, makeContainer, SYNC_SCHEDULER } from "./setup";
 import { createApp, HtmlRender } from "creo";
 
 import { createEditor } from "../createEditor";
-import { mdShortcutsPlugin } from "../plugins/md-shortcuts";
+import {
+  defaultBlockRules,
+  mdShortcutsPlugin,
+} from "../plugins/md-shortcuts";
 
 afterEach(() => {
   clearDom();
@@ -82,5 +85,28 @@ describe("md-shortcuts plugin", () => {
     const id = editor.docStore.get().order[0]!;
     const block = editor.docStore.get().byId.get(id)!;
     expect(block.type).toBe("p");
+  });
+});
+
+describe("md-shortcuts options", () => {
+  it("takes no options and still ships the defaults", () => {
+    expect(mdShortcutsPlugin().triggers!.length).toBe(5);
+  });
+
+  it("`disable` drops a rule by its pattern source", () => {
+    // The rule is in the shipped set…
+    expect(defaultBlockRules.some((r) => r.pattern.source === "^1\\. $")).toBe(true);
+    // …and disabling it leaves the space trigger in place for the others.
+    const plugin = mdShortcutsPlugin({ disable: [/^1\. $/] });
+    expect(plugin.triggers!.length).toBe(5);
+  });
+
+  it("custom rule sets replace the defaults, and unused closers register no trigger", () => {
+    // Only the space trigger survives — a trigger for a closer no rule uses
+    // would intercept the keystroke for nothing.
+    expect(mdShortcutsPlugin({ inlineRules: [] }).triggers!.length).toBe(1);
+    expect(
+      mdShortcutsPlugin({ blockRules: [], inlineRules: [] }).triggers!.length,
+    ).toBe(0);
   });
 });

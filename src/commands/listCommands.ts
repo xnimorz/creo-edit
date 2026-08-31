@@ -1,3 +1,4 @@
+import { recordChange } from "../model/changes";
 import type { Store } from "creo";
 import { isTextBearing, type TextBearingBlock } from "../model/blockText";
 import { findPos, getBlock, updateBlock } from "../model/doc";
@@ -44,6 +45,7 @@ export function toggleList(
   for (const id of touchedIds) {
     const b = getBlock(working, id);
     if (!b || !isTextBearing(b)) continue;
+    recordChange({ kind: "blockAttrs", blockId: id, type: allListed ? "p" : "li" });
     if (allListed) {
       // Demote to paragraph.
       working = updateBlock(working, {
@@ -83,6 +85,7 @@ export function indentList({ docStore, selStore }: Stores): boolean {
       ...li,
       depth: (li.depth + 1) as 0 | 1 | 2 | 3,
     });
+    recordChange({ kind: "blockAttrs", blockId: id, type: "li" });
     changed = true;
   }
   if (changed) docStore.set(working);
@@ -103,6 +106,7 @@ export function outdentList({ docStore, selStore }: Stores): boolean {
         ...li,
         depth: (li.depth - 1) as 0 | 1 | 2 | 3,
       });
+      recordChange({ kind: "blockAttrs", blockId: id, type: "li" });
       changed = true;
     } else {
       working = updateBlock(working, {
@@ -111,6 +115,7 @@ export function outdentList({ docStore, selStore }: Stores): boolean {
         type: "p",
         runs: li.runs,
       } as Block);
+      recordChange({ kind: "blockAttrs", blockId: id, type: "p" });
       changed = true;
     }
   }

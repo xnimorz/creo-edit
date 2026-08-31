@@ -27,8 +27,11 @@ import type {
   BlockViewport,
   SelfVirtualizedDef,
 } from "./selfVirtualized";
+import type { MarkDef } from "./markRegistry";
+import type { MarkdownBlockCodec } from "../markdown/blockCodec";
+import type { DocChange } from "../model/changes";
 
-export type { BlockViewport, SelfVirtualizedDef };
+export type { BlockViewport, SelfVirtualizedDef, MarkDef, MarkdownBlockCodec };
 
 // ---------------------------------------------------------------------------
 // Cell access — re-exported here so plugins can implement custom runs slots
@@ -93,8 +96,9 @@ export type AnchorCodec = {
 // ---------------------------------------------------------------------------
 
 export type HtmlParseCtx = {
-  /** Active inline marks (b/i/u/s/code) collected from ancestor elements. */
-  marks: import("../model/types").Mark[];
+  /** Active inline marks collected from ancestor elements, name → attrs.
+   *  Pass straight to `collectRuns` from `clipboard/inlineHtml`. */
+  marks: import("../model/types").MarkSet;
 };
 
 export type HtmlBlockCodec = {
@@ -193,6 +197,13 @@ export type BlockDef<B extends Block = Block> = {
   /** JSON SerializedBlock round-trip. Required for blocks that should
    *  survive `toJSON()` / `setDoc()`. */
   serializeCodec?: SerializeCodec;
+
+  /**
+   * Markdown output for this block kind. Without one, `docToMarkdown` emits
+   * nothing for the block — its built-in switch only knows the closed union.
+   * Receives the SERIALIZED block, so it pairs with `serializeCodec`.
+   */
+  markdownCodec?: MarkdownBlockCodec;
 };
 
 // ---------------------------------------------------------------------------
@@ -204,6 +215,27 @@ export type BlockDef<B extends Block = Block> = {
 export type CommandCtx = {
   docStore: Store<DocState>;
   selStore: Store<Selection>;
+  /**
+   * Re-enter the dispatcher. A plugin command that wants a built-in's
+   * behaviour should dispatch it rather than reimplement it — nested
+   * dispatches fold into the outer change batch and the outer undo step, so
+   * composing this way costs nothing.
+   */
+  dispatch(cmd: { t: string; [k: string]: unknown }): boolean;
+  dispatch(t: string, payload?: unknown): boolean;
+  /**
+   * Record a `DocChange` for the edit this command is making. Commands that
+   * mutate `docStore` directly MUST call this, or `editor.onChange`
+   * subscribers never learn the edit happened — which is exactly how the
+   * shipped drag-handle and add-block plugins used to drop reorders and
+   * inserts from any consumer persisting off the change stream.
+   *
+   * A no-op outside a dispatch, so a command is safe to call directly in a
+   * test.
+   */
+  change(c: DocChange): void;
+  /** The editor this command is running in. */
+  editor: import("../createEditor").Editor;
 };
 
 export type CommandDef<P = unknown> = {
@@ -257,6 +289,13 @@ export type TriggerCtx = {
    */
   dispatch(cmd: { t: string; [k: string]: unknown }): void;
   dispatch(t: string, payload?: unknown): void;
+  /**
+   * The editor's full `CommandCtx`. A trigger's UI usually ends by running a
+   * command-shaped action (a slash-menu item), and those take a `CommandCtx` —
+   * so hand over the real one rather than making every trigger assemble a
+   * partial from the stores it happens to have.
+   */
+  commandCtx: CommandCtx;
   /** Element where popover UI should anchor. */
   caretRect(): DOMRect | null;
   /**
@@ -452,6 +491,13 @@ export type InlineWidgetDef = {
 export type EditorPlugin = {
   name: string;
   blocks?: BlockDef<Block>[];
+  /**
+   * Inline marks this plugin contributes — rendering, HTML round-trip and
+   * markdown for a mark name. Registered into the module-global mark
+   * registry; the six built-ins (`b`, `i`, `u`, `s`, `code`, `link`) are
+   * already there, and re-registering a name replaces its definition.
+   */
+  marks?: MarkDef[];
   commands?: CommandDef<unknown>[];
   keymap?: KeymapDef[];
   triggers?: TriggerDef[];
@@ -461,4 +507,58 @@ export type EditorPlugin = {
   /** Tag prefixes whose history snapshots may coalesce. Defaults are
    *  ["text:"]; plugins can declare their own (e.g. "myPlugin:typing"). */
   historyCoalescePrefixes?: string[];
+
+  /**
+   * Called once, after the editor exists and every plugin is installed —
+   * so a plugin may look up another's commands here. Not a DOM hook: the
+   * root is not mounted yet. Return a teardown fn, or use `onDestroy`.
+   */
+  onInit?(editor: import("../createEditor").Editor): (() => void) | void;
+
+  /**
+   * Called from `editor.destroy()`, after the input pipeline and overlay
+   * managers are torn down. Release anything the plugin allocated outside the
+   * editor: timers, observers, network subscriptions.
+   */
+  onDestroy?(editor: import("../createEditor").Editor): void;
+
+  /**
+   * Intercept paste before the built-in clipboard path runs.
+   *
+   * Return `true` to claim the event — the editor calls `preventDefault()`
+   * and does nothing further. Return `false` / nothing to fall through to the
+   * normal HTML-then-plain-text handling. Hooks run in plugin registration
+   * order and the first `true` wins.
+   *
+   * This is the doc-level counterpart to `BlockDef.htmlCodec.matchHTML`,
+   * which can only claim one element at a time and cannot see the plain-text
+   * or file flavours of the clipboard at all.
+   */
+  onPaste?(ctx: PasteCtx): boolean | void;
+
+  /**
+   * Transform the serialized document on its way out of `toJSON()` and on
+   * its way in through `setDoc()`. `serializeDoc` runs after every block
+   * codec, `deserializeDoc` before them — a plugin that keeps document-level
+   * metadata (a title, a schema version) round-trips it here.
+   */
+  serializeDoc?(doc: SerializedDocLike): SerializedDocLike;
+  deserializeDoc?(doc: SerializedDocLike): SerializedDocLike;
+};
+
+/** Minimal structural stand-in for `SerializedDoc`, to keep this module free
+ *  of a value import from `createEditor`. */
+export type SerializedDocLike = {
+  blocks: { id?: string; type: string; [k: string]: unknown }[];
+};
+
+export type PasteCtx = {
+  event: ClipboardEvent;
+  /** Clipboard flavours, already read off the event. */
+  html: string;
+  text: string;
+  files: readonly File[];
+  docStore: Store<DocState>;
+  selStore: Store<Selection>;
+  editor: import("../createEditor").Editor;
 };

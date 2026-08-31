@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { marksOf } from "../model/marks";
 import "./setup";
 import { clearDom, makeContainer, SYNC_SCHEDULER } from "./setup";
 import { createApp, HtmlRender } from "creo";
@@ -54,7 +55,7 @@ describe("run attrs — model", () => {
   });
 
   it("does not inherit attrs when marks are dictated explicitly", () => {
-    const out = insertText([kw("const")], 2, "XY", new Set(["b"] as const));
+    const out = insertText([kw("const")], 2, "XY", marksOf(["b"]));
     const inserted = out.find((r) => r.text === "XY");
     expect(inserted).toBeTruthy();
     expect(inserted!.attrs).toBeUndefined();
@@ -72,7 +73,7 @@ describe("run attrs — model", () => {
   });
 
   it("withRunText carries marks and attrs", () => {
-    const r: InlineRun = { text: "abc", marks: new Set(["b"]), attrs: { class: "t" } };
+    const r: InlineRun = { text: "abc", marks: marksOf(["b"]), attrs: { class: "t" } };
     const next = withRunText(r, "z");
     expect(next.text).toBe("z");
     expect(next.marks?.has("b")).toBe(true);

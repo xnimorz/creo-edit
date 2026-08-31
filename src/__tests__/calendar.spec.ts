@@ -148,11 +148,7 @@ describe("calendarPlugin — atomic block contract", () => {
     const sizeBefore = Array.from(editor.docStore.get().byId.values()).filter(
       (b) => b.type === "calendar",
     ).length;
-    calendarSlashItem.run({
-      docStore: editor.docStore,
-      selStore: editor.selStore,
-      dispatch: editor.dispatch,
-    });
+    calendarSlashItem.run(editor.commandCtx);
     const sizeAfter = Array.from(editor.docStore.get().byId.values()).filter(
       (b) => b.type === "calendar",
     ).length;
