@@ -5,6 +5,25 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## 0.4.1
+
+### Fixed
+
+**Pasted and dropped images now insert through `dispatch`.** After the upload
+resolved, the image was written straight into `docStore`, so the insert:
+
+- had no undo step;
+- emitted no `DocChange`, so anything persisting off `editor.onChange` lost
+  the image;
+- skipped the read-only check (on paste there was none at all);
+- could write into an editor destroyed during the upload.
+
+It now dispatches `insertImage` when the upload finishes, so history, the
+change stream and the read-only gate apply as they stand at that moment. A
+handler torn down mid-upload inserts nothing. A rejected `uploadImage` is
+logged (`creo-edit: image upload failed for "<name>"`) instead of surfacing as
+an unhandled rejection, and the remaining files in the batch still insert.
+
 ## 0.4.0
 
 Plugin blocks become first-class, marks learn to carry data, and the change
