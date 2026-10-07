@@ -1,14 +1,8 @@
-import type { Store } from "creo";
 import {
   insertImageFiles,
+  type ImageInsertTarget,
   type UploadFn,
 } from "../commands/imageCommands";
-import type { DocState, Selection } from "../model/types";
-
-export type DropStores = {
-  docStore: Store<DocState>;
-  selStore: Store<Selection>;
-};
 
 export type DropHandle = { destroy: () => void };
 
@@ -20,12 +14,15 @@ export type DropHandle = { destroy: () => void };
  */
 export function attachDrop(
   root: HTMLElement,
-  stores: DropStores,
+  /** The editor's dispatcher — dropped images insert as commands. */
+  dispatch: ImageInsertTarget["dispatch"],
   upload?: UploadFn,
   /** Read-only gate — re-read per event so a thunk-valued `editable` works. */
   isEditable?: () => boolean,
 ): DropHandle {
   const editable = (): boolean => isEditable?.() !== false;
+  let attached = true;
+  const target: ImageInsertTarget = { dispatch, isLive: () => attached };
   const onDragOver = (e: Event) => {
     const ev = e as DragEvent;
     if (!editable()) return;
@@ -61,7 +58,7 @@ export function attachDrop(
     }
     if (!hasImage) return;
     ev.preventDefault();
-    void insertImageFiles(stores, files, upload);
+    void insertImageFiles(target, files, upload);
   };
 
   root.addEventListener("dragover", onDragOver);
@@ -69,6 +66,7 @@ export function attachDrop(
 
   return {
     destroy() {
+      attached = false;
       root.removeEventListener("dragover", onDragOver);
       root.removeEventListener("drop", onDrop);
     },

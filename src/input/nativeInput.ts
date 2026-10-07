@@ -55,7 +55,7 @@ export type NativeInputStores = {
 };
 
 export type NativeInputOptions = {
-  dispatch: (cmd: DispatchableCommand) => void;
+  dispatch: (cmd: DispatchableCommand) => boolean;
   undo: () => void;
   redo: () => void;
   selectAll: () => void;
@@ -108,6 +108,14 @@ export function attachNativeInput(
   // dispatcher gates too (see createEditor). Here we only stop the browser
   // from originating edits.
   const isEditable = (): boolean => options.isEditable?.() !== false;
+
+  // Pasted images insert through the dispatcher once their upload settles —
+  // and not at all if this handle was torn down in the meantime.
+  let attached = true;
+  const imageTarget = {
+    dispatch: options.dispatch,
+    isLive: (): boolean => attached,
+  };
 
   const syncEditable = (): void => {
     root.setAttribute("contenteditable", isEditable() ? "true" : "false");
@@ -826,7 +834,7 @@ export function attachNativeInput(
       }
       if (hasImage) {
         void insertImageFiles(
-          { docStore, selStore },
+          imageTarget,
           data.files,
           options.uploadImage,
         );
@@ -868,6 +876,7 @@ export function attachNativeInput(
   return {
     syncEditable,
     destroy: () => {
+      attached = false;
       document.removeEventListener("selectionchange", onSelectionChange);
       root.removeEventListener("focusin", syncEditable);
       root.removeEventListener("pointerdown", syncEditable, true);

@@ -1210,7 +1210,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
           );
           drop = attachDrop(
             root,
-            { docStore, selStore },
+            dispatch,
             opts.uploadImage,
             isEditable,
           );

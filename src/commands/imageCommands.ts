@@ -1,5 +1,4 @@
 import type { Store } from "creo";
-import { insertImage as cmdInsertImage } from "./insertCommands";
 import { findPos, removeBlock } from "../model/doc";
 import { recordChange } from "../model/changes";
 import { caret, isCaret } from "../controller/selection";
@@ -26,25 +25,52 @@ export async function fileToImageSrc(
 }
 
 /**
+ * Where a pasted / dropped image lands once its source is known.
+ *
+ * The insert goes through the editor's dispatcher, not straight into the
+ * stores: an upload can take seconds, and only `dispatch` records the undo
+ * step, emits the `insertBlock` change and applies the read-only gate as they
+ * stand *when the image arrives*. Writing `docStore` directly lost all three.
+ */
+export type ImageInsertTarget = {
+  dispatch: (cmd: { t: "insertImage"; src: string; alt?: string }) => boolean;
+  /**
+   * Re-checked after each upload settles. False once the handler that
+   * started the insert has been torn down (`editor.destroy()`), so a late
+   * upload does not write into a dead editor.
+   */
+  isLive?: () => boolean;
+};
+
+/**
  * Drop / paste a single File into the editor as an image block. Async
- * (must await an upload when configured).
+ * (must await an upload when configured). A failed upload is reported and
+ * resolves `false` — callers fire-and-forget this from event handlers, so a
+ * rejection here would be unhandled.
  */
 export async function insertImageFile(
-  stores: Stores,
+  target: ImageInsertTarget,
   file: File,
   upload?: UploadFn,
 ): Promise<boolean> {
   if (!file.type.startsWith("image/")) return false;
-  const src = await fileToImageSrc(file, upload);
-  return cmdInsertImage(stores, { src, alt: file.name });
+  let src: string;
+  try {
+    src = await fileToImageSrc(file, upload);
+  } catch (err) {
+    console.error(`creo-edit: image upload failed for "${file.name}"`, err);
+    return false;
+  }
+  if (target.isLive?.() === false) return false;
+  return target.dispatch({ t: "insertImage", src, alt: file.name });
 }
 
 /**
  * Process a FileList (from paste or drop). Each image becomes its own block;
- * non-image files are ignored.
+ * non-image files are ignored, and one failed upload does not stop the rest.
  */
 export async function insertImageFiles(
-  stores: Stores,
+  target: ImageInsertTarget,
   files: FileList | File[],
   upload?: UploadFn,
 ): Promise<boolean> {
@@ -52,7 +78,7 @@ export async function insertImageFiles(
   const list = Array.from(files);
   for (const f of list) {
     if (!f.type.startsWith("image/")) continue;
-    if (await insertImageFile(stores, f, upload)) any = true;
+    if (await insertImageFile(target, f, upload)) any = true;
   }
   return any;
 }
