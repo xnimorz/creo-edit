@@ -318,6 +318,14 @@ export type EditorOptions = {
    * diff view; a prose editor generally wants it on.
    */
   spellcheck?: boolean;
+  /**
+   * Scroll the caret back into view when the soft keyboard covers it. Applies
+   * only to the focused, editable editor. Set to `false` to leave keyboard
+   * scrolling to the browser. `--creo-vv-*` are written either way.
+   *
+   * Default: true.
+   */
+  keepCaretVisible?: boolean;
 };
 
 export type Editor = {
@@ -1214,7 +1222,13 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             opts.uploadImage,
             isEditable,
           );
-          viewport = attachVisualViewport(root, { docStore, selStore });
+          // onMount can run more than once; don't stack trackers.
+          viewport?.destroy();
+          viewport = attachVisualViewport(
+            root,
+            { docStore, selStore },
+            { isEditable, keepCaretVisible: opts.keepCaretVisible !== false },
+          );
           // Decoration manager — only mounts a layer if at least one
           // plugin contributes a decoration. Cheap to instantiate either
           // way; the layer is empty when there are no decorations.

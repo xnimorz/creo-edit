@@ -513,8 +513,10 @@ export function attachNativeInput(
         options.redo();
         return;
       case "insertReplacementText": {
-        // iOS autocorrect — replace targetRanges with new text.
-        if (!e.data) return;
+        // iOS autocorrect — replace targetRanges with new text. In a
+        // contenteditable the text comes in `dataTransfer`; `data` is null.
+        const text = e.data ?? e.dataTransfer?.getData("text/plain") ?? "";
+        if (!text) return;
         const ranges = (e as InputEvent & {
           getTargetRanges?: () => StaticRange[];
         }).getTargetRanges?.();
@@ -538,12 +540,12 @@ export function attachNativeInput(
             // would duplicate text.
             selStore.set(rangeSel(startA, endA));
             options.dispatch({ t: "deleteBackward" });
-            options.dispatch({ t: "insertText", text: e.data });
+            options.dispatch({ t: "insertText", text });
             return;
           }
         }
         // Fallback: replace at current selection.
-        options.dispatch({ t: "insertText", text: e.data });
+        options.dispatch({ t: "insertText", text });
         return;
       }
       case "insertFromPaste":

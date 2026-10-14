@@ -158,13 +158,35 @@ test.describe("Mobile — editing still works under touch", () => {
   test("autocorrect-style replacement rewrites the target range", async ({
     page,
   }) => {
-    // iOS sends `insertReplacementText` with target ranges rather than a
-    // plain insert. Without a caret in the block there'd be nothing to
-    // replace, so seed one first.
+    // iOS autocorrect: target range over the word, text in `dataTransfer`,
+    // `data` null.
     const h = await EditorHarness.open(page);
-    await h.buildDoc([{ type: "p", runs: [{ text: "teh" }] }]);
+    await h.buildDoc([{ type: "p", runs: [{ text: "teh cat" }] }]);
     await h.caretAt("tb0", 3);
-    await h.beforeInput("insertReplacementText", "the");
-    await expect(h.paragraphs().first()).toContainText("the");
+    await page.evaluate(() => {
+      const root = document.querySelector("[data-creo-edit]") as HTMLElement;
+      const text = root.querySelector('[data-block-id="tb0"] span')!.firstChild!;
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", "the");
+      const range = new StaticRange({
+        startContainer: text,
+        startOffset: 0,
+        endContainer: text,
+        endOffset: 3,
+      });
+      const ev = new InputEvent("beforeinput", {
+        inputType: "insertReplacementText",
+        data: null,
+        bubbles: true,
+        cancelable: true,
+      });
+      // WebKit's InputEvent constructor ignores `dataTransfer` and
+      // `targetRanges`, so set them on the instance.
+      Object.defineProperty(ev, "dataTransfer", { value: dataTransfer });
+      Object.defineProperty(ev, "getTargetRanges", { value: () => [range] });
+      root.dispatchEvent(ev);
+    });
+    await h.frame();
+    await expect(h.paragraphs().first()).toHaveText("the cat");
   });
 });

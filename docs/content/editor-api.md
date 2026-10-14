@@ -28,6 +28,7 @@ const editor = createEditor({
 | `mode` | `"wysiwyg" \| "md"` | `"wysiwyg"` | Editing mode. `"md"` pairs with `mdShortcutsPlugin` for markdown typing rules. See [Editing modes](#/editing-modes). |
 | `plugins` | `EditorPlugin[]` | `[]` | Plugins to install in addition to the built-in defaults (paragraph, heading, list, code-block, image, cells). See [Authoring plugins](#/plugin-authoring). |
 | `editable` | `boolean \| (() => boolean)` | `true` | Whether the document accepts input. See [Read-only editors](#read-only-editors). |
+| `keepCaretVisible` | `boolean` | `true` | Scroll the caret back into view when the soft keyboard covers it. See [Mobile](#/mobile). |
 
 ## The `Editor` handle
 

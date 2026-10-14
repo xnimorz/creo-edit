@@ -38,6 +38,39 @@ export function scrollAncestor(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * The element to scroll to bring `el` into view: the nearest ancestor that
+ * overflows vertically, `window` if there is none, or null if an
+ * `overflow: hidden` ancestor clips `el` first.
+ *
+ * Stricter than `scrollAncestor`, which must accept a scroller that doesn't
+ * overflow yet. Overflow is checked with `scrollHeight > clientHeight`
+ * because `overflow-x: auto` also computes `overflow-y` to `auto`. A hidden
+ * box that doesn't overflow (clearfix, rounded corners) is skipped.
+ */
+export function revealScroller(el: HTMLElement): HTMLElement | Window | null {
+  let cur: HTMLElement | null = parentAcrossShadow(el);
+  while (cur && cur !== document.body && cur !== document.documentElement) {
+    let overflowY: string;
+    try {
+      overflowY = window.getComputedStyle(cur).overflowY;
+    } catch {
+      return null;
+    }
+    const overflows = cur.scrollHeight > cur.clientHeight;
+    if (overflows && /^(auto|scroll|overlay)$/.test(overflowY)) return cur;
+    if (overflows && /^(hidden|clip)$/.test(overflowY)) return null;
+    cur = parentAcrossShadow(cur);
+  }
+  return window;
+}
+
+function parentAcrossShadow(el: HTMLElement): HTMLElement | null {
+  if (el.parentElement) return el.parentElement;
+  const host = (el.getRootNode() as { host?: Element }).host;
+  return (host as HTMLElement | undefined) ?? null;
+}
+
 /** The thing to attach a `scroll` listener to for `el`: its scrollable
  *  ancestor when it has one, else `window`. */
 export function scrollSourceFor(el: HTMLElement): HTMLElement | Window {

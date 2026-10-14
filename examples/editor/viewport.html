@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>Creo Editor — viewport fixture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font: 16px/1.5 system-ui, sans-serif; }
+    #scroller { height: 600px; overflow-y: auto; }
+    .tile { height: 220px; overflow: hidden; border-bottom: 1px solid #ddd; }
+    .ce-block { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <!-- Fixture for tests/viewport.mobile.spec.ts. -->
+  <div id="scroller"></div>
+  <input id="field" />
+  <script type="module" src="/src/viewport.ts"></script>
+</body>
+</html>

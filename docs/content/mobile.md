@@ -10,7 +10,21 @@ The editor root is `contenteditable="true"`. Tapping places the caret, long-pres
 
 ### `visualViewport` tracking
 
-When the soft keyboard opens, it shrinks the *visual* viewport without changing the *layout* viewport — a caret that was visible can end up underneath the keyboard. The editor listens for `visualViewport` resize/scroll events, exposes `--creo-vv-height` and `--creo-vv-top` as CSS custom properties, and scrolls the editor container to keep the caret in view.
+The soft keyboard shrinks the visual viewport, not the layout viewport, so it can cover the caret. When it does, the editor scrolls the minimum needed to show the caret again. This happens only when:
+
+- the editor is focused and editable;
+- the visual viewport got shorter (not on pan, zoom or keyboard close);
+- the caret was visible before the keyboard opened.
+
+The editor scrolls the nearest ancestor that overflows vertically, and does nothing if an `overflow: hidden` ancestor clips the content first. Scrolling is smooth unless `prefers-reduced-motion` is set. To keep the caret clear of a sticky header or bottom bar, set `scroll-padding-top` / `scroll-padding-bottom` on the scroll container.
+
+To turn it off:
+
+```ts
+createEditor({ keepCaretVisible: false });
+```
+
+The root also exposes `--creo-vv-height` and `--creo-vv-top` as CSS custom properties.
 
 ### Atomic image blocks
 

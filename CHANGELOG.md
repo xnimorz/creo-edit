@@ -5,6 +5,28 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## 0.4.2
+
+### Fixed
+
+**Mobile: the editor no longer scrolls the page unprompted.** Keeping the
+caret above the soft keyboard now happens only for the focused, editable
+editor, only when the visual viewport shrinks, and only if the caret was
+visible before. It used to also run on mount, on every `visualViewport`
+scroll, and for unfocused and read-only editors. It now measures the caret
+instead of its block, scrolls the minimum distance, and only scrolls an
+ancestor that overflows vertically, stopping at `overflow: hidden` clips.
+`--creo-vv-*` are written only when they change.
+
+**iOS autocorrect and QuickType suggestions.** `insertReplacementText` now
+reads its text from `dataTransfer` when `data` is null, as it is in a
+contenteditable. Previously the edit was cancelled and nothing was inserted.
+
+### Added
+
+`EditorOptions.keepCaretVisible` (default `true`). Set to `false` to leave
+keyboard scrolling to the browser.
+
 ## 0.4.1
 
 ### Fixed

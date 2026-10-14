@@ -173,6 +173,88 @@ describe("nativeInput — beforeinput dispatching", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Autocorrect / predictive text (`insertReplacementText`). In a
+// contenteditable the text is in `dataTransfer` and `data` is null.
+// ---------------------------------------------------------------------------
+
+describe("nativeInput — insertReplacementText", () => {
+  function fireReplacement(
+    target: EventTarget,
+    init: {
+      data?: string | null;
+      plain?: string;
+      range?: { node: Node; start: number; end: number };
+    },
+  ): boolean {
+    const ev = new (globalThis as { Event: typeof Event }).Event(
+      "beforeinput",
+      { bubbles: true, cancelable: true },
+    );
+    Object.defineProperty(ev, "inputType", { value: "insertReplacementText" });
+    Object.defineProperty(ev, "data", { value: init.data ?? null });
+    Object.defineProperty(ev, "dataTransfer", {
+      value:
+        init.plain === undefined
+          ? null
+          : { getData: (type: string) => (type === "text/plain" ? init.plain : "") },
+    });
+    const r = init.range;
+    Object.defineProperty(ev, "getTargetRanges", {
+      value: () =>
+        r
+          ? [{ startContainer: r.node, startOffset: r.start, endContainer: r.node, endOffset: r.end }]
+          : [],
+    });
+    return target.dispatchEvent(ev);
+  }
+
+  function textNodeOf(editorRoot: HTMLElement, id: string): Text {
+    return findBlockElementById(editorRoot, id)!.querySelector("span")!.firstChild as Text;
+  }
+
+  it("replaces the target range with the text from dataTransfer (WebKit)", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([
+      spec({ id, type: "p", runs: [{ text: "teh cat" }] }),
+    ]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 3) });
+    const cancelled = !fireReplacement(editorRoot, {
+      plain: "the",
+      range: { node: textNodeOf(editorRoot, id), start: 0, end: 3 },
+    });
+    expect(cancelled).toBe(true);
+    expect(blockText(editor, id)).toBe("the cat");
+    expect(editor.selStore.get()).toEqual({ kind: "caret", at: caretAt(id, 3) });
+  });
+
+  it("still reads `data` when a browser puts the text there", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([
+      spec({ id, type: "p", runs: [{ text: "teh cat" }] }),
+    ]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 3) });
+    fireReplacement(editorRoot, {
+      data: "the",
+      range: { node: textNodeOf(editorRoot, id), start: 0, end: 3 },
+    });
+    expect(blockText(editor, id)).toBe("the cat");
+  });
+
+  it("is a no-op when neither carries text", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([
+      spec({ id, type: "p", runs: [{ text: "teh cat" }] }),
+    ]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 3) });
+    fireReplacement(editorRoot, {
+      plain: "",
+      range: { node: textNodeOf(editorRoot, id), start: 0, end: 3 },
+    });
+    expect(blockText(editor, id)).toBe("teh cat");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Selection: programmatic Anchor → native Range
 // ---------------------------------------------------------------------------
 
