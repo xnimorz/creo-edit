@@ -274,9 +274,35 @@ export type EditorOptions = {
    * are mounted. Recommended for documents with > ~500 blocks. The host
    * page must put a scroll container around the editor for this to work.
    */
-  virtualized?: boolean;
+  virtualized?: boolean | (() => boolean);
   /** Estimated block height (px) when virtualized — default 32. */
   virtualEstimatedHeight?: number;
+  /**
+   * When virtualized: an estimate, in px, for one block that has not been
+   * measured yet (from its text length, its kind). Blocks are measured as
+   * they are drawn; until then the scrollbar's length is the sum of these,
+   * so the closer they are the less it moves. Falls back to
+   * `virtualEstimatedHeight`. Called once per block object.
+   */
+  virtualEstimateHeight?: (block: Block) => number;
+  /** When virtualized: how much is mounted above and below what is visible,
+   *  in viewport heights — default 1.5. */
+  virtualOverscan?: number;
+  /**
+   * When virtualized: blocks not drawn at all, taking no height — a host
+   * folding a section. Set a NEW set for every change. (Hiding blocks with
+   * CSS instead would mount every one of them as soon as the window reached
+   * their zero-height run.)
+   */
+  virtualHidden?: Store<ReadonlySet<BlockId>>;
+  /**
+   * When virtualized: extra inline style for a spacer — the stand-in for the
+   * blocks not mounted — given the document and the index of the block drawn
+   * right after it. For CSS a host carries through the document from block
+   * to block (counters numbering a list): the spacer sets what the missing
+   * blocks would have left.
+   */
+  virtualSpacerStyle?: (doc: DocState, nextIndex: number) => string | undefined;
   /**
    * Initial editing mode — see `EditorMode`. Defaults to `"wysiwyg"`.
    * Toggle at runtime via `editor.setMode(...)`.
@@ -1199,7 +1225,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
           // argument — can walk up and find it (`dom/editorRef`). It is the
           // whole typed `Editor` now, not an ad-hoc bag of five fields.
           setEditorRef(root, editorSelf!);
-          root.spellcheck = opts.spellcheck === true;
+          // (`opts.spellcheck` was written here, and overridden a line later
+          // by attachNativeInput — so the option never did anything, at the
+          // price of two attribute flips on a root already holding every
+          // block. It is rendered on the root now, and honoured.)
           nativeInput = attachNativeInput(
             root,
             { docStore, selStore },
@@ -1214,6 +1243,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               onPaste: runPasteHooks,
               triggers,
               isEditable,
+              spellcheck: opts.spellcheck === true,
             },
           );
           drop = attachDrop(
@@ -1273,6 +1303,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
             {
               class: cls,
               "data-creo-edit": editorId,
+              // On the root from its first render, before any block is under
+              // it. Set at mount instead (attachNativeInput used to), the
+              // write lands on a root that already holds the whole document
+              // and restyles all of it — `contenteditable` is inherited.
+              contenteditable: isEditable() ? "true" : "false",
+              spellcheck: opts.spellcheck === true ? "true" : "false",
               // `cursor: text` so hovering shows the I-beam. Image blocks
               // override this to keep the default pointer arrow.
               //
@@ -1282,18 +1318,31 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               style: "position:relative;cursor:text;white-space:pre-wrap;",
             },
             () => {
-              if (opts.virtualized) {
+              // A thunk is read at every render of the root (each document
+              // change): a host can window only the documents long enough to
+              // need it. The two renderers are keyed apart, so a switch
+              // replaces one with the other whole.
+              const virtual =
+                typeof opts.virtualized === "function"
+                  ? opts.virtualized()
+                  : opts.virtualized === true;
+              if (virtual) {
                 VirtualDoc({
+                  key: "virtual",
                   docStore,
                   selStore,
                   estimatedHeight: opts.virtualEstimatedHeight,
+                  estimateHeight: opts.virtualEstimateHeight,
+                  overscan: opts.virtualOverscan,
+                  hidden: opts.virtualHidden,
+                  spacerStyle: opts.virtualSpacerStyle,
                   // Without this the virtualizer resolves "the first editor
                   // in the document", which is the wrong one as soon as a
                   // page holds two.
                   editorId,
                 });
               } else {
-                DocView({ doc: doc.get() });
+                DocView({ key: "whole", doc: doc.get() });
               }
             },
           );

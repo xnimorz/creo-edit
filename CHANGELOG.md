@@ -5,6 +5,67 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+### Virtualization, made fit for a host with real documents
+
+`VirtualDoc` was correct for a page of bare paragraphs at the top of its
+scroller. In a host (cront.app: 2 300 blocks with margins, cards holding
+editors of their own, folded sections, numbered lists) it windowed the wrong
+blocks, dropped the caret, and could not be turned on.
+
+- **Heights are advances, kept by block id.** A block's height is the
+  distance to the top of whatever is laid out after it — its margins and the
+  gaps between blocks counted — read in one pass over the mounted blocks. The
+  index is rebuilt from the heights kept by id when blocks are added, removed
+  or reordered (`HeightIndex.from`, O(n)), so no measurement is ever attached
+  to a neighbour. Before, a block's own box was summed and the index drifted
+  from the page by the margins of every block above.
+- **The window is placed from where the editor is** in its scroller, not from
+  the scroller's `scrollTop`: an editor under a header, or nested in a block
+  of another editor, windows correctly. Only the editor's own blocks are
+  measured — an editor nested in one of them has its own.
+- **Pins.** While the editor has the focus, the blocks of the selection's
+  end points (with the focus block's neighbours), the block holding the
+  focused element, and a block `scrollToBlock` is going to stay mounted
+  wherever the page is scrolled. Unmounting the caret's block dropped the
+  browser's selection; the next key acted somewhere else.
+- **`virtualHidden`** — a store of block ids not drawn and taking no height
+  (a host's folded sections). Hidden with CSS, a run of 2 000 zero-height
+  blocks was mounted whole the moment the window reached it.
+- **Lists are grouped** in `<ul>` / `<ol class="ce-list">` as `DocView`
+  groups them, keyed by the run's first block in the document, so the list
+  stays one element while the window moves along it.
+- **`virtualSpacerStyle(doc, nextIndex)`** — extra style for a spacer, for
+  CSS a host carries from block to block (list counters).
+- **`virtualEstimateHeight(block)`**, **`virtualOverscan`**, and
+  **`virtualized` as a thunk** (read at every render of the root: window only
+  the documents long enough to need it).
+- **Scroll anchoring is its own.** The first visible block is put back where
+  it was when something above it changes size; the browser's anchoring is off
+  inside the window (`overflow-anchor: none`), so the two never both correct,
+  and browsers without it behave the same.
+- A scroll inside the mounted slack renders nothing; `scrollToBlock` to a
+  block not mounted lands on it exactly once it is; the scroll and resize
+  listeners are removed on dispose (they leaked).
+- The page's selection is put on a block the virtualizer mounts later (a
+  selection set from outside onto a block not mounted yet).
+
+### The root's `contenteditable`
+
+Rendered on the root before its blocks exist, written again only when it
+changes, and not removed from a root that leaves the page with its editor.
+`contenteditable` is inherited: each write restyled every node under the
+root — about 200 ms on mount and 135 ms on teardown for a document of 46 000
+nodes — and `focusin` / `pointerdown` re-wrote it every time.
+
+### `spellcheck` is honoured
+
+`EditorOptions.spellcheck: true` now turns the browser's spellcheck on. It
+never did: the option was written to the root and then forced back to
+`"false"` a line later. Off by default, as documented. **A host that passed
+`true` gets spellcheck now.**
+
 ## 0.4.2
 
 ### Fixed
