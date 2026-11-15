@@ -89,9 +89,9 @@ Result: a 10,000-block document with one untouched character takes the same rend
 
 ## Virtualization
 
-`VirtualDoc` is the alternate render path opted into by `virtualized: true`. Only blocks intersecting `[scrollTop − overscan, scrollTop + viewport + overscan]` are mounted. A `HeightIndex` (Fenwick tree of measured per-block heights) resolves "what blocks are at this scroll offset" in O(log n).
+`VirtualDoc` is the alternate render path opted into by `virtualized` (a boolean, or a thunk read at each render). Only blocks intersecting `[top − overscan, top + viewport + overscan]` are mounted, plus the **pinned** ones — the selection's blocks while the editor has the focus, the block holding a focused control, a pending `scrollToBlock` target — with spacers standing for the rest. A `HeightIndex` (Fenwick tree of per-block heights) resolves "what blocks are at this offset" in O(log n).
 
-Heights are estimated for unmeasured blocks (`virtualEstimatedHeight`) and replaced with real measurements as they mount. Cumulative offsets are exact for visited blocks and approximate for the rest — visible scroll position is therefore stable, and the scroll thumb's "completion" estimate gets more accurate as the user explores.
+A block's height is its **advance** — top to the next top, margins included — measured off the DOM for mounted blocks, kept by block id, and estimated for the rest (`virtualEstimatedHeight`, or per block with `virtualEstimateHeight`). The window is placed from where the editor's blocks start in their scroller, and `VirtualDoc` anchors the scroll itself: the first visible block is put back whenever something above it changes size. See [Virtualization](#/virtualization) for pins, hidden blocks, list grouping and what a host takes over.
 
 ## Public API surface
 

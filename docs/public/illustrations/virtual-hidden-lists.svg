@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" width="760" height="350" role="img" aria-labelledby="t d" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<title id="t">Hidden blocks, lists and counters</title><desc id="d">Left: hidden blocks are not drawn and take no height. Right: a run of list items is one list element, and the spacer before it carries the count the items above it reached.</desc>
+<defs>
+<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#f7f6f3"/><line x1="0" y1="0" x2="0" y2="8" stroke="#d6d1c7" stroke-width="3"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#857f75"/></marker>
+<marker id="arrowa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c8553d"/></marker>
+</defs>
+<rect width="760" height="350" rx="14" fill="#f7f6f3"/>
+<text x="28" y="34" font-size="16" fill="#1f1e1c" text-anchor="start" font-weight="600">What the blocks left out used to do by being there</text>
+<text x="28" y="54" font-size="12.5" fill="#857f75" text-anchor="start" font-weight="400">Folded sections take no room; a numbered list keeps counting across the window's edge.</text>
+<text x="60" y="86" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">virtualHidden</text>
+<rect x="60" y="100" width="250" height="26" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="72" y="117" font-size="12.5" fill="#1f1e1c" text-anchor="start" font-weight="600">▸  Section (folded)</text>
+<rect x="74" y="130" width="222" height="18" rx="5" fill="#f7f6f3" stroke="#d6d1c7" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="86" y="143" font-size="10.5" fill="#857f75" text-anchor="start" font-weight="400">not drawn, height 0</text>
+<rect x="74" y="152" width="222" height="18" rx="5" fill="#f7f6f3" stroke="#d6d1c7" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="86" y="165" font-size="10.5" fill="#857f75" text-anchor="start" font-weight="400">not drawn, height 0</text>
+<rect x="74" y="174" width="222" height="18" rx="5" fill="#f7f6f3" stroke="#d6d1c7" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="86" y="187" font-size="10.5" fill="#857f75" text-anchor="start" font-weight="400">not drawn, height 0</text>
+<rect x="60" y="196" width="250" height="26" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="72" y="213" font-size="12.5" fill="#1f1e1c" text-anchor="start" font-weight="600">▾  Next section</text>
+<rect x="60" y="226" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="235" width="102.0" height="4" rx="2" fill="#d6d1c7"/>
+<text x="60" y="276" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">Hidden with CSS instead, a run of 2 000</text>
+<text x="60" y="292" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">zero-height blocks was mounted whole the</text>
+<text x="60" y="308" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">moment the window reached it.</text>
+<text x="420" y="86" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">lists and virtualSpacerStyle</text>
+<rect x="420" y="100" width="270" height="40" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="440" y="109" width="230" height="22" rx="11" fill="#ffffff" stroke="#c8553d"/>
+<text x="555" y="124" font-size="11.5" fill="#c8553d" text-anchor="middle" font-weight="600">spacer: counter-set: item 147</text>
+<rect x="412" y="148" width="286" height="106" rx="8" fill="none" stroke="#857f75" stroke-dasharray="5 4"/>
+<rect x="420" y="156" width="270" height="20" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="432" y="170" font-size="11.5" fill="#c8553d" text-anchor="start" font-weight="600">148.</text>
+<rect x="466" y="164" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="420" y="180" width="270" height="20" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="432" y="194" font-size="11.5" fill="#c8553d" text-anchor="start" font-weight="600">149.</text>
+<rect x="466" y="188" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="420" y="204" width="270" height="20" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="432" y="218" font-size="11.5" fill="#c8553d" text-anchor="start" font-weight="600">150.</text>
+<rect x="466" y="212" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="420" y="228" width="270" height="20" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<text x="432" y="242" font-size="11.5" fill="#c8553d" text-anchor="start" font-weight="600">151.</text>
+<rect x="466" y="236" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<text x="706" y="268" font-size="10.5" fill="#857f75" text-anchor="end" font-weight="400">one &lt;ol&gt;</text>
+<text x="420" y="290" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">A run of items is one list, keyed by its</text>
+<text x="420" y="306" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">first block in the document: the same</text>
+<text x="420" y="322" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">element while the window moves along it.</text>
+</svg>

@@ -217,6 +217,15 @@ export function markdownToDoc(src: string): SerializedDoc {
         break;
       }
       case "paragraph": {
+        // A paragraph that is one image (an illustration): an image block.
+        // The path is the markdown's own — `illustrations/x.svg` is served
+        // from `public/`, beside the page at any base.
+        const only = (tok as Tokens.Paragraph).tokens;
+        if (only.length === 1 && only[0]!.type === "image") {
+          const im = only[0] as Tokens.Image;
+          blocks.push({ type: "img", src: im.href, alt: im.text || im.title || "" });
+          break;
+        }
         blocks.push({
           type: "p",
           runs: tokensToRuns((tok as Tokens.Paragraph).tokens),
