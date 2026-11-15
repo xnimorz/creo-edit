@@ -5,7 +5,12 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## Unreleased
+## 0.5.0
+
+Virtualization rebuilt for a real host, the root's attributes stop
+restyling the whole document, and the `spellcheck` option works. No breaking
+API changes. The one behaviour change: `spellcheck: true` now does what it
+says (see below).
 
 ### Virtualization, made fit for a host with real documents
 
@@ -50,6 +55,9 @@ blocks, dropped the caret, and could not be turned on.
   listeners are removed on dispose (they leaked).
 - The page's selection is put on a block the virtualizer mounts later (a
   selection set from outside onto a block not mounted yet).
+- For hosts mounting `VirtualDoc` themselves: the same options are its
+  `estimateHeight`, `hidden` and `spacerStyle` props. `HeightIndex` gains
+  `from(heights, estimatedHeight)` and `heightAt(i)`.
 
 ### The root's `contenteditable`
 
