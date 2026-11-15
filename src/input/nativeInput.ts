@@ -19,6 +19,7 @@ import type { DispatchableCommand } from "../createEditor";
 import { caret as caretSel, range as rangeSel } from "../controller/selection";
 import { matchKeymap } from "./keymap";
 import { anchorToDom, domToAnchor, findBlockElementById } from "../dom/anchorMap";
+import { onMountedBlocksChanged } from "../dom/mountSignal";
 import { parseHTML, parsePlainText } from "../clipboard/htmlParser";
 import { selectionToClipboard } from "../clipboard/htmlSerializer";
 import { insertBlocks } from "../commands/insertCommands";
@@ -78,6 +79,8 @@ export type NativeInputOptions = {
    * editable when omitted.
    */
   isEditable?: () => boolean;
+  /** Native spellcheck on the root — off unless true. */
+  spellcheck?: boolean;
 };
 
 export type NativeInputHandle = {
@@ -95,6 +98,11 @@ export type NativeInputHandle = {
 // selectionchange fires asynchronously after a programmatic write; a boolean
 // would race with subsequent user-driven changes.
 // ---------------------------------------------------------------------------
+
+/** Which attach currently owns a root's `contenteditable` — so a destroy
+ *  that is followed at once by a new attach on the same root (a remount)
+ *  does not strip the attribute from under the new one. */
+const rootOwners = new WeakMap<HTMLElement, object>();
 
 export function attachNativeInput(
   root: HTMLElement,
@@ -117,14 +125,26 @@ export function attachNativeInput(
     isLive: (): boolean => attached,
   };
 
+  // Written only when it changes. `contenteditable` is inherited by every
+  // node under the root, so a write restyles the whole subtree: on a document
+  // of 46 000 nodes one flip cost ~200 ms. `EditorView` renders both
+  // attributes on the root before its blocks exist, so at mount these find
+  // them already there — and the `focusin` / `pointerdown` re-syncs below
+  // never touch the DOM unless the editable state really flipped.
+  const setIfChanged = (name: string, value: string): void => {
+    if (root.getAttribute(name) !== value) root.setAttribute(name, value);
+  };
   const syncEditable = (): void => {
-    root.setAttribute("contenteditable", isEditable() ? "true" : "false");
+    setIfChanged("contenteditable", isEditable() ? "true" : "false");
   };
 
   // Make the root editable. Browser default = false, so we set it explicitly.
-  // We also set spellcheck off for now — can be exposed as an option later.
+  // Spellcheck is the host's choice (`EditorOptions.spellcheck`), off unless
+  // asked for. It was forced off here whatever the option said.
+  const owner = {};
+  rootOwners.set(root, owner);
   syncEditable();
-  root.setAttribute("spellcheck", "false");
+  setIfChanged("spellcheck", options.spellcheck === true ? "true" : "false");
   // A thunk-valued `editable` can change without telling us. Re-sync on the
   // events that precede any possible edit, so the attribute is never stale
   // by the time a keystroke arrives.
@@ -323,11 +343,30 @@ export function attachNativeInput(
   // entirely. The deferred path is only needed when the model holds a
   // logical-only range (one endpoint in an unmounted block) AND VirtualDoc
   // is about to re-render and collapse our selectAllChildren fallback.
+  // A selection whose block is not in the DOM (the virtualizer has not
+  // mounted it yet — it will, the selection's blocks are pinned) cannot be
+  // put on the page now: it is put there when the block arrives. Only then,
+  // and only for that — re-applying at every mount would disturb a selection
+  // being dragged while the page scrolls under it.
+  let awaitingMount = false;
+  const resolvable = (sel: Selection): boolean =>
+    sel.kind === "caret"
+      ? !!anchorToDom(sel.at, root)
+      : !!anchorToDom(sel.anchor, root) && !!anchorToDom(sel.focus, root);
+  const offMounts = onMountedBlocksChanged((changed) => {
+    if (changed !== root || !awaitingMount || composing || renderPending) return;
+    const target = selStore.get();
+    if (!resolvable(target)) return;
+    awaitingMount = false;
+    applyNativeSelection(target);
+  });
+
   const unsubSel = selStore.subscribe(() => {
     if (composing) return;
     if (renderPending) return;
     const current = readNativeSelection();
     const target = selStore.get();
+    awaitingMount = !resolvable(target);
     if (current && selectionsEqual(current, target)) return;
     applyNativeSelection(target);
     // Targeted deferred re-apply for the logical-only case.
@@ -354,6 +393,7 @@ export function attachNativeInput(
     renderPending = true;
     scheduleAfterRender(() => {
       applyNativeSelection(selStore.get());
+      awaitingMount = !resolvable(selStore.get());
       renderPending = false;
     });
   });
@@ -893,8 +933,20 @@ export function attachNativeInput(
       root.removeEventListener("keyup", onShiftKey, true);
       unsubSel();
       unsubDoc();
-      root.removeAttribute("contenteditable");
-      root.removeAttribute("spellcheck");
+      offMounts();
+      // A root that stays on the page stops being editable. One that leaves
+      // with its editor — the usual case: the host disposes the view, and the
+      // renderer removes the node right after — must not be touched: taking
+      // `contenteditable` off restyles every node under it (~135 ms at 46 000
+      // nodes), all of them about to be dropped. So: a microtask later, only
+      // if the root is still in the document and no newer editor took it over.
+      queueMicrotask(() => {
+        if (rootOwners.get(root) !== owner) return;
+        rootOwners.delete(root);
+        if (!root.isConnected) return;
+        root.removeAttribute("contenteditable");
+        root.removeAttribute("spellcheck");
+      });
     },
   };
 }

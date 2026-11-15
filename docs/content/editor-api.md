@@ -23,8 +23,12 @@ const editor = createEditor({
 |---|---|---|---|
 | `initial` | `SerializedDoc` | one empty `p` | Starting document. See [Block format](#/block-format). |
 | `uploadImage` | `(File) => Promise<string>` | `URL.createObjectURL` | Called when the user pastes / drops an image. Returns the URL to store in the model. Without it, a temporary `blob:` URL is used. |
-| `virtualized` | `boolean` | `false` | If `true`, only viewport-intersecting blocks are mounted. See [Virtualization](#/virtualization). |
+| `virtualized` | `boolean \| (() => boolean)` | `false` | Mount only the blocks near the viewport. A thunk is read at every render of the root — window only the documents long enough to need it. See [Virtualization](#/virtualization). |
 | `virtualEstimatedHeight` | `number` | `32` | Estimated block height (px) used before measurement. Tune to your typical block size. |
+| `virtualEstimateHeight` | `(block) => number` | — | A per-block estimate, for a steadier scrollbar. |
+| `virtualOverscan` | `number` | `1.5` | Viewport heights mounted above and below what is visible. |
+| `virtualHidden` | `Store<ReadonlySet<BlockId>>` | — | Blocks not drawn and taking no height (folded sections). |
+| `virtualSpacerStyle` | `(doc, nextIndex) => string` | — | Extra style for a spacer — CSS carried through the document, such as list counters. |
 | `mode` | `"wysiwyg" \| "md"` | `"wysiwyg"` | Editing mode. `"md"` pairs with `mdShortcutsPlugin` for markdown typing rules. See [Editing modes](#/editing-modes). |
 | `plugins` | `EditorPlugin[]` | `[]` | Plugins to install in addition to the built-in defaults (paragraph, heading, list, code-block, image, cells). See [Authoring plugins](#/plugin-authoring). |
 | `editable` | `boolean \| (() => boolean)` | `true` | Whether the document accepts input. See [Read-only editors](#read-only-editors). |

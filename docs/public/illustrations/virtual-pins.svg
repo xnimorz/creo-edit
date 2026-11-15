@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 480" width="760" height="480" role="img" aria-labelledby="t d" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<title id="t">Pins</title><desc id="d">The caret's block and its two neighbours stay mounted, with a gap spacer between them and the window, while the page is scrolled far away from the caret.</desc>
+<defs>
+<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#f7f6f3"/><line x1="0" y1="0" x2="0" y2="8" stroke="#d6d1c7" stroke-width="3"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#857f75"/></marker>
+<marker id="arrowa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c8553d"/></marker>
+</defs>
+<rect width="760" height="480" rx="14" fill="#f7f6f3"/>
+<text x="28" y="34" font-size="16" fill="#1f1e1c" text-anchor="start" font-weight="600">Pins: what stays mounted wherever the page is scrolled</text>
+<text x="28" y="54" font-size="12.5" fill="#857f75" text-anchor="start" font-weight="400">Unmounting the caret's block drops the browser's selection. The next key would act somewhere else.</text>
+<rect x="60" y="78" width="250" height="30" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="60" y="116" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="125" width="96.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="142" width="250" height="22" rx="5" fill="#dbe6f8" stroke="#3d6fc8" stroke-width="1.6"/>
+<rect x="72" y="151" width="96.0" height="4" rx="2" fill="#3d6fc8"/>
+<rect x="60" y="168" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="177" width="96.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="236" y="146" width="2" height="14" fill="#3d6fc8"/>
+<rect x="60" y="198" width="250" height="70" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="60" y="278" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="285" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="304" width="250" height="30" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="311" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="320" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="338" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="345" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="364" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="371" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="390" width="250" height="30" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="397" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="406" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="432" width="250" height="20" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="48" y="301" width="274" height="88" rx="8" fill="none" stroke="#c8553d" stroke-width="2"/>
+<path d="M316 153 C 356 153, 356 120, 392 120" fill="none" stroke="#857f75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="402" y="124" font-size="13" fill="#3d6fc8" text-anchor="start" font-weight="600">pinned: the caret's block and its neighbours</text>
+<text x="402" y="142" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">while the editor has the focus. Also pinned: both ends</text>
+<text x="402" y="158" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">of a range, the block holding a focused field, and a</text>
+<text x="402" y="174" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">block scrollToBlock is on its way to.</text>
+<path d="M316 233 C 356 233, 356 222, 392 222" fill="none" stroke="#857f75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="402" y="226" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">gap spacer</text>
+<text x="402" y="244" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">between the pins and the window, as tall as the</text>
+<text x="402" y="260" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">blocks it stands for. Not editable: the caret never</text>
+<text x="402" y="276" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">crosses it into a block that is not the next one.</text>
+<path d="M324 345.0 C 364 345.0, 356 330, 392 330" fill="none" stroke="#c8553d" stroke-width="1.2" marker-end="url(#arrowa)"/>
+<text x="402" y="334" font-size="13" fill="#c8553d" text-anchor="start" font-weight="600">viewport, far from the caret</text>
+<text x="402" y="352" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">Typing still lands at the caret. An arrow key moves</text>
+<text x="402" y="368" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">into a real neighbour, never across the gap.</text>
+</svg>

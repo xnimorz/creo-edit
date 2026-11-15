@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<title id="t">The window</title><desc id="d">A long document in a scroller. Only the blocks in the viewport and the overscan above and below it are mounted; a top spacer and a bottom spacer stand for the rest.</desc>
+<defs>
+<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#f7f6f3"/><line x1="0" y1="0" x2="0" y2="8" stroke="#d6d1c7" stroke-width="3"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#857f75"/></marker>
+<marker id="arrowa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c8553d"/></marker>
+</defs>
+<rect width="760" height="500" rx="14" fill="#f7f6f3"/>
+<text x="28" y="34" font-size="16" fill="#1f1e1c" text-anchor="start" font-weight="600">The window</text>
+<text x="28" y="54" font-size="12.5" fill="#857f75" text-anchor="start" font-weight="400">Only the blocks near the viewport are in the DOM. Spacers stand for the rest.</text>
+<rect x="60" y="78" width="250" height="62" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="60" y="150" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="157" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="176" width="250" height="30" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="183" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="192" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="210" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="217" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="236" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="243" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="262" width="250" height="38" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="269" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="278" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="287" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="304" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="311" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="330" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="337" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="356" width="250" height="30" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="363" width="190" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="372" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="390" width="250" height="22" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="397" width="114.0" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="60" y="424" width="250" height="48" rx="5" fill="url(#hatch)" stroke="#d6d1c7"/>
+<rect x="38" y="146" width="294" height="270" rx="10" fill="none" stroke="#857f75" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="48" y="233" width="274" height="96" rx="8" fill="none" stroke="#c8553d" stroke-width="2"/>
+<path d="M316 108 C 356 108, 356 100, 392 100" fill="none" stroke="#857f75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="402" y="104" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">top spacer</text>
+<text x="402" y="122" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">one div, as tall as every block above the window</text>
+<text x="402" y="138" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">(measured where known, estimated elsewhere)</text>
+<path d="M336 162 C 376 162, 356 186, 392 186" fill="none" stroke="#857f75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="402" y="190" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">overscan</text>
+<text x="402" y="208" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">1.5 viewports mounted each way, so a scroll</text>
+<text x="402" y="224" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">lands on blocks that are already there</text>
+<path d="M324 281.0 C 364 281.0, 356 276, 392 276" fill="none" stroke="#c8553d" stroke-width="1.2" marker-end="url(#arrowa)"/>
+<text x="402" y="280" font-size="13" fill="#c8553d" text-anchor="start" font-weight="600">viewport</text>
+<text x="402" y="298" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">what the scroller shows. The window is placed from</text>
+<text x="402" y="314" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">where the editor sits in it, not from scrollTop alone</text>
+<path d="M316 448.0 C 356 448.0, 356 442.0, 392 442.0" fill="none" stroke="#857f75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="402" y="442.0" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">bottom spacer</text>
+<text x="402" y="460.0" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">the rest of the document. A scroll inside the</text>
+<text x="402" y="476.0" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">mounted slack renders nothing at all</text>
+</svg>

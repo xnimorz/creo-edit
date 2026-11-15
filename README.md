@@ -139,7 +139,11 @@ const editor = createEditor({
 });
 ```
 
-Only blocks intersecting `[scrollTop − overscan, scrollTop + viewport + overscan]` are mounted, with measured per-block heights stored in a Fenwick tree for O(log n) viewport resolution.
+Only the blocks near the viewport are mounted, with per-block heights in a Fenwick tree for O(log n) viewport resolution. The caret's block stays mounted wherever the page is scrolled; folded sections (`virtualHidden`) take no room; `virtualized` can be a thunk, to window only the documents long enough to need it.
+
+![Only the blocks in the viewport and the overscan around it are mounted; spacers stand for the rest.](docs/public/illustrations/virtual-window.svg)
+
+In a host with real content (2 300 blocks, 46 000 DOM nodes drawn whole) opening the document went from 565 ms to 18 ms and a typed character from 22 ms to 3 ms. See [Virtualization](docs/content/virtualization.md) for pins, hidden blocks, lists and what a host takes over.
 
 ### Image upload
 

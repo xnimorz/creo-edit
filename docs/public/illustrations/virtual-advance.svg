@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" width="760" height="330" role="img" aria-labelledby="t d" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<title id="t">A block's height is its advance</title><desc id="d">Left: summing each block's own box leaves out the margins between blocks, so the index drifts from the page. Right: the advance, measured to the top of the next thing in flow, includes them.</desc>
+<defs>
+<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#f7f6f3"/><line x1="0" y1="0" x2="0" y2="8" stroke="#d6d1c7" stroke-width="3"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#857f75"/></marker>
+<marker id="arrowa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c8553d"/></marker>
+</defs>
+<rect width="760" height="330" rx="14" fill="#f7f6f3"/>
+<text x="28" y="34" font-size="16" fill="#1f1e1c" text-anchor="start" font-weight="600">A block's height is its advance</text>
+<text x="28" y="54" font-size="12.5" fill="#857f75" text-anchor="start" font-weight="400">What the index sums must be what the page lays out, margins included.</text>
+<text x="60" y="86" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">before: each block's own box</text>
+<rect x="60" y="102" width="210" height="34" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="111" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="120" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="290" y1="104" x2="290" y2="134" stroke="#857f75" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="302" y="123.0" font-size="12" fill="#857f75" text-anchor="start" font-weight="600">34</text>
+<text x="165" y="149" font-size="10.5" fill="#857f75" text-anchor="middle" font-weight="400">margin: not counted</text>
+<rect x="60" y="154" width="210" height="48" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="163" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="172" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="181" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="290" y1="156" x2="290" y2="200" stroke="#857f75" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="302" y="182.0" font-size="12" fill="#857f75" text-anchor="start" font-weight="600">48</text>
+<text x="165" y="215" font-size="10.5" fill="#857f75" text-anchor="middle" font-weight="400">margin: not counted</text>
+<rect x="60" y="220" width="210" height="34" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="72" y="229" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="72" y="238" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="290" y1="222" x2="290" y2="252" stroke="#857f75" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="302" y="241.0" font-size="12" fill="#857f75" text-anchor="start" font-weight="600">34</text>
+<text x="165" y="267" font-size="10.5" fill="#857f75" text-anchor="middle" font-weight="400">margin: not counted</text>
+<text x="420" y="86" font-size="13" fill="#1f1e1c" text-anchor="start" font-weight="600">now: from its top to the next top</text>
+<rect x="420" y="136" width="210" height="18" fill="#f6ddd6"/>
+<rect x="420" y="102" width="210" height="34" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="432" y="111" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="432" y="120" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="650" y1="103" x2="650" y2="153" stroke="#c8553d" stroke-width="2" marker-start="url(#arrowa)" marker-end="url(#arrowa)"/>
+<text x="662" y="132.0" font-size="12" fill="#c8553d" text-anchor="start" font-weight="600">52</text>
+<rect x="420" y="202" width="210" height="18" fill="#f6ddd6"/>
+<rect x="420" y="154" width="210" height="48" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="432" y="163" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="432" y="172" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="432" y="181" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="650" y1="155" x2="650" y2="219" stroke="#c8553d" stroke-width="2" marker-start="url(#arrowa)" marker-end="url(#arrowa)"/>
+<text x="662" y="191.0" font-size="12" fill="#c8553d" text-anchor="start" font-weight="600">66</text>
+<rect x="420" y="254" width="210" height="18" fill="#f6ddd6"/>
+<rect x="420" y="220" width="210" height="34" rx="5" fill="#ffffff" stroke="#d6d1c7" stroke-width="1.2"/>
+<rect x="432" y="229" width="150" height="4" rx="2" fill="#d6d1c7"/>
+<rect x="432" y="238" width="90.0" height="4" rx="2" fill="#d6d1c7"/>
+<line x1="650" y1="221" x2="650" y2="271" stroke="#c8553d" stroke-width="2" marker-start="url(#arrowa)" marker-end="url(#arrowa)"/>
+<text x="662" y="250.0" font-size="12" fill="#c8553d" text-anchor="start" font-weight="600">52</text>
+<text x="60" y="290" font-size="12" fill="#1f1e1c" text-anchor="start" font-weight="400">116 px indexed, 170 px on the page.</text>
+<text x="60" y="308" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">Over 2 300 blocks, screens of drift.</text>
+<text x="420" y="290" font-size="12" fill="#1f1e1c" text-anchor="start" font-weight="400">170 px indexed, 170 px on the page.</text>
+<text x="420" y="308" font-size="12" fill="#857f75" text-anchor="start" font-weight="400">One pass over what is mounted; kept by block id.</text>
+</svg>

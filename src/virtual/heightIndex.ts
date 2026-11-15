@@ -27,8 +27,36 @@ export class HeightIndex {
     this.#measuredHeights = new Float64Array(count);
   }
 
+  /**
+   * An index holding exactly `heights` — every slot counted as measured.
+   * O(n): the Fenwick tree is built in one pass, not by n inserts. For a
+   * caller that keeps the heights itself (by block id) and rebuilds when the
+   * blocks are reordered, so no measurement is ever attached to the wrong one.
+   */
+  static from(heights: Float64Array, estimatedHeight: number): HeightIndex {
+    const n = heights.length;
+    const index = new HeightIndex(n, estimatedHeight);
+    const bit = index.#bit;
+    for (let i = 0; i < n; i++) {
+      index.#measured[i] = 1;
+      index.#measuredHeights[i] = heights[i]!;
+      bit[i + 1] = heights[i]! - estimatedHeight;
+    }
+    for (let i = 1; i <= n; i++) {
+      const j = i + (i & -i);
+      if (j <= n) bit[j] = bit[j]! + bit[i]!;
+    }
+    return index;
+  }
+
   get size(): number {
     return this.#n;
+  }
+
+  /** The height held for index `i` (its measurement, else the estimate). */
+  heightAt(i: number): number {
+    if (i < 0 || i >= this.#n) return 0;
+    return this.#measured[i] ? this.#measuredHeights[i]! : this.#estimated;
   }
 
   /** Replace the height at `i` with `h`. O(log n). */
