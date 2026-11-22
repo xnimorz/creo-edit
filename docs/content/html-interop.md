@@ -19,7 +19,7 @@ Replaces the entire document, resets the selection to the end, and clears the un
 
 ## Pasting
 
-Pasting is wired automatically. The clipboard handler tries `text/html` first; if absent, it falls back to `text/plain`. Both go through the same parser as `setDocFromHTML`, then the result is inserted at the caret (replacing any selected range) — this path goes through the regular dispatch flow, so paste IS undoable.
+Pasting is wired automatically. The clipboard handler tries `text/html` first; if absent, it falls back to `text/plain`. Both go through the same parser as `setDocFromHTML`, then the result is inserted at the caret (replacing any selected range). The paste is dispatched as the built-in `{ t: "pasteBlocks", blocks }`, so it is one undo step, it reaches `onChange` subscribers, and a read-only editor refuses it.
 
 Images on the clipboard or dropped onto the editor go through `EditorOptions.uploadImage` if you provide one; otherwise, `URL.createObjectURL(file)` is used so the image renders immediately but the URL is local-only.
 
@@ -34,6 +34,10 @@ The parser maps a small, opinionated subset of HTML onto the block model:
 | `<ul><li>`, `<ol><li>` | `li` (with `ordered` and `depth` from nesting) |
 | `<img src=… alt=… width=… height=…>` | `img` |
 | `<table><tr><td>` | `table` |
+| `<pre>` | `code` (the language from a `language-…` class) |
+| `<blockquote>` | `blockquote` (with `blockquotePlugin`) |
+| `<hr>` | `hr` (with `horizontalRulePlugin`) |
+| `<a href>` | `link` mark |
 | `<strong>`, `<b>` | `b` mark |
 | `<em>`, `<i>` | `i` mark |
 | `<u>` | `u` mark |
@@ -41,7 +45,7 @@ The parser maps a small, opinionated subset of HTML onto the block model:
 | `<code>` | `code` mark |
 | `<br>` | newline character within the current block |
 
-Anything else (divs, spans with classes, custom elements, `<a>`, `<blockquote>`, `<pre>`, scripts, styles) is either flattened into its text content or dropped. This is intentional — the editor's block taxonomy is fixed; the parser doesn't try to invent new block types.
+Plugin blocks claim their own tags through `BlockDef.htmlCodec`. Anything else (divs, spans with classes, custom elements, scripts, styles) is either flattened into its text content or dropped.
 
 ## Saving
 

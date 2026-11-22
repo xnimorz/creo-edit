@@ -21,6 +21,7 @@ import { registerSelfVirtualized } from "./selfVirtualized";
 import { registerTextBearing } from "./textBearing";
 import { registerMark } from "./markRegistry";
 import { registerMarkdownCodec } from "../markdown/blockCodec";
+import { registerPlainText } from "./plainText";
 import type {
   CommandCtx,
   CommandDef,
@@ -76,6 +77,7 @@ export class Registry {
         if (def.htmlCodec) registerHtmlBlockCodec(def.type, def.htmlCodec);
         if (def.serializeCodec) registerSerializeCodec(def.type, def.serializeCodec);
         if (def.markdownCodec) registerMarkdownCodec(def.type, def.markdownCodec);
+        if (def.plainText) registerPlainText(def.type, def.plainText as (b: Block) => string);
         if (def.selfVirtualized) {
           registerSelfVirtualized(def.type, def.selfVirtualized as never);
         }

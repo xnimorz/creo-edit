@@ -204,6 +204,12 @@ export type BlockDef<B extends Block = Block> = {
    * Receives the SERIALIZED block, so it pairs with `serializeCodec`.
    */
   markdownCodec?: MarkdownBlockCodec;
+
+  /**
+   * The block as plain text, for the `text/plain` flavour of a copy. Without
+   * one, a block that bears no text contributes nothing.
+   */
+  plainText?(b: B): string;
 };
 
 // ---------------------------------------------------------------------------

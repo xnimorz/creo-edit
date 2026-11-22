@@ -17,6 +17,11 @@ itself, and that takes changes from outside while the user reads or types.
   never heard of it. It now dispatches the new built-in
   `{ t: "pasteBlocks", blocks }`, which also means a read-only editor
   refuses it at the dispatcher like every other edit.
+- **Copying across a block that bears no text no longer writes `[table]`.**
+  `BlockDef.plainText(block)` gives a plugin block its text for the
+  `text/plain` flavour; tables now copy their cells (tab-separated, a line
+  per row) and columns theirs, as `docToPlain` already did. A block with
+  neither contributes no line.
 
 ## 0.9.0
 
