@@ -1,8 +1,17 @@
 import { _ } from "creo";
 import { button, div, option, select, view } from "creo";
 import type { InputEventData, PointerEventData } from "creo";
-import { calendarPlugin, createEditor, type Mark } from "creo-edit";
+import {
+  calendarPlugin,
+  createEditor,
+  defaultSlashItems,
+  slashCommandsPlugin,
+  type Mark,
+  type SerializedDoc,
+} from "creo-edit";
+import { mermaidPlugin, mermaidSlashItem } from "creo-edit/mermaid";
 import "../../../src/plugins/styles.css";
+import "../../../src/plugins/mermaid/styles.css";
 
 // Editor config is URL-driven so the same example app can demonstrate every
 // mode without separate routes — and so the E2E suite can pin a config:
@@ -25,8 +34,15 @@ export const editor = createEditor({
   mode: __urlMode,
   virtualized: __virtualized,
   editable: !__readOnly,
-  plugins: [calendarPlugin()],
-  initial: {
+  plugins: [
+    calendarPlugin(),
+    mermaidPlugin(),
+    slashCommandsPlugin({ items: [...defaultSlashItems, mermaidSlashItem] }),
+  ],
+  // `?doc=diagram` opens on a document with a diagram in it, which is the
+  // quickest way to try the mermaid block; the default document is unchanged
+  // so the existing E2E coordinates still hold.
+  initial: __params.get("doc") === "diagram" ? diagramDoc() : {
     blocks: [
       { type: "h1", runs: [{ text: "Welcome to Creo Editor" }] },
       {
@@ -75,6 +91,29 @@ export const editor = createEditor({
   },
 });
 
+function diagramDoc(): SerializedDoc {
+  return {
+    blocks: [
+      { type: "h1", runs: [{ text: "Diagrams" }] },
+      {
+        type: "p",
+        runs: [
+          {
+            text:
+              "Click a step to select it. Double-click to rename, press + to add a connected step, drag a dot to connect two.",
+          },
+        ],
+      },
+      {
+        type: "mermaid",
+        source:
+          "flowchart TD\n  A[Start] --> B{Works?}\n  B -->|Yes| C[Ship it]\n  B -->|No| D[Fix it]\n  D --> B",
+      },
+      { type: "p", runs: [{ text: "Text after the diagram." }] },
+    ],
+  } as unknown as SerializedDoc;
+}
+
 const blockTypes = [
   { v: "p", label: "Paragraph" },
   { v: "h1", label: "Heading 1" },
@@ -117,6 +156,10 @@ const Toolbar = view(() => {
     editor.dispatch({ t: "insertColumns", cols: 2 });
     editor.focus();
   };
+  const insertDiagram = (e: PointerEventData) => {
+    e.preventDefault();
+    editor.dispatch({ t: "mermaid.insert", payload: {} });
+  };
   const undo = (e: PointerEventData) => {
     e.preventDefault();
     editor.undo();
@@ -149,6 +192,7 @@ const Toolbar = view(() => {
         button({ on: { click: insertImage } }, "Image");
         button({ on: { click: insertTable } }, "Table");
         button({ on: { click: insertColumns } }, "Columns");
+        button({ on: { click: insertDiagram } }, "Diagram");
         div({ class: "sep" });
         button({ on: { click: undo } }, "Undo");
         button({ on: { click: redo } }, "Redo");

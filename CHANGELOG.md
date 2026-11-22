@@ -5,6 +5,74 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+Mermaid diagrams, as a block you can edit by pointing at it. No breaking API
+changes. Two small behaviour changes in the editor itself, both described
+under "Editor" below.
+
+### `creo-edit/mermaid` — a diagram block
+
+A new, separate entry point. The main `creo-edit` entry does not depend on
+it, and a page with no diagram loads none of its engine.
+
+```ts
+import { mermaidPlugin, mermaidSlashItem } from "creo-edit/mermaid";
+import "creo-edit/mermaid/styles.css";
+
+createEditor({ plugins: [mermaidPlugin()] });
+editor.dispatch({ t: "mermaid.insert", payload: {} });
+```
+
+- **The block** is atomic: `{ type: "mermaid", source }`. It leaves as a
+  fenced block tagged `mermaid` in markdown and as
+  `<pre><code class="language-mermaid">` in HTML, and comes back from both.
+- **Two modes, with a switch on the block.** *Diagram* is the picture;
+  *Code* is the source in a text field with the picture following it. Which
+  is showing is view state — switching emits no change and adds no undo step.
+- **The picture is editable.** Click to select, double-click to rename,
+  **+** (or `Tab`) to add a connected node that is already selected for
+  typing, drag a dot to connect two nodes, `Delete` to remove. A node's shape
+  and an edge's line style are in the block's bar. Every one is an edit to
+  the source text and one undo step. Flowcharts, sequence, state, class and
+  entity-relationship diagrams; other types are drawn and edited in Code.
+- **Code mode holds a draft** and writes the document once, on leaving the
+  field: one edit session is one undo step. `Escape` discards it.
+- **Drawn by [Pele](https://github.com/obsidianmd/pele)**, edits compiled to
+  text by [`@visimer/core`](https://github.com/inkeep/visimer). Both are
+  optional peer dependencies of this entry point only, loaded with `import()`
+  on first use and warmed up when the browser is idle (`preload`).
+- **`mermaidActions(editor, blockId)`** returns the list the block's bar is
+  drawn from, so a host can offer the same actions in its own context menu.
+- **`creo-edit/mermaid/sw`** — a cache-first fetch handler for a host's
+  service worker, for when the engine is loaded from a CDN. An app that
+  bundles the engine needs nothing: it is part of the build its worker
+  already precaches.
+- Commands: `mermaid.insert`, `mermaid.setSource`, `mermaid.fromCode`,
+  `mermaid.toCode`. Options and the rest are in the docs, under *Mermaid
+  diagrams*.
+
+### Editor
+
+- **`isolateInput(node)`** (new export). A form control rendered inside a
+  block sits under the editor's root, which cancels every `beforeinput` it
+  sees — so the control's typing was swallowed unless it stopped its own
+  events first. This is that helper. cront.app has carried its own copy for
+  the fields in its cards.
+- **Behaviour change: plugin HTML parsers are asked before built-in ones.**
+  Parsers claiming the same tag were tried in registration order, and the
+  built-in `<pre>` parser never declines — so a plugin could not claim one
+  kind of `<pre>`. They are now tried newest first, the same last-write-wins
+  rule the view and command registries follow. A plugin parser that returns
+  `null` for elements it does not own (as the documented contract says) is
+  unaffected.
+- **Behaviour change: the editor no longer writes the page's selection while
+  the focus is on a control inside one of its blocks.** Doing so moved the
+  focus to the editing host, out of the control — after a command dispatched
+  *from* such a control, the next keystroke went to the document. The model
+  selection is unchanged, and the browser reports a fresh one as soon as the
+  user clicks or tabs back into the text.
+
 ## 0.5.0
 
 Virtualization rebuilt for a real host, the root's attributes stop

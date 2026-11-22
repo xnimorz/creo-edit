@@ -220,7 +220,34 @@ export function attachNativeInput(
   };
 
   /** Apply an editor Selection to native window.getSelection(). */
+  /**
+   * True when the focus is on something INSIDE one of this editor's blocks
+   * that is not the editor's own text: a form field in a card, a diagram's
+   * canvas, a button.
+   *
+   * Writing the page's selection then would take the focus away from it —
+   * the browser moves focus to the editing host a selection lands in — and
+   * the next keystroke would go to the document instead of the field. This
+   * is the case the editor must stay out of: a command dispatched FROM such a
+   * control (a visual edit on a diagram) changes the document, the renderer
+   * runs, and the post-render selection sync would pull the focus out of the
+   * control that asked for the change.
+   *
+   * Nothing is lost by skipping: the model selection is still canonical, and
+   * the browser hands the editor a fresh one (`selectionchange`) the moment
+   * the user clicks or tabs back into the text.
+   */
+  const focusIsInsideABlock = (): boolean => {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active === root || !root.contains(active)) return false;
+    const tag = active.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    // Focusable but not editable text: an island's own control.
+    return active.isContentEditable !== true;
+  };
+
   const applyNativeSelection = (sel: Selection): void => {
+    if (focusIsInsideABlock()) return;
     const native = document.getSelection();
     if (!native) return;
     const anchorPoint =
