@@ -16,6 +16,8 @@ export type {
   SerializedRun,
   EditorMode,
   SetDocOptions,
+  BlockPatch,
+  ApplyBlocksOptions,
   UnknownBlockPolicy,
   // The sanctioned wire shape for a plugin-introduced block type. Cast
   // through it when building `SerializedDoc.blocks` for a type outside the

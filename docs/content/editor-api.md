@@ -50,6 +50,7 @@ type Editor = {
   getText: (blockId?: BlockId) => string;
   appendBlocks: (specs: BlockInsertInput[]) => BlockId[];
   prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
+  applyBlocks: (patch: BlockPatch, opts?: { history?: boolean }) => BlockId[];
   focus: () => void;
   blur: () => void;
   getMode: () => EditorMode;
@@ -170,6 +171,25 @@ Plain text straight off the model: the whole document with blocks joined by `\n`
 
 Characters are counted exactly the way anchors count them — a `code` block's newlines are real characters in both — so `getText(id).slice(0, anchor.offset)` is the text before that anchor. Reach for this rather than `toJSON()` when you only want characters: hashing the buffer, diffing against disk, computing line starts, feeding a language server.
 
+### `applyBlocks(patch, opts?)`
+
+For changes that arrive from outside on the same document while someone may be reading or typing in it: a file re-read from disk, an agent's rewrite, a sync. The host decides *what* changed; the editor applies it without replacing the document.
+
+```ts
+editor.applyBlocks({
+  remove: ["b3"],
+  replace: [{ id: "b1", type: "p", runs: [{ text: "The new wording" }] }],
+  insert: [{ blocks: [{ id: "n1", type: "h2", runs: [{ text: "Risks" }] }], after: "b1" }],
+});
+```
+
+- Applied in the order `remove`, `replace`, `insert`. Blocks are in wire form, as `setDoc` takes them. A `replace` keeps the block's place; an id the document does not have is ignored. An `insert` run goes after `after` (`null` for the start), before `before`, or at the end.
+- Not gated by `editable`, like `setDoc`.
+- Untouched blocks keep their identity, so only what changed re-renders.
+- `onChange` hears per-block changes. A text block whose text changed is one `text` change over the span that differs, so an anchor before or after it maps instead of being dropped; the same text with a new type or marks is `blockAttrs`; a table or other shape that no offset describes is `resetBlock`; blocks that changed order are `moveBlock`.
+- The selection is carried through those changes, and clamped only where its text is gone.
+- No undo step unless `{ history: true }`. History is snapshots, so undoing past an unrecorded patch restores a document from before it.
+
 ### `focus()` / `blur()`
 
 Moves keyboard focus to / from the editor root. Call `focus()` after any toolbar interaction so the user can keep typing without clicking back into the editor.
@@ -202,7 +222,7 @@ What stays available while read-only:
 
 - caret motion (`moveCursor`), selection, copy — a cut degrades to a copy;
 - plugin commands that opt in with `readOnlySafe: true` (the built-in table / columns navigation commands do);
-- host-level document APIs — `setDoc`, `setDocFromHTML`, `appendBlocks`, `prependBlocks`. That's how a read-only viewer loads its content, so gating them would be self-defeating.
+- host-level document APIs — `setDoc`, `setDocFromHTML`, `appendBlocks`, `prependBlocks`, `applyBlocks`. That's how a read-only viewer loads its content, so gating them would be self-defeating.
 
 `undo()` / `redo()` are gated, and refused commands are rejected *before* the history snapshot, so read-only dispatches leave no empty undo steps behind.
 

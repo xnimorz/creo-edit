@@ -10,6 +10,16 @@ changes.
 Primitives for a host that mixes text the user edits with content it draws
 itself, and that takes changes from outside while the user reads or types.
 
+### Editor
+
+- **`editor.applyBlocks(patch, { history? })`** changes some blocks from
+  outside without replacing the document: `remove` ids, `replace` blocks by
+  id in place, `insert` runs after or before a block. Not gated by
+  `editable`. `onChange` hears per-block changes, with a text block's new
+  text as one `text` change over the span that differs, so anchors and the
+  caret map rather than being clamped. No undo step unless asked. Types
+  `BlockPatch`, `ApplyBlocksOptions`.
+
 ### Fixes
 
 - **A paste is one undo step and reaches `onChange`.** The paste handler

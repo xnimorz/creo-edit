@@ -58,7 +58,16 @@ import {
   attachNativeInput,
   type NativeInputHandle,
 } from "./input/nativeInput";
-import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
+import {
+  docFromBlocks,
+  emptyDoc,
+  findPos,
+  insertManyAt,
+  newBlockId,
+  removeBlocks as docRemoveBlocks,
+  updateBlock,
+} from "./model/doc";
+import { changesBetween, mapSelection } from "./model/docChanges";
 import { blockTextOf } from "./model/blockText";
 import {
   collectChanges,
@@ -206,6 +215,31 @@ export type SerializedDoc = {
 
 export type EditorViewProps = {
   class?: string;
+};
+
+/**
+ * A change to some blocks of the document, from the host. Applied in this
+ * order: `remove`, then `replace`, then `insert`. Blocks are in wire form, as
+ * `setDoc` takes them.
+ */
+export type BlockPatch = {
+  remove?: readonly BlockId[];
+  /** New content for blocks already in the document, matched by id; each
+   *  keeps its place. An id the document does not have is ignored. */
+  replace?: readonly SerializedBlock[];
+  /** Each run goes after `after` (`null`: at the start), or before `before`,
+   *  or, with neither, at the end. */
+  insert?: readonly {
+    blocks: readonly SerializedBlock[];
+    after?: BlockId | null;
+    before?: BlockId;
+  }[];
+};
+
+export type ApplyBlocksOptions = {
+  /** Make the patch one undo step. Default false: the undo stack is left as
+   *  it is, so undoing past this point restores a document from before it. */
+  history?: boolean;
 };
 
 /** Options for the wholesale-replacement APIs (`setDoc`, `setDocFromHTML`). */
@@ -462,6 +496,15 @@ export type Editor = {
    * adjust after the next animation frame.
    */
   prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
+  /**
+   * Change some blocks from outside — a file re-read, an agent's rewrite, a
+   * sync — without replacing the document. Not gated by `editable`, like
+   * `setDoc`. Untouched blocks keep their identity; `onChange` hears per-block
+   * changes (a text block whose text changed as one `text` change over the
+   * span that differs), and the selection is carried through them rather than
+   * clamped. Returns the ids of the inserted blocks.
+   */
+  applyBlocks: (patch: BlockPatch, opts?: ApplyBlocksOptions) => BlockId[];
   // Imperative focus / blur — wired in M3+.
   focus: () => void;
   blur: () => void;
@@ -1027,6 +1070,61 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     return ids;
   };
 
+  const decodeBlock = (sb: SerializedBlock): BlockSpec | null => {
+    const id = sb.id ?? newBlockId();
+    const policy = opts.unknownBlocks ?? "preserve";
+    let decoded = registryDeserializeBlock(sb.type, sb, id);
+    if (!decoded && policy === "preserve") {
+      registerUnknownBlockType(sb.type);
+      decoded = registryDeserializeBlock(sb.type, sb, id);
+    }
+    if (!decoded && policy === "throw") {
+      throw new Error(`creo-edit: no block codec registered for type "${sb.type}".`);
+    }
+    return decoded;
+  };
+
+  const applyBlocks = (patch: BlockPatch, applyOpts?: ApplyBlocksOptions): BlockId[] => {
+    const before = docStore.get();
+    let next = before;
+    if (patch.remove?.length) {
+      const present = patch.remove.filter((id) => next.byId.has(id));
+      if (present.length) next = docRemoveBlocks(next, present);
+    }
+    for (const sb of patch.replace ?? []) {
+      const existing = sb.id === undefined ? undefined : next.byId.get(sb.id);
+      if (!existing) continue;
+      const decoded = decodeBlock(sb);
+      if (decoded) next = updateBlock(next, { ...decoded, id: existing.id, index: existing.index } as Block);
+    }
+    const inserted: BlockId[] = [];
+    for (const run of patch.insert ?? []) {
+      const specs = run.blocks.map(decodeBlock).filter((b): b is BlockSpec => b !== null);
+      if (specs.length === 0) continue;
+      let at = next.order.length;
+      if (run.before !== undefined) {
+        const i = findPos(next, run.before);
+        if (i >= 0) at = i;
+      } else if (run.after === null) {
+        at = 0;
+      } else if (run.after !== undefined) {
+        const i = findPos(next, run.after);
+        if (i >= 0) at = i + 1;
+      }
+      next = insertManyAt(next, at, specs);
+      for (const spec of specs) inserted.push(spec.id!);
+    }
+    if (next === before) return inserted;
+
+    const changes = changesBetween(before, next);
+    if (applyOpts?.history) history.record("applyBlocks");
+    const sel = selStore.get();
+    docStore.set(next);
+    selStore.set(mapSelection(sel, changes) ?? clampSelection(next, sel));
+    emitChanges(changes);
+    return inserted;
+  };
+
   // Mode state — held in a creo store so the EditorView re-renders when it
   // changes. Default "wysiwyg" matches the legacy non-mode behavior.
   const modeStore = store.new<EditorMode>(opts.mode ?? "wysiwyg");
@@ -1422,6 +1520,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     getText,
     appendBlocks,
     prependBlocks,
+    applyBlocks,
     focus,
     blur,
     getMode,
