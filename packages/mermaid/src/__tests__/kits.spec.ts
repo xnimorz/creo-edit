@@ -148,6 +148,32 @@ describe("mermaid kits — operations produce source Pele still draws", () => {
     });
   }
 
+  // `options.nodeId`: a host edited by several people at once names the new
+  // node itself, so two added at the same moment are two.
+  for (const [name, src, line, entity] of [
+    ["flowchart", "flowchart TD\n  A[Start] --> B{OK?}", "n7k2p[New step]", "node:n7k2p"],
+    ["state", "stateDiagram-v2\n  [*] --> Idle", "n7k2p: New state", "state:n7k2p"],
+  ] as const) {
+    test(`${name}: a node added takes the id it is given`, () => {
+      const s = openSession(visimer, src);
+      const kit = kitFor(s.ed.result)!;
+      const created = s.run(kit.add(kit.newLabel, "n7k2p"));
+      expect(created).toEqual([entity]);
+      expect(s.code()).toContain(line);
+      const added = kit.entities(s.ed.result).nodes.find((n) => n.id === created![0])!;
+      expect(added.label).toBe(kit.newLabel);
+      expect(s.run(kit.connect!(kit.entities(s.ed.result).nodes[0]!, added))).not.toBeNull();
+      expect(() => render(s.code())).not.toThrow();
+    });
+  }
+
+  test("the types that name an item by its label take no id", () => {
+    const s = openSession(visimer, "sequenceDiagram\n  Alice->>Bob: Hello");
+    const kit = kitFor(s.ed.result)!;
+    expect(s.run(kit.add(kit.newLabel, "n7k2p"))).not.toBeNull();
+    expect(s.code()).not.toContain("n7k2p");
+  });
+
   test("flowchart: shape, line, reverse, direction", () => {
     const s = openSession(visimer, "flowchart TD\n  A --> B\n  subgraph G [Group]\n    B --> C\n  end");
     const kit = kitFor(s.ed.result)!;

@@ -10,6 +10,16 @@ export default defineConfig({
   plugins: [markdownPlugin()],
   resolve: {
     alias: {
+      // The mermaid plugin is its own package (`packages/mermaid`), aliased
+      // to its source like the editor is. It goes FIRST: aliases match by
+      // prefix, in order, and the bare "creo-edit" below would otherwise
+      // swallow "creo-edit-mermaid-plugin". Its two engines (pele,
+      // @visimer/core) resolve from `packages/mermaid/node_modules` — run
+      // `bun install` there once.
+      "creo-edit-mermaid-plugin": path.resolve(
+        __dirname,
+        "../packages/mermaid/src/index.ts",
+      ),
       // Pull `creo-edit` straight from this repo's source. Vite bundles
       // the result, so the deployed docs site is self-contained.
       "creo-edit": path.resolve(__dirname, "../src/index.ts"),

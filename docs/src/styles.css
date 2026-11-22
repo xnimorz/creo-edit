@@ -1113,3 +1113,32 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   .ide-panels { grid-template-columns: 1fr; }
   .ide-editor-wrap { padding-left: 52px; }
 }
+
+/* --------------------------------------- Mermaid diagrams demo route ---- */
+
+.mermaid-demo-editor-wrap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.mermaid-demo-editor {
+  padding: 16px 24px 24px;
+  min-height: 320px;
+  /* See .ide-editor: the caret signals focus, the ring reads as a glitch. */
+  outline: none !important;
+  caret-color: var(--text);
+  /* The block's bar is sticky; keep it under the site header. */
+  --ce-mmd-sticky-top: var(--header-h);
+}
+.mermaid-demo-panel { margin-top: 20px; }
+.mermaid-demo-md {
+  margin: 0 0 10px;
+  max-height: 360px;
+  overflow: auto;
+  font: 12.5px/1.5 var(--mono);
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}

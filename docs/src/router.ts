@@ -8,6 +8,7 @@ import { Demo } from "./views/Demo";
 import { AtomicBlocksDemo } from "./views/AtomicBlocksDemo";
 import { SearchDemo } from "./views/SearchDemo";
 import { IdeDemo } from "./views/IdeDemo";
+import { MermaidDemo } from "./views/MermaidDemo";
 import { navSections } from "./nav";
 
 const DocRoute = view<{ slug: string }>(({ props }) => ({
@@ -32,6 +33,7 @@ const routes: { path: string; view: () => void }[] = [
   { path: "/non-editable-blocks", view: () => AtomicBlocksDemo() },
   { path: "/large-text-search", view: () => SearchDemo() },
   { path: "/ide-affordances", view: () => IdeDemo() },
+  { path: "/mermaid-demo", view: () => MermaidDemo() },
 ];
 
 const STANDALONE_SLUGS = new Set([
@@ -39,6 +41,7 @@ const STANDALONE_SLUGS = new Set([
   "non-editable-blocks",
   "large-text-search",
   "ide-affordances",
+  "mermaid-demo",
 ]);
 for (const slug of slugs) {
   if (!slug) continue;

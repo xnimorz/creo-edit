@@ -5,7 +5,7 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## Unreleased
+## 0.6.0
 
 Three changes that let a plugin put its own controls inside a block. No
 breaking API changes; two small behaviour changes, both described below.

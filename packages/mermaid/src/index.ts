@@ -31,8 +31,10 @@ import type {
 import { adoptCodeBlocks, mermaidBlockDef } from "./block";
 import { mermaidCommands } from "./commands";
 import { createRuntime, runtimeOf } from "./runtime";
+import { MermaidBlockUI } from "./ui";
 import type {
   MermaidAction,
+  MermaidBlock,
   MermaidMode,
   MermaidPluginOptions,
 } from "./types";
@@ -81,6 +83,30 @@ export function mermaidController(editor: Editor): MermaidController | null {
     mode: (id) => rt.mode(id),
     setMode: (id, mode) => rt.setMode(id, mode),
     preload: () => rt.preload(),
+  };
+}
+
+export type MermaidMount = {
+  /** The block changed (the host's view was rendered with a new version). */
+  update(block: MermaidBlock): void;
+  destroy(): void;
+};
+
+/**
+ * The block's inside — bar, picture, code field — in an element of the
+ * host's own. For a host whose blocks have a shell of their own (a grip, a
+ * menu): its view draws that shell, with an empty element of class
+ * `ce-mermaid` in it, and mounts this there; `MermaidView` is this in the
+ * plugin's own bare shell.
+ *
+ * The element must be inside the editor's root (the plugin's options are
+ * found by walking up from it) and must have no children of the renderer's.
+ */
+export function mountMermaid(el: HTMLElement, block: MermaidBlock): MermaidMount {
+  const ui = new MermaidBlockUI(el, block);
+  return {
+    update: (next) => ui.setBlock(next),
+    destroy: () => ui.destroy(),
   };
 }
 

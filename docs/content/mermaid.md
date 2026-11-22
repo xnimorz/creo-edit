@@ -2,6 +2,8 @@
 
 `creo-edit-mermaid-plugin` adds a diagram block. It is drawn from [Mermaid](https://mermaid.js.org) source, and it can be edited two ways: by pointing at the picture, or by writing the source.
 
+Try it on the [live demo](#/mermaid-demo).
+
 It is a package of its own. `creo-edit` does not depend on it, or on anything it uses: add the plugin when you want diagrams, and nothing changes for an app that does not.
 
 ## Install
@@ -103,6 +105,7 @@ mermaidPlugin({
   adoptCodeBlocks: false,
   links: false,          // working links inside diagrams
   images: false,         // external images inside diagrams
+  nodeId,                // () => string: the id a node added in the picture takes
   templates,             // starters offered by an empty block
   labels,                // UI strings
   modes,                 // Store<ReadonlyMap<BlockId, "diagram" | "code">>
@@ -113,6 +116,8 @@ mermaidPlugin({
 **`adoptCodeBlocks`** — a markdown parser turns a mermaid fence into a `code` block with `lang: "mermaid"`. With this on, such blocks become diagrams when a document is loaded. It is off by default because a document *about* mermaid wants its source to stay code.
 
 **`links` / `images`** — off, so a diagram from someone else can neither navigate nor make a network request.
+
+**`nodeId`** — a node added in the picture takes the next free id (`E` after `D`). That is the readable choice for one author; where several people edit one document at once, two nodes added at the same moment would both be `E`, and merge into one. Such a host passes ids no two devices would both pick. It applies to flowchart nodes and states; the other types name an item by its label.
 
 **`modes`** — pass your own store to persist which mode each block shows, or to drive it from your own UI.
 
@@ -146,6 +151,20 @@ for (const action of mermaidActions(editor, blockId)) {
 ```
 
 `scope: "entity"` actions apply to whatever is selected in the diagram.
+
+## A shell of your own
+
+`MermaidView` draws the block in a bare element. A host whose blocks have a shell of their own (a grip, a menu) registers its own view for the `mermaid` type, draws its shell with an empty element of class `ce-mermaid` in it, and mounts the block's inside there:
+
+```ts
+import { mountMermaid } from "creo-edit-mermaid-plugin";
+
+const mount = mountMermaid(el, block); // in the view's onMount
+mount.update(nextBlock);               // in onUpdateAfter
+mount.destroy();                       // in dispose
+```
+
+The element must be inside the editor's root, and the view must declare no children for it.
 
 ## Theming
 

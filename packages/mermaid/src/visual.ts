@@ -585,11 +585,18 @@ export class VisualLayer {
     return false;
   }
 
+  /** The host's id for a node about to be added (`options.nodeId`), if it
+   *  gives one. */
+  private newId(): string | undefined {
+    const id = this.host.runtime()?.options.nodeId?.();
+    return typeof id === "string" && id ? id : undefined;
+  }
+
   /** Add a node; connected from `from` when given. It comes up selected with
    *  its label ready to type over. */
   addNode(from?: Entity | null): void {
     this.apply((session, kit) => {
-      const created = session.run(kit.add(kit.newLabel));
+      const created = session.run(kit.add(kit.newLabel, this.newId()));
       if (!created || created.length === 0) return false;
       const id = created[0]!;
       if (from && kit.connect) {
@@ -826,7 +833,7 @@ export class VisualLayer {
         node = nodes.find((n) => n.id === e.id) ?? nodes.find((n) => n.label === value);
       }
       if (thenAdd && node && node.kind === "node") {
-        const created = session.run(kit.add(kit.newLabel));
+        const created = session.run(kit.add(kit.newLabel, this.newId()));
         if (created && created.length > 0) {
           const added = kit.entities(session.ed.result).nodes.find((n) => n.id === created[0]);
           if (added && kit.connect) session.run(kit.connect(node, added));
