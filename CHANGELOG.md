@@ -5,6 +5,19 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+Primitives for a host that mixes text the user edits with content it draws
+itself, and that takes changes from outside while the user reads or types.
+
+### Fixes
+
+- **A paste is one undo step and reaches `onChange`.** The paste handler
+  wrote the document directly, so it could not be undone and subscribers
+  never heard of it. It now dispatches the new built-in
+  `{ t: "pasteBlocks", blocks }`, which also means a read-only editor
+  refuses it at the dispatcher like every other edit.
+
 ## 0.9.0
 
 A hook for plugins that draw beside the document, and the first plugin to

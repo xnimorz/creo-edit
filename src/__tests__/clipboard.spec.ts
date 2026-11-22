@@ -174,6 +174,36 @@ describe("Paste integration", () => {
     expect(totalText).toContain("world");
   });
 
+  it("a paste is one undo step and reaches onChange", () => {
+    const root = makeContainer();
+    const editor = createEditor({
+      initial: { blocks: [{ id: "a", type: "p", runs: [{ text: "ab" }] }] },
+    });
+    createApp(() => editor.EditorView(), new HtmlRender(root), SYNC_SCHEDULER).mount();
+    const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus();
+    editor.selStore.set({ kind: "caret", at: caretAt("a", 1) });
+    const seen: string[] = [];
+    editor.onChange((changes) => seen.push(...changes.map((c) => c.kind)));
+    ta.dispatchEvent(pasteEvent("<p>X</p><p>Y</p>", "X\nY"));
+    expect(editor.getText()).toContain("Y");
+    expect(seen.length).toBeGreaterThan(0);
+    editor.undo();
+    expect(editor.getText()).toBe("ab");
+  });
+
+  it("a paste into a read-only editor changes nothing", () => {
+    const root = makeContainer();
+    const editor = createEditor({
+      editable: false,
+      initial: { blocks: [{ id: "a", type: "p", runs: [{ text: "ab" }] }] },
+    });
+    createApp(() => editor.EditorView(), new HtmlRender(root), SYNC_SCHEDULER).mount();
+    editor.selStore.set({ kind: "caret", at: caretAt("a", 1) });
+    expect(editor.dispatch({ t: "pasteBlocks", blocks: [{ id: newBlockId(), type: "p", runs: [{ text: "X" }] }] })).toBe(false);
+    expect(editor.getText()).toBe("ab");
+  });
+
   it("Shift+Paste forces plain-text interpretation", () => {
     const root = makeContainer();
     const editor = createEditor();

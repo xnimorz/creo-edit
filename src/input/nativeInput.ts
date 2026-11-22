@@ -22,7 +22,6 @@ import { anchorToDom, domToAnchor, findBlockElementById } from "../dom/anchorMap
 import { onMountedBlocksChanged } from "../dom/mountSignal";
 import { parseHTML, parsePlainText } from "../clipboard/htmlParser";
 import { selectionToClipboard } from "../clipboard/htmlSerializer";
-import { insertBlocks } from "../commands/insertCommands";
 import {
   insertImageFiles,
   type UploadFn,
@@ -972,14 +971,14 @@ export function attachNativeInput(
     if (!forcePlain && html) {
       const blocks = parseHTML(html);
       if (blocks.length) {
-        insertBlocks({ docStore, selStore }, blocks);
+        options.dispatch({ t: "pasteBlocks", blocks });
         return;
       }
     }
     const plain = data.getData("text/plain");
     if (plain) {
       const blocks = parsePlainText(plain);
-      if (blocks.length) insertBlocks({ docStore, selStore }, blocks);
+      if (blocks.length) options.dispatch({ t: "pasteBlocks", blocks });
     }
   };
 

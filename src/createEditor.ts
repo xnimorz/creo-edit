@@ -37,6 +37,7 @@ import {
   type InsertBlocksPayload,
   type MoveBlockPayload,
 } from "./commands/blockCommands";
+import { insertBlocks as cmdPasteBlocks } from "./commands/insertCommands";
 import { clearEditorRef, setEditorRef } from "./dom/editorRef";
 import {
   mergeBackward as cmdMergeBackward,
@@ -256,7 +257,8 @@ export type Command =
   | { t: "moveBlock"; payload: MoveBlockPayload }
   | { t: "insertBlocks"; payload: InsertBlocksPayload }
   | { t: "removeBlocks"; blockIds: BlockId[] }
-  | { t: "replaceBlocks"; blocks: BlockInsertInput[] };
+  | { t: "replaceBlocks"; blocks: BlockInsertInput[] }
+  | { t: "pasteBlocks"; blocks: BlockSpec[] };
 
 /** Anything dispatchable — the typed `Command` union for built-ins, plus the
  *  open `{ t: string; payload?: unknown }` shape for plugin commands. */
@@ -617,6 +619,7 @@ const BUILTIN_COMMANDS = new Set<string>([
   "insertBlocks",
   "removeBlocks",
   "replaceBlocks",
+  "pasteBlocks",
 ]);
 
 /** Built-ins that never touch the document, so they survive read-only mode. */
@@ -846,6 +849,11 @@ export function createEditor(opts: EditorOptions = {}): Editor {
         return cmdReplaceBlocks(
           ctx,
           (cmd as Extract<Command, { t: "replaceBlocks" }>).blocks,
+        );
+      case "pasteBlocks":
+        return cmdPasteBlocks(
+          ctx,
+          (cmd as Extract<Command, { t: "pasteBlocks" }>).blocks,
         );
       default: {
         // Plugin command — route through the registry. Payload shape is
