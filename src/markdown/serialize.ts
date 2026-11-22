@@ -15,9 +15,10 @@
 import { deserializeMarks } from "../model/marks";
 import { orderedMarkDefs } from "../plugin/markRegistry";
 import { getMarkdownCodec } from "./blockCodec";
+import { alignToMarkdown, tableAlignAt } from "../plugins/cells/align";
 import type { SerializedBlock, SerializedDoc, SerializedRun } from "../createEditor";
 
-function runsToMarkdown(runs: SerializedRun[]): string {
+export function runsToMarkdown(runs: SerializedRun[]): string {
   let out = "";
   for (const r of runs) {
     const marks = deserializeMarks(r.marks);
@@ -106,7 +107,7 @@ function blockToMarkdown(
       const rows = block.cells;
       if (rows.length === 0) return "";
       const headerCells = (rows[0] ?? []).map((cell) => cellToMarkdown(cell));
-      const sep = headerCells.map(() => "---");
+      const sep = headerCells.map((_, c) => alignToMarkdown(tableAlignAt(block, c)));
       const lines: string[] = [];
       lines.push(`| ${headerCells.join(" | ")} |`);
       lines.push(`| ${sep.join(" | ")} |`);

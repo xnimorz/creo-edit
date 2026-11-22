@@ -85,8 +85,18 @@ A multi-line region. Newlines are stored as literal `\n` characters inside `runs
   rows: number,
   cols: number,
   cells: SerializedRun[][][], // cells[row][col] = inline runs
+  align?: ("left" | "center" | "right" | null)[], // per column; absent when none is set
 }
 ```
+
+`align` is GFM's `:---` / `:---:` / `---:`. It is written to markdown's delimiter row and to HTML as `text-align`, read back from `<td align>` or `text-align`, follows its column through `table.insertCol` / `table.removeCol`, and is set with:
+
+```ts
+editor.dispatch({ t: "table.setAlign", payload: { align: "center" } }); // the caret's column
+editor.dispatch({ t: "table.setAlign", payload: { blockId, col: 2, align: null } });
+```
+
+A table with no aligned column has no `align` key at all, so documents saved before alignment existed read and write as they did.
 
 ### Columns (`columns`)
 
@@ -98,6 +108,22 @@ A multi-line region. Newlines are stored as literal `\n` characters inside `runs
   cells: SerializedRun[][], // cells[colIndex] = inline runs
 }
 ```
+
+### Blockquote (`blockquote`) — `blockquotePlugin`
+
+```ts
+{ id?, type: "blockquote", runs: SerializedRun[] }
+```
+
+One quoted line; a quotation is a run of them. Markdown `> text`, HTML `<blockquote>`.
+
+### Horizontal rule (`hr`) — `horizontalRulePlugin`
+
+```ts
+{ id?, type: "hr" }
+```
+
+Atomic. Markdown `---`, HTML `<hr>`.
 
 ## Inline runs
 

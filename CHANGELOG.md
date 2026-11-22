@@ -5,6 +5,58 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+Markdown's tables, quotes and rules, for a host drawing what a model wrote.
+No breaking API changes.
+
+### Tables
+
+- **Column alignment.** `TableBlock.align?: TableAlign[]` — `"left"`,
+  `"center"`, `"right"` or `null` per column. Written to markdown's
+  delimiter row (`:---`, `:---:`, `---:`) and to HTML as `text-align`, read
+  back from `<td align>` / `text-align`, drawn as `text-align` and
+  `data-align` on the cells, and carried through `table.insertCol` /
+  `table.removeCol`. `table.setAlign` sets it (`{ align, blockId?, col? }`;
+  the caret's column by default). A table with no aligned column has no
+  `align` key, so existing documents serialize unchanged.
+- `tableAlignAt(block, col)` reads one column's alignment.
+
+### Search
+
+- **`textSlotsOf(block)`** (new export): every run of text in a block with
+  the anchor path that addresses it — `[]` for a text block, `[row, col]`
+  for a table cell, `[col]` for a column. `searchPlugin` already looked in
+  cells; this is the same walk, public, for hosts that run their own find.
+  `blockTextOf` joins a table's cells into one string whose offsets no
+  anchor can use; a slot's offsets are the anchor model's.
+
+### Opt-in block plugins
+
+- **`blockquotePlugin()`** — `{ type: "blockquote", runs }`, a text-bearing
+  quoted line. Enter continues the quote and ends it on an empty line;
+  Backspace at a line's start unquotes it; `> ` at the start of a paragraph
+  quotes it. Markdown `> text`, HTML `<blockquote>`. Commands
+  `blockquote.toggle`, `blockquote.enter`, `blockquote.unquote`; slash item
+  `blockquoteSlashItem`.
+- **`horizontalRulePlugin()`** — `{ type: "hr" }`, an atomic thematic
+  break. `---` typed as the whole of a line becomes one. Markdown `---`,
+  HTML `<hr>`. Commands `hr.insert`, `hr.fromParagraph`; slash item
+  `horizontalRuleSlashItem`.
+- Neither is in `defaultPlugins`: an editor gets them by installing them.
+  `plugins/styles.css` has their default look.
+
+### Editor
+
+- **Behaviour change: no key binding runs while an IME composition holds
+  the key.** The Enter that confirms a composition, or the arrows that pick
+  a candidate, were matched as chords — a plugin's Enter binding (a host's
+  "Enter sends") fired mid-word. `keydown` now returns early when
+  `isComposing` is set or the key reports 229.
+- **`setBlockType` accepts a plugin's text-bearing type.** It refused
+  anything outside the built-in union, so a plugin text block could be
+  turned into but never reached from a paragraph.
+
 ## 0.6.0
 
 Three changes that let a plugin put its own controls inside a block. No

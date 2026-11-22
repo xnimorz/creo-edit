@@ -18,6 +18,7 @@
      .ce-drag-btn, .ce-drag-btn.is-visible, .ce-drag-ghost,
      .ce-drag-indicator
      .ce-add-block-btn, .ce-add-block-btn.is-visible
+     .ce-blockquote, .ce-hr
    --------------------------------------------------------------------------- */
 
 /* ============= Slash menu ============= */
@@ -117,6 +118,28 @@
 }
 .creo-edit .ce-date-marker.is-today {
   color: var(--ce-date-marker-today-fg, #b54708);
+}
+
+/* ============= Blockquote =============
+   One block per quoted line; consecutive lines close up so a quotation
+   reads as one bar. */
+.creo-edit .ce-blockquote {
+  margin: 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--ce-quote-bar, #d0d0d0);
+  color: var(--ce-quote-fg, #555);
+}
+
+/* ============= Horizontal rule (atomic block) ============= */
+.creo-edit .ce-hr {
+  padding: 8px 0;
+  cursor: default;
+  user-select: none;
+}
+.creo-edit .ce-hr hr {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--ce-hr-color, #d6d6d6);
 }
 
 /* ============= Calendar (atomic block) =============

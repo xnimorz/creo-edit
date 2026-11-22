@@ -114,6 +114,12 @@ export type ImageBlock = {
   height?: number;
 };
 
+/**
+ * How a table column's text is aligned — GFM's `:--`, `:-:`, `--:`. `null`
+ * is "not said", which a renderer leaves to its stylesheet (GFM's `---`).
+ */
+export type TableAlign = "left" | "center" | "right" | null;
+
 export type TableBlock = {
   id: BlockId;
   index: FracIndex;
@@ -122,6 +128,12 @@ export type TableBlock = {
   cols: number;
   // cells[r][c] is an inline-runs sequence.
   cells: InlineRun[][][];
+  /**
+   * One entry per column. Absent when no column says how it is aligned —
+   * which is every table made before alignment existed — so readers treat a
+   * missing or short array as `null`s (`tableAlignAt`).
+   */
+  align?: TableAlign[];
 };
 
 /**
@@ -167,6 +179,25 @@ export type DateMarkerBlock = {
   date: string;
 };
 
+/**
+ * Blockquote — one quoted line, from `blockquotePlugin`. Text-bearing like a
+ * paragraph; consecutive quote blocks read as one quotation, the way
+ * consecutive `li` blocks read as one list.
+ */
+export type BlockquoteBlock = {
+  id: BlockId;
+  index: FracIndex;
+  type: "blockquote";
+  runs: InlineRun[];
+};
+
+/** Horizontal rule — an atomic thematic break, from `horizontalRulePlugin`. */
+export type HorizontalRuleBlock = {
+  id: BlockId;
+  index: FracIndex;
+  type: "hr";
+};
+
 export type Block =
   | ParagraphBlock
   | HeadingBlock
@@ -176,7 +207,9 @@ export type Block =
   | TableBlock
   | ColumnsBlock
   | CalendarBlock
-  | DateMarkerBlock;
+  | DateMarkerBlock
+  | BlockquoteBlock
+  | HorizontalRuleBlock;
 
 export type BlockType = Block["type"];
 

@@ -9,6 +9,7 @@ import { div, table, tbody, td, tr, view } from "creo";
 import type { ColumnsBlock, InlineRun, TableBlock } from "../../model/types";
 import { withRunText } from "../../model/blockText";
 import { InlineRunsView } from "../../render/InlineRunsView";
+import { tableAlignAt } from "./align";
 
 /**
  * Split a column's flat run list into one InlineRun[] per visual line. `\n`
@@ -64,12 +65,14 @@ export const TableViewPlugin = view<{ block: TableBlock }>(({ props }) => ({
             tr({ key: `r${r}`, "data-row": String(r) }, () => {
               for (let c = 0; c < b.cols; c++) {
                 const runs = b.cells[r]?.[c] ?? [];
+                const align = tableAlignAt(b, c);
                 td(
                   {
                     key: `${r}-${c}`,
                     class: "ce-cell",
                     "data-block-id": b.id,
                     "data-cell": `${r}:${c}`,
+                    ...(align ? { "data-align": align, style: `text-align:${align}` } : {}),
                   },
                   () => {
                     InlineRunsView({ runs });

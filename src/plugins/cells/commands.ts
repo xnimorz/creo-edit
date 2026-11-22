@@ -25,6 +25,7 @@ import type {
   TableBlock,
 } from "../../model/types";
 import type { CommandCtx, CommandDef } from "../../plugin/types";
+import { normalizeAlign, spliceAlign, tableAlignAt, toTableAlign, withAlign } from "./align";
 
 function currentTable(
   doc: DocState,
@@ -262,7 +263,10 @@ function insertCol(
     [] as InlineRun[],
     ...row.slice(insertAt),
   ]);
-  const next: TableBlock = { ...block, cols: block.cols + 1, cells };
+  const next = withAlign(
+    { ...block, cols: block.cols + 1, cells },
+    spliceAlign(block, insertAt, 0, [null]),
+  );
   ctx.docStore.set(updateBlock(doc, next as Block));
   recordChange({ kind: "resetBlock", blockId: block.id });
   return true;
@@ -294,11 +298,34 @@ function removeCol(ctx: CommandCtx, blockId?: string, colHint?: number): boolean
   if (block.cols <= 1) return false;
   if (col < 0 || col >= block.cols) return false;
   const cells = block.cells.map((row) => row.filter((_, i) => i !== col));
-  const next: TableBlock = { ...block, cols: block.cols - 1, cells };
+  const next = withAlign({ ...block, cols: block.cols - 1, cells }, spliceAlign(block, col, 1));
   ctx.docStore.set(updateBlock(doc, next as Block));
   recordChange({ kind: "resetBlock", blockId: block.id });
   const newCol = Math.min(col, next.cols - 1);
   ctx.selStore.set(caret({ blockId: block.id, path: [t.row, newCol, 0], offset: 0 }));
+  return true;
+}
+
+/**
+ * Align one column — the caret's, unless `col` is given. Returns false when
+ * the column already is so, so no empty change reaches `onChange`.
+ */
+function setAlign(
+  ctx: CommandCtx,
+  p: TableTarget & { align?: unknown },
+): boolean {
+  const doc = ctx.docStore.get();
+  const t = resolveTable(doc, ctx.selStore.get(), p.blockId);
+  if (!t) return false;
+  const { block } = t;
+  const col = p.col ?? t.col;
+  if (col < 0 || col >= block.cols) return false;
+  const align = toTableAlign(p.align);
+  if (tableAlignAt(block, col) === align) return false;
+  const full = Array.from({ length: block.cols }, (_, c) => (c === col ? align : tableAlignAt(block, c)));
+  ctx.docStore.set(updateBlock(doc, withAlign(block, normalizeAlign(full, block.cols)) as Block));
+  // No character moves: an anchor in the table stays where it was.
+  recordChange({ kind: "blockAttrs", blockId: block.id, type: "table" });
   return true;
 }
 
@@ -432,6 +459,11 @@ export const tableCommandDefs: CommandDef<unknown>[] = [
       const t = (p ?? {}) as TableTarget;
       return removeCol(ctx, t.blockId, t.col);
     },
+  },
+  {
+    // payload: { align: "left" | "center" | "right" | null, blockId?, col? }
+    t: "table.setAlign",
+    run: (ctx, p) => setAlign(ctx, (p ?? {}) as TableTarget & { align?: unknown }),
   },
   // Pure caret motion — `readOnlySafe` so Tab / arrow navigation still walks
   // a table in a read-only (diff / transcript) editor.

@@ -119,6 +119,39 @@ editor.dispatch({ t: "calendar.insert", payload: { date: "2026-05-08", days: 7 }
 editor.dispatch({ t: "dateMarker.insert", payload: { date: "2026-05-08" } });
 ```
 
+### `blockquotePlugin` and `horizontalRulePlugin`
+
+Markdown's `>` and `---` as blocks: `blockquote` (text-bearing, one block per quoted line, drawn as `<blockquote class="ce-blockquote">`) and `hr` (atomic, drawn as an `<hr>` in a `.ce-hr` box). Each writes its markdown (`> text`, `---`) and HTML, and reads its HTML tag on paste.
+
+Editing a quote works like a list: **Enter** continues it, **Enter** on an empty quoted line ends it, and **Backspace** at the start of a line unquotes it. Typing `> ` at the start of a paragraph quotes it; typing `---` as the whole of a line puts a rule there. Pass `{ shortcut: false }` to either to turn its typing shortcut off.
+
+```ts
+import {
+  createEditor,
+  blockquotePlugin,
+  blockquoteSlashItem,
+  horizontalRulePlugin,
+  horizontalRuleSlashItem,
+  defaultSlashItems,
+  slashCommandsPlugin,
+} from "creo-edit";
+
+createEditor({
+  plugins: [
+    blockquotePlugin(),
+    horizontalRulePlugin(),
+    slashCommandsPlugin({
+      items: [...defaultSlashItems, blockquoteSlashItem, horizontalRuleSlashItem],
+    }),
+  ],
+});
+
+editor.dispatch({ t: "blockquote.toggle" }); // quote or unquote the caret's line
+editor.dispatch({ t: "hr.insert" });
+```
+
+Neither is in `defaultPlugins`. Their default look is in `creo-edit/plugins/styles.css` (`--ce-quote-bar`, `--ce-quote-fg`, `--ce-hr-color`).
+
 ### `infiniteScrollPlugin`
 
 Watches a scroll container and calls a host-supplied callback when the viewport gets near an edge. The plugin handles scroll-anchoring on prepend so the user's view doesn't jump as content grows above.
@@ -205,6 +238,8 @@ createEditor({
   ],
 });
 ```
+
+It looks inside table cells and columns as well as text blocks. A host running its own find can walk the same text with `textSlotsOf(block)`: each slot is a run of text and the anchor path that addresses it (`[]` for a paragraph, `[row, col]` for a table cell), so a match at `from` is the anchor `{ blockId, path: [...slot.path, from], offset: from }` — which range decorations and `anchorToDom` resolve into the right cell.
 
 #### Works with virtualization
 

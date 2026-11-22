@@ -2,7 +2,8 @@ import "../../../__tests__/setup";
 import { describe, expect, it } from "bun:test";
 import type { Block, BlockId, DocState } from "../../../model/types";
 import { docFromBlocks } from "../../../model/doc";
-import { matchKey, searchDoc, slotsOf } from "../engine";
+import { textSlotsOf } from "../../../model/blockText";
+import { matchKey, searchDoc } from "../engine";
 
 function p(text: string, id: string): Block {
   return {
@@ -67,32 +68,32 @@ function doc(...blocks: Block[]): DocState {
   return docFromBlocks(blocks);
 }
 
-describe("slotsOf", () => {
+describe("textSlotsOf", () => {
   it("yields one slot for text-bearing blocks", () => {
-    const slots = [...slotsOf(p("hello", "1"))];
-    expect(slots).toEqual([{ text: "hello", prefix: [] }]);
+    const slots = textSlotsOf(p("hello", "1"));
+    expect(slots).toEqual([{ text: "hello", path: [] }]);
   });
   it("yields per-cell slots for table", () => {
     const t = table([["a", "b"], ["c", "d"]], "t");
-    const slots = [...slotsOf(t)];
+    const slots = textSlotsOf(t);
     expect(slots).toEqual([
-      { text: "a", prefix: [0, 0] },
-      { text: "b", prefix: [0, 1] },
-      { text: "c", prefix: [1, 0] },
-      { text: "d", prefix: [1, 1] },
+      { text: "a", path: [0, 0] },
+      { text: "b", path: [0, 1] },
+      { text: "c", path: [1, 0] },
+      { text: "d", path: [1, 1] },
     ]);
   });
   it("yields per-column slots for columns", () => {
     const c = columns(["x", "y", "z"], "c");
-    const slots = [...slotsOf(c)];
+    const slots = textSlotsOf(c);
     expect(slots).toEqual([
-      { text: "x", prefix: [0] },
-      { text: "y", prefix: [1] },
-      { text: "z", prefix: [2] },
+      { text: "x", path: [0] },
+      { text: "y", path: [1] },
+      { text: "z", path: [2] },
     ]);
   });
   it("skips images", () => {
-    const slots = [...slotsOf(img("i"))];
+    const slots = textSlotsOf(img("i"));
     expect(slots).toEqual([]);
   });
 });
