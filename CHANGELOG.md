@@ -7,6 +7,41 @@ changes.
 
 ## Unreleased
 
+Three changes that let a plugin put its own controls inside a block. No
+breaking API changes; two small behaviour changes, both described below.
+
+They were made for [`creo-edit-mermaid-plugin`](https://github.com/xnimorz/creo-editor/tree/main/packages/mermaid), a
+diagram block that lives in this repository as **a package of its own**:
+`creo-edit` does not depend on it, or on anything it uses.
+
+### Editor
+
+- **`isolateInput(node)`** (new export). A form control rendered inside a
+  block sits under the editor's root, which cancels every `beforeinput` it
+  sees — so the control's typing was swallowed unless it stopped its own
+  events first. This is that helper. cront.app has carried its own copy for
+  the fields in its cards.
+- **Behaviour change: plugin HTML parsers are asked before built-in ones.**
+  Parsers claiming the same tag were tried in registration order, and the
+  built-in `<pre>` parser never declines — so a plugin could not claim one
+  kind of `<pre>`. They are now tried newest first, the same last-write-wins
+  rule the view and command registries follow. A plugin parser that returns
+  `null` for elements it does not own (as the documented contract says) is
+  unaffected.
+- **Behaviour change: the editor no longer writes the page's selection while
+  the focus is on a control inside one of its blocks.** Doing so moved the
+  focus to the editing host, out of the control — after a command dispatched
+  *from* such a control, the next keystroke went to the document. The model
+  selection is unchanged, and the browser reports a fresh one as soon as the
+  user clicks or tabs back into the text.
+
+## 0.5.0
+
+Virtualization rebuilt for a real host, the root's attributes stop
+restyling the whole document, and the `spellcheck` option works. No breaking
+API changes. The one behaviour change: `spellcheck: true` now does what it
+says (see below).
+
 ### Virtualization, made fit for a host with real documents
 
 `VirtualDoc` was correct for a page of bare paragraphs at the top of its
@@ -50,6 +85,9 @@ blocks, dropped the caret, and could not be turned on.
   listeners are removed on dispose (they leaked).
 - The page's selection is put on a block the virtualizer mounts later (a
   selection set from outside onto a block not mounted yet).
+- For hosts mounting `VirtualDoc` themselves: the same options are its
+  `estimateHeight`, `hidden` and `spacerStyle` props. `HeightIndex` gains
+  `from(heights, estimatedHeight)` and `heightAt(i)`.
 
 ### The root's `contenteditable`
 

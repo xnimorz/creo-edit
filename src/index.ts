@@ -74,6 +74,9 @@ export { InlineRunsView } from "./render/InlineRunsView";
 
 // Mobile / input helpers
 export { isCoarsePointer } from "./input/mobile";
+// A form control rendered inside a block must keep its keystrokes from the
+// editor's root listeners — this is how.
+export { isolateInput, ISOLATED_EVENTS } from "./input/isolate";
 
 // DOM ↔ Anchor mapping (advanced consumers)
 export {
