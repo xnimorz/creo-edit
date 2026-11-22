@@ -157,6 +157,7 @@ describe("Paste integration", () => {
       SYNC_SCHEDULER,
     ).mount();
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     ta.dispatchEvent(
       pasteEvent("<p>hello</p><p>world</p>", "hello\nworld"),
     );
@@ -182,6 +183,7 @@ describe("Paste integration", () => {
       SYNC_SCHEDULER,
     ).mount();
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     // Hold shift before paste — clipboard handler watches keydown.
     ta.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -209,6 +211,7 @@ describe("Paste integration", () => {
       SYNC_SCHEDULER,
     ).mount();
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     ta.dispatchEvent(
       pasteEvent("", "alpha\nbeta\ngamma"),
     );
@@ -260,6 +263,7 @@ describe("Paste integration", () => {
       focus: caretAt(id, 4),
     });
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     const dt = new DataTransfer();
     const ev = new Event("copy", { bubbles: true, cancelable: true });
     Object.defineProperty(ev, "clipboardData", { value: dt });

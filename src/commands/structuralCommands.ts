@@ -246,7 +246,7 @@ export function mergeForward({ docStore, selStore }: Stores): boolean {
 export type SetBlockTypePayload = {
   type: BlockType;
   ordered?: boolean;
-  depth?: 0 | 1 | 2 | 3;
+  depth?: number;
 };
 
 export function setBlockType(

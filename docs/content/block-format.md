@@ -55,7 +55,7 @@ Because the ids are stable, the renderer treats this as a reorder, not a delete-
   id?,
   type: "li",
   ordered: boolean,
-  depth?: 0 | 1 | 2 | 3,
+  depth?: number, // from 0, no upper limit
   runs: SerializedRun[],
 }
 ```
