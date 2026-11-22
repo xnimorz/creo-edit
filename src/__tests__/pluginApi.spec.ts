@@ -97,6 +97,28 @@ describe("plugin lifecycle", () => {
   });
 });
 
+describe("plugin mount hook", () => {
+  it("onMount gets the root once it is in the page, and its teardown runs at destroy()", () => {
+    const seen: string[] = [];
+    let inited: unknown = null;
+    const plugin: EditorPlugin = {
+      name: "mount-probe",
+      onInit(ed) {
+        inited = ed;
+        seen.push("init");
+      },
+      onMount(root, ed) {
+        seen.push(`mount:${root.isConnected}:${root.hasAttribute("data-creo-edit")}:${ed === inited}`);
+        return () => seen.push("unmount");
+      },
+    };
+    const { editor } = mount(undefined, { plugins: [plugin] });
+    expect(seen).toEqual(["init", "mount:true:true:true"]);
+    editor.destroy();
+    expect(seen).toEqual(["init", "mount:true:true:true", "unmount"]);
+  });
+});
+
 describe("paste hook", () => {
   it("a plugin can claim the event before the built-in clipboard path", () => {
     let claimed = false;

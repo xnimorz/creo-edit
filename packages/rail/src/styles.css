@@ -1,0 +1,126 @@
+/* creo-edit-rail-plugin. Colors and sizes are custom properties, for a host's
+   theme to set:
+
+   --creo-rail-mark      a tick                      (currentColor, faded)
+   --creo-rail-active    the tick being read         (currentColor)
+   --creo-rail-hover     the tick under the pointer  (Highlight)
+   --creo-rail-flash     the ring a jump flashes     (currentColor)
+   --creo-rail-card-bg / -card-fg / -card-muted / -card-border
+   --creo-rail-inset     the rail's distance from the edge (4px)
+*/
+
+.creo-rail {
+  position: fixed;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+}
+.creo-rail[hidden] {
+  display: none;
+}
+.creo-rail__ticks {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+.creo-rail__ticks::-webkit-scrollbar {
+  display: none;
+}
+.creo-rail--left .creo-rail__ticks {
+  align-self: flex-start;
+  margin-left: var(--creo-rail-inset, 4px);
+}
+.creo-rail--right .creo-rail__ticks {
+  align-self: flex-end;
+  align-items: flex-end;
+  margin-right: var(--creo-rail-inset, 4px);
+}
+
+.creo-rail__tick {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 22px;
+  height: 8px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.creo-rail--right .creo-rail__tick {
+  justify-content: flex-end;
+}
+.creo-rail__tick:focus {
+  outline: none;
+}
+.creo-rail__tick:focus-visible {
+  outline: 1px solid var(--creo-rail-hover, Highlight);
+}
+.creo-rail__mark {
+  height: 2px;
+  width: calc(5px + var(--creo-rail-size, 0.5) * 8px);
+  border-radius: 1px;
+  background: var(--creo-rail-mark, currentColor);
+  opacity: 0.45;
+  transition: width 120ms ease, opacity 120ms ease, background-color 120ms ease;
+}
+.creo-rail__tick.is-active .creo-rail__mark {
+  width: 15px;
+  background: var(--creo-rail-active, currentColor);
+  opacity: 1;
+}
+.creo-rail__tick.is-peeked .creo-rail__mark {
+  width: 15px;
+  background: var(--creo-rail-hover, Highlight);
+  opacity: 1;
+}
+
+.creo-rail__card {
+  position: absolute;
+  z-index: 1;
+  width: max-content;
+  max-width: min(340px, 70vw);
+  padding: 9px 12px;
+  border: 1px solid var(--creo-rail-card-border, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+  background: var(--creo-rail-card-bg, Canvas);
+  color: var(--creo-rail-card-fg, CanvasText);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.creo-rail--left .creo-rail__card {
+  left: calc(var(--creo-rail-inset, 4px) + 26px);
+}
+.creo-rail--right .creo-rail__card {
+  right: calc(var(--creo-rail-inset, 4px) + 26px);
+}
+.creo-rail__card[hidden] {
+  display: none;
+}
+.creo-rail__label,
+.creo-rail__detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.creo-rail__label {
+  -webkit-line-clamp: 2;
+  font-weight: 500;
+}
+.creo-rail__detail {
+  -webkit-line-clamp: 3;
+  margin-top: 4px;
+  color: var(--creo-rail-card-muted, GrayText);
+}

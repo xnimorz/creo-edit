@@ -24,6 +24,11 @@ export default defineConfig({
         __dirname,
         "../../packages/mermaid/src/index.ts",
       ),
+      // Same for the rail plugin, and FIRST for the same reason.
+      "creo-edit-rail-plugin": path.resolve(
+        __dirname,
+        "../../packages/rail/src/index.ts",
+      ),
       "creo-edit": path.resolve(__dirname, "../../src/index.ts"),
       // Editor source files do `import { ... } from "creo"`. Without this
       // alias, Rollup can't find creo when walking into ../../src/ — there's

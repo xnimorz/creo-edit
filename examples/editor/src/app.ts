@@ -10,8 +10,10 @@ import {
   type SerializedDoc,
 } from "creo-edit";
 import { mermaidPlugin, mermaidSlashItem } from "creo-edit-mermaid-plugin";
+import { headingPoints, railPlugin } from "creo-edit-rail-plugin";
 import "../../../src/plugins/styles.css";
 import "../../../packages/mermaid/src/styles.css";
+import "../../../packages/rail/src/styles.css";
 
 // Editor config is URL-driven so the same example app can demonstrate every
 // mode without separate routes — and so the E2E suite can pin a config:
@@ -29,6 +31,11 @@ const __urlMode = __params.get("mode") === "md" ? "md" : "wysiwyg";
 // scroll position. Tests that want it opt in.
 const __virtualized = __params.get("virtualized") === "1";
 const __readOnly = __params.get("editable") === "false";
+// `?rail=1` adds the heading rail; `?scroller=1` puts the editor in a box of
+// its own that scrolls, rather than the page. `?doc=outline` is a document
+// long enough to need either.
+const __rail = __params.get("rail") === "1";
+const __scroller = __params.get("scroller") === "1";
 
 export const editor = createEditor({
   mode: __urlMode,
@@ -38,11 +45,12 @@ export const editor = createEditor({
     calendarPlugin(),
     mermaidPlugin(),
     slashCommandsPlugin({ items: [...defaultSlashItems, mermaidSlashItem] }),
+    ...(__rail ? [railPlugin({ points: headingPoints() })] : []),
   ],
   // `?doc=diagram` opens on a document with a diagram in it, which is the
   // quickest way to try the mermaid block; the default document is unchanged
   // so the existing E2E coordinates still hold.
-  initial: __params.get("doc") === "diagram" ? diagramDoc() : {
+  initial: __params.get("doc") === "diagram" ? diagramDoc() : __params.get("doc") === "outline" ? outlineDoc() : {
     blocks: [
       { type: "h1", runs: [{ text: "Welcome to Creo Editor" }] },
       {
@@ -90,6 +98,21 @@ export const editor = createEditor({
     ],
   },
 });
+
+/** Twelve sections of a dozen paragraphs: many screens, a heading every one or two. */
+function outlineDoc(): SerializedDoc {
+  const blocks: unknown[] = [{ type: "h1", runs: [{ text: "Outline" }] }];
+  for (let section = 1; section <= 12; section++) {
+    blocks.push({ type: "h2", runs: [{ text: `Section ${section}` }] });
+    for (let line = 1; line <= 12; line++) {
+      blocks.push({
+        type: "p",
+        runs: [{ text: `Section ${section}, paragraph ${line}. A line of text to scroll past on the way to the next heading.` }],
+      });
+    }
+  }
+  return { blocks } as unknown as SerializedDoc;
+}
 
 function diagramDoc(): SerializedDoc {
   return {
@@ -204,7 +227,8 @@ const Toolbar = view(() => {
 export const App = view(() => ({
   render() {
     Toolbar();
-    editor.EditorView();
+    if (__scroller) div({ class: "scroller" }, () => editor.EditorView());
+    else editor.EditorView();
     void _;
   },
 }));
