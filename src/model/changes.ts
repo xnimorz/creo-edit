@@ -141,6 +141,11 @@ export type BlockAttrsChange = {
 export type ReplaceDocChange = {
   kind: "replaceDoc";
   reason?: "setDoc" | "setDocFromHTML" | "undo" | "redo";
+  /**
+   * The changes before this one in the same batch describe the replacement
+   * block by block, so anchors map through it. Set on undo and redo.
+   */
+  described?: true;
 };
 
 export type DocChange =
@@ -260,7 +265,7 @@ export function mapAnchor(
 function applyOne(a: Anchor, c: DocChange, bias: MapBias): Anchor | null {
   switch (c.kind) {
     case "replaceDoc":
-      return null;
+      return c.described ? a : null;
 
     case "removeBlock":
       return a.blockId === c.blockId ? null : a;

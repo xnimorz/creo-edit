@@ -936,16 +936,24 @@ export function createEditor(opts: EditorOptions = {}): Editor {
 
   dispatchRef = dispatch;
 
-  // Undo / redo mutate the document, so they follow the same gate. They
-  // restore whole snapshots, so no anchor can be mapped across them —
-  // subscribers get `replaceDoc` and re-derive.
+  // Undo / redo mutate the document, so they follow the same gate.
   const undo = (): void => {
     if (!isEditable()) return;
-    if (history.undo()) emitChanges([{ kind: "replaceDoc", reason: "undo" }]);
+    const before = docStore.get();
+    if (history.undo()) emitRestore(before, "undo");
   };
   const redo = (): void => {
     if (!isEditable()) return;
-    if (history.redo()) emitChanges([{ kind: "replaceDoc", reason: "redo" }]);
+    const before = docStore.get();
+    if (history.redo()) emitRestore(before, "redo");
+  };
+  // Still a `replaceDoc` for consumers that re-derive on it, preceded by what
+  // changed block by block so an anchor in a block the step left alone survives.
+  const emitRestore = (before: DocState, reason: "undo" | "redo"): void => {
+    emitChanges([
+      ...changesBetween(before, docStore.get()),
+      { kind: "replaceDoc", reason, described: true },
+    ]);
   };
 
   /**

@@ -276,8 +276,10 @@ type DocChange =
   // Internal shape changed unmappably (a table row inserted above the
   // anchor's row). Anchors inside the block map to null.
   | { kind: "resetBlock"; blockId: BlockId }
-  // Whole document replaced (setDoc / setDocFromHTML / undo / redo).
-  | { kind: "replaceDoc" };
+  // Whole document replaced (setDoc / setDocFromHTML / undo / redo). On
+  // undo and redo it is `described`: the changes before it in the batch say
+  // what the step changed block by block, and anchors map through it.
+  | { kind: "replaceDoc"; reason?: "setDoc" | "setDocFromHTML" | "undo" | "redo"; described?: true };
 ```
 
 Granularity is per-block rather than a whole-document offset space. `mapAnchor` returns `null` when the anchored text was deleted outright, its block was removed, or its block was reset — which is the honest answer, and better than a plausible wrong anchor.
