@@ -5,7 +5,10 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## Unreleased
+## 0.8.0
+
+A hook for plugins that draw beside the document, and the first plugin to
+use it. No breaking API changes.
 
 ### Plugins
 
