@@ -5,10 +5,11 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## Unreleased
+## 0.7.0
 
 Markdown's tables, quotes and rules, for a host drawing what a model wrote.
-No breaking API changes.
+No breaking API changes; one small behaviour change (key bindings during an
+IME composition), described under Editor.
 
 ### Tables
 
