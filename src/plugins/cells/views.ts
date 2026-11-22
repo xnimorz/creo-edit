@@ -10,6 +10,7 @@ import type { ColumnsBlock, InlineRun, TableBlock } from "../../model/types";
 import { withRunText } from "../../model/blockText";
 import { InlineRunsView } from "../../render/InlineRunsView";
 import { tableAlignAt } from "./align";
+import { lockedAttrs } from "../../plugin/locked";
 
 /**
  * Split a column's flat run list into one InlineRun[] per visual line. `\n`
@@ -58,6 +59,7 @@ export const TableViewPlugin = view<{ block: TableBlock }>(({ props }) => ({
         "data-block-id": b.id,
         "data-block-kind": "table",
         class: "ce-block ce-table",
+        ...lockedAttrs(b),
       },
       () => {
         tbody({}, () => {
@@ -104,6 +106,7 @@ export const ColumnsViewPlugin = view<{ block: ColumnsBlock }>(({ props }) => ({
         "data-block-kind": "columns",
         class: "ce-block ce-columns",
         style: `display:grid;grid-template-columns:repeat(${b.cols},1fr);gap:16px;`,
+        ...lockedAttrs(b),
       },
       () => {
         for (let c = 0; c < b.cols; c++) {

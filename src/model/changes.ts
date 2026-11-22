@@ -171,7 +171,12 @@ const stack: DocChange[][] = [];
  * innermost open collector, so a command that delegates to another command
  * produces one flat, ordered batch.
  */
-export function collectChanges<T>(fn: () => T): {
+export function collectChanges<T>(
+  fn: () => T,
+  /** Asked once `fn` is done; false means its changes were undone, so they
+   *  are dropped rather than folded into an enclosing collector. */
+  keep: (changes: readonly DocChange[]) => boolean = () => true,
+): {
   result: T;
   changes: DocChange[];
 } {
@@ -182,6 +187,7 @@ export function collectChanges<T>(fn: () => T): {
     return { result, changes: batch };
   } finally {
     stack.pop();
+    if (!keep(batch)) batch.length = 0;
     // Nested collectors fold their changes into the enclosing one so an
     // outer dispatch still sees everything that happened.
     const parent = stack[stack.length - 1];

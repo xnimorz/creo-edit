@@ -41,6 +41,7 @@ import type {
 } from "../../plugin/types";
 import { InlineRunsView } from "../../render/InlineRunsView";
 import type { SlashItem } from "../slash/items";
+import { lockedAttrs } from "../../plugin/locked";
 
 export const BlockquoteView = view<{ block: BlockquoteBlock }>(({ props }) => ({
   shouldUpdate(next) {
@@ -49,7 +50,7 @@ export const BlockquoteView = view<{ block: BlockquoteBlock }>(({ props }) => ({
   render() {
     const b = props().block;
     blockquote(
-      { "data-block-id": b.id, "data-block-kind": "blockquote", class: "ce-block ce-blockquote" },
+      { "data-block-id": b.id, "data-block-kind": "blockquote", class: "ce-block ce-blockquote", ...lockedAttrs(b) },
       () => {
         InlineRunsView({ runs: b.runs });
       },

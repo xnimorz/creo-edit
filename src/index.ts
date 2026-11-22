@@ -154,6 +154,7 @@ export { isTextBearingType, registerTextBearing } from "./plugin/textBearing";
 
 export type {
   Block,
+  BlockFlags,
   BlockId,
   BlockSpec,
   BlockType,
@@ -299,6 +300,9 @@ export {
   imageCodec,
 } from "./plugin/anchorCodec";
 export { isAtomicBlockType, registerAtomic } from "./plugin/atomic";
+// A plugin block's view spreads `lockedAttrs(block)` into its outer element,
+// as the built-in views do, so the browser does not edit a locked block's DOM.
+export { isLockedBlock, lockedAttrs } from "./plugin/locked";
 export { TriggerManager } from "./plugin/triggers";
 export { DecorationManager } from "./plugin/decorations";
 export { RangeDecorationManager } from "./plugin/rangeDecorations";

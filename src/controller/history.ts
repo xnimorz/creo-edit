@@ -152,7 +152,23 @@ export function createHistory(
     redoStack.length = 0;
   };
 
-  return { record, undo, redo, reset };
+  /** Where the stacks stand, to be put back by `rollback` if the edit about
+   *  to be recorded is refused. */
+  const checkpoint = () => ({
+    undoLength: undoStack.length,
+    topTs: undoStack[undoStack.length - 1]?.ts,
+    redo: [...redoStack],
+  });
+
+  const rollback = (at: ReturnType<typeof checkpoint>): void => {
+    undoStack.length = Math.min(undoStack.length, at.undoLength);
+    const top = undoStack[undoStack.length - 1];
+    if (top && at.topTs !== undefined) top.ts = at.topTs;
+    redoStack.length = 0;
+    redoStack.push(...at.redo);
+  };
+
+  return { record, undo, redo, reset, checkpoint, rollback };
 }
 
 export type History = ReturnType<typeof createHistory>;

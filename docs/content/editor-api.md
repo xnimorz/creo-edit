@@ -226,6 +226,24 @@ What stays available while read-only:
 
 `undo()` / `redo()` are gated, and refused commands are rejected *before* the history snapshot, so read-only dispatches leave no empty undo steps behind.
 
+## Locked blocks
+
+Some blocks are not the user's to change — a decision already agreed, text quoted from elsewhere, a block another party owns — but should still read, select and copy like the rest. Mark them `locked`:
+
+```ts
+editor.setDoc({ blocks: [
+  { type: "p", runs: [{ text: "Decided: the schema stays." }], locked: true },
+  { type: "p", runs: [{ text: "Your notes here" }] },
+] });
+```
+
+- Every editing command is refused when its changes would reach a locked block: typing, deleting, splitting it, merging into or out of it, formatting, pasting into it, a range delete that reaches it. The refusal is whole — no undo step, no `onChange`, the redo trail kept — and `dispatch` returns `false`.
+- Selecting, copying and `moveBlock` still work: the lock is about content, not position.
+- The host's own APIs (`setDoc`, `applyBlocks`, `appendBlocks`) are not refused; they are how the owner changes it.
+- `locked: true` round-trips through `toJSON()` / `setDoc()` for every block type.
+- A type whose blocks are always (or conditionally) locked declares `BlockDef.locked(block)`.
+- The built-in views draw a locked block with `contenteditable="false"` and `data-locked="true"`, so the browser cannot type or compose into it. A plugin view does the same by spreading `lockedAttrs(block)` into its outer element. `isLockedBlock(block)` answers for either source.
+
 ## Position mapping across edits
 
 An `Anchor` held **outside** the document — a review comment, an LSP diagnostic, a bookmark — silently points at the wrong place after the next keystroke. Re-anchoring by searching for the original text is a heuristic that fails as soon as two lines are identical.

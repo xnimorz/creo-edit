@@ -210,6 +210,13 @@ export type BlockDef<B extends Block = Block> = {
    * one, a block that bears no text contributes nothing.
    */
   plainText?(b: B): string;
+
+  /**
+   * Whether a block of this type is locked, beyond its own `locked` flag:
+   * for a type whose content is never the user's to edit, or one that
+   * decides from its data.
+   */
+  locked?(b: B): boolean;
 };
 
 // ---------------------------------------------------------------------------

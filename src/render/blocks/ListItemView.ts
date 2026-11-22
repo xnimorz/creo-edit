@@ -1,6 +1,7 @@
 import { li, view } from "creo";
 import type { ListItemBlock } from "../../model/types";
 import { InlineRunsView } from "../InlineRunsView";
+import { lockedAttrs } from "../../plugin/locked";
 
 export const ListItemView = view<{ block: ListItemBlock }>(({ props }) => ({
   shouldUpdate(next) {
@@ -14,6 +15,7 @@ export const ListItemView = view<{ block: ListItemBlock }>(({ props }) => ({
         "data-block-kind": "li",
         class: `ce-block ce-li ce-li-d${b.depth}`,
         "data-depth": String(b.depth),
+        ...lockedAttrs(b),
       },
       () => {
         InlineRunsView({ runs: b.runs });

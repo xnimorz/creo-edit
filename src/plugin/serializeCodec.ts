@@ -18,14 +18,22 @@ export function getSerializeCodec(type: string): SerializeCodec | null {
   return codecByType.get(type) ?? null;
 }
 
+// `locked` belongs to every block type, so it is carried here rather than by
+// each type's codec.
 export function serializeBlock(b: Block): unknown | null {
   const c = codecByType.get(b.type);
   if (!c) return null;
-  return c.serialize(b);
+  const out = c.serialize(b);
+  return b.locked === true && out !== null && typeof out === "object"
+    ? { ...(out as object), locked: true }
+    : out;
 }
 
 export function deserializeBlock(type: string, s: unknown, id: BlockId): BlockSpec | null {
   const c = codecByType.get(type);
   if (!c) return null;
-  return c.deserialize(s, id);
+  const out = c.deserialize(s, id);
+  return out !== null && (s as { locked?: unknown } | null)?.locked === true
+    ? ({ ...out, locked: true } as BlockSpec)
+    : out;
 }

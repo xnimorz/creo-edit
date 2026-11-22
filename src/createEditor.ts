@@ -68,6 +68,7 @@ import {
   updateBlock,
 } from "./model/doc";
 import { changesBetween, mapSelection } from "./model/docChanges";
+import { isLockedBlock } from "./plugin/locked";
 import { blockTextOf } from "./model/blockText";
 import {
   collectChanges,
@@ -87,6 +88,7 @@ import type {
   MarkName,
   Selection,
   TableAlign,
+  BlockFlags,
 } from "./model/types";
 
 /**
@@ -138,7 +140,7 @@ export type { SerializedRun };
  * this type — their entries appear as the catch-all `Record<string, unknown>`
  * branch.
  */
-export type SerializedBlock =
+export type SerializedBlock = (
   | { id?: string; type: "p"; runs: SerializedRun[] }
   | { id?: string; type: "h1" | "h2" | "h3" | "h4" | "h5" | "h6"; runs: SerializedRun[] }
   | {
@@ -195,7 +197,8 @@ export type SerializedBlock =
   | {
       id?: string;
       type: "hr";
-    };
+    }
+) & BlockFlags;
 
 /**
  * Catch-all shape for plugin-introduced block types. Plugins serializing
@@ -668,6 +671,27 @@ const BUILTIN_COMMANDS = new Set<string>([
 /** Built-ins that never touch the document, so they survive read-only mode. */
 const READ_ONLY_SAFE_BUILTINS = new Set<string>(["noop", "moveCursor"]);
 
+function touchesLocked(before: DocState, changes: readonly DocChange[]): boolean {
+  const locked = (id: BlockId): boolean => {
+    const b = before.byId.get(id);
+    return b !== undefined && isLockedBlock(b);
+  };
+  for (const c of changes) {
+    switch (c.kind) {
+      case "insertBlock":
+      case "moveBlock":
+      case "replaceDoc":
+        continue;
+      case "merge":
+        if (locked(c.blockId) || locked(c.into)) return true;
+        continue;
+      default:
+        if (locked(c.blockId)) return true;
+    }
+  }
+  return false;
+}
+
 function historyTagFor(cmd: DispatchableCommand): string {
   switch (cmd.t) {
     case "insertText":
@@ -807,8 +831,32 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       const c = cmd as Extract<Command, { t: "toggleMark" }>;
       return cmdToggleMark(ctx, c.mark, c.attrs ?? null);
     }
-    // Snapshot for undo BEFORE mutating. Tag drives coalescing.
-    history.record(historyTagFor(cmd));
+    // A command whose changes reach a locked block is undone whole: stores,
+    // history and its changes, as though it had been refused up front. Which
+    // blocks a command touches is only known once it has run.
+    const mark = history.checkpoint();
+    const beforeDoc = docStore.get();
+    const beforeSel = selStore.get();
+    let refused = false;
+    const { result } = collectChanges(
+      () => {
+        // Snapshot for undo BEFORE mutating. Tag drives coalescing.
+        history.record(historyTagFor(cmd));
+        return applyCommand(cmd);
+      },
+      (changes) => {
+        if (!touchesLocked(beforeDoc, changes)) return true;
+        refused = true;
+        docStore.set(beforeDoc);
+        selStore.set(beforeSel);
+        history.rollback(mark);
+        return false;
+      },
+    );
+    return refused ? false : result;
+  };
+
+  const applyCommand = (cmd: DispatchableCommand): boolean => {
     switch (cmd.t) {
       case "noop":
         return true;
