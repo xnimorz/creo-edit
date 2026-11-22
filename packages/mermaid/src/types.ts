@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Store } from "creo";
-import type { BlockId, FracIndex } from "../../index";
+import type { BlockId, FracIndex } from "creo-edit";
 
 /** The diagram block as it lives in the document. One attribute. */
 export type MermaidBlock = {

@@ -1,9 +1,9 @@
-import "../../../__tests__/setup";
+import "../../../../src/__tests__/setup";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createApp, HtmlRender } from "creo";
 import * as visimerCore from "@visimer/core";
 import * as pele from "pele";
-import { clearDom, makeContainer, SYNC_SCHEDULER, win } from "../../../__tests__/setup";
+import { clearDom, makeContainer, SYNC_SCHEDULER, win } from "../../../../src/__tests__/setup";
 import {
   createEditor,
   docToMarkdown,
@@ -11,9 +11,9 @@ import {
   type DocChange,
   type Editor,
   type SerializedDoc,
-} from "../../../index";
-import { docToHtml } from "../../../clipboard/htmlSerializer";
-import { parseHTML } from "../../../clipboard/htmlParser";
+} from "creo-edit";
+import { docToHtml } from "../../../../src/clipboard/htmlSerializer";
+import { parseHTML } from "../../../../src/clipboard/htmlParser";
 import {
   createPeleEngine,
   mermaidActions,

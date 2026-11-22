@@ -4,7 +4,7 @@
 // Pele is synchronous, has no dependencies, and tags every node and edge in
 // its SVG with the id it has in the source — which is what makes the visual
 // editor a lookup rather than a guess. It is reached only through a dynamic
-// import, so nothing here is in the editor's main bundle and a host's bundler
+// import, so it is in nobody's main bundle and a host's bundler
 // splits it into chunks of its own (which a service worker then caches).
 //
 // `pele/lazy` loads one chunk per diagram TYPE on first use. That makes the

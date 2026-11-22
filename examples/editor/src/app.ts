@@ -9,9 +9,9 @@ import {
   type Mark,
   type SerializedDoc,
 } from "creo-edit";
-import { mermaidPlugin, mermaidSlashItem } from "creo-edit/mermaid";
+import { mermaidPlugin, mermaidSlashItem } from "creo-edit-mermaid-plugin";
 import "../../../src/plugins/styles.css";
-import "../../../src/plugins/mermaid/styles.css";
+import "../../../packages/mermaid/src/styles.css";
 
 // Editor config is URL-driven so the same example app can demonstrate every
 // mode without separate routes — and so the E2E suite can pin a config:

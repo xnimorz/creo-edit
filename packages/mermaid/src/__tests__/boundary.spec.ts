@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The mermaid plugin is a separate entry point (`creo-edit/mermaid`) and is
-// meant to be liftable into its own package. That only stays true if it uses
-// the editor the way any outside plugin must: through `src/index.ts`. A
-// relative import that reaches past it into the editor's internals would
-// work today and break the day the plugin moves.
+// This is a package of its own: it must use the editor the way any outside
+// plugin does, through the `creo-edit` package and nothing behind it. In this
+// repository the editor's sources are one directory up, so a relative import
+// that reached into them would compile, pass every test here — and fail for
+// everyone who installs the package from npm.
 describe("mermaid plugin — import boundary", () => {
   const dir = join(import.meta.dir, "..");
   const files = readdirSync(dir).filter((f) => f.endsWith(".ts"));
-  const ALLOWED = new Set(["creo", "pele/lazy", "@visimer/core", "../../index"]);
+  const ALLOWED = new Set(["creo", "creo-edit", "pele/lazy", "@visimer/core"]);
 
-  test("imports only its own files, the public entry, creo, and its two engines", () => {
+  test("imports only its own files, creo-edit, creo, and its two engines", () => {
     const offenders: string[] = [];
     for (const f of files) {
       // Usage examples in comments name the package itself; they are not imports.

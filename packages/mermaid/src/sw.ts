@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// creo-edit/mermaid/sw — cache the diagram engine in a host's service worker.
+// creo-edit-mermaid-plugin/sw — cache the diagram engine in a host's service worker.
 //
 // You probably do not need this. If your app BUNDLES `pele` and
 // `@visimer/core` (the plugin loads both with `import()`, so a bundler emits
@@ -11,7 +11,7 @@
 // the file has to be served from your origin, and its scope and update policy
 // are yours — so this is a handler to call from the worker you already have:
 //
-//   import { cacheMermaidEngine } from "creo-edit/mermaid/sw";
+//   import { cacheMermaidEngine } from "creo-edit-mermaid-plugin/sw";
 //   const mermaid = cacheMermaidEngine();
 //   self.addEventListener("fetch", (event) => {
 //     if (mermaid(event)) return;

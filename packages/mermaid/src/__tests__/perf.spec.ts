@@ -1,10 +1,10 @@
-import "../__tests__/setup";
+import "../../../../src/__tests__/setup";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createApp, HtmlRender } from "creo";
-import { clearDom, makeContainer, SYNC_SCHEDULER } from "../__tests__/setup";
-import { createEditor, type SerializedDoc } from "../index";
-import { mermaidPlugin, type MermaidEngine } from "../plugins/mermaid";
-import { runtimeOf } from "../plugins/mermaid/runtime";
+import { clearDom, makeContainer, SYNC_SCHEDULER } from "../../../../src/__tests__/setup";
+import { createEditor, type SerializedDoc } from "creo-edit";
+import { mermaidPlugin, type MermaidEngine } from "../index";
+import { runtimeOf } from "../runtime";
 
 // "Anything running per edit must be O(mounted), not O(document)" — and for a
 // diagram block the expensive thing is a draw. These count draws with a stub

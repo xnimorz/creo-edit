@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { div, view, type RefObject } from "creo";
-import type { Block } from "../../index";
+import type { Block } from "creo-edit";
 import { MERMAID_TYPE, type MermaidBlock } from "./types";
 import { MermaidBlockUI } from "./ui";
 

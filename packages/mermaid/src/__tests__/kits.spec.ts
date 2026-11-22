@@ -1,4 +1,4 @@
-import "../../../__tests__/setup";
+import "../../../../src/__tests__/setup";
 import { describe, expect, test } from "bun:test";
 import { MermaidWysiwygEditor } from "@visimer/core";
 import { render } from "pele";

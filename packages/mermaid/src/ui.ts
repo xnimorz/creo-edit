@@ -17,7 +17,7 @@
 // it here.
 // ---------------------------------------------------------------------------
 
-import { closestEditor, isolateInput } from "../../index";
+import { closestEditor, isolateInput } from "creo-edit";
 import { icons } from "./icons";
 import { runtimeOf, type BlockUiHandle, type MermaidRuntime } from "./runtime";
 import type {

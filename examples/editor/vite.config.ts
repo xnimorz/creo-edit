@@ -14,11 +14,15 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // The subpath first: aliases match by prefix, in order, so the bare
-      // "creo-edit" below would otherwise swallow it.
-      "creo-edit/mermaid": path.resolve(
+      // The mermaid plugin is its own package (`packages/mermaid`). Aliased to
+      // its source like the editor is, so the example tracks both live. It
+      // goes FIRST: aliases match by prefix, in order, and the bare
+      // "creo-edit" below would otherwise swallow "creo-edit-mermaid-plugin".
+      // Its two engines (pele, @visimer/core) resolve from
+      // `packages/mermaid/node_modules` — run `bun install` there once.
+      "creo-edit-mermaid-plugin": path.resolve(
         __dirname,
-        "../../src/plugins/mermaid/index.ts",
+        "../../packages/mermaid/src/index.ts",
       ),
       "creo-edit": path.resolve(__dirname, "../../src/index.ts"),
       // Editor source files do `import { ... } from "creo"`. Without this

@@ -1,0 +1,7 @@
+# `bun test src/` filters by substring, and `packages/mermaid/src/` contains
+# "src/" too. Without a root, the editor's test run would also run the
+# mermaid plugin's specs — which need that package's own dependencies
+# installed, and are not the editor's to run. The plugin has its own
+# `bun test` in `packages/mermaid`.
+[test]
+root = "src"

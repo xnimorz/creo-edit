@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// creo-edit/mermaid — Mermaid diagrams as a block.
+// creo-edit-mermaid-plugin — Mermaid diagrams as a block.
 //
-//   import { mermaidPlugin, mermaidSlashItem } from "creo-edit/mermaid";
-//   import "creo-edit/mermaid/styles.css";
+//   import { mermaidPlugin, mermaidSlashItem } from "creo-edit-mermaid-plugin";
+//   import "creo-edit-mermaid-plugin/styles.css";
 //
 //   createEditor({ plugins: [mermaidPlugin()] });
 //   editor.dispatch({ t: "mermaid.insert", payload: {} });
@@ -14,9 +14,12 @@
 //             + to add a connected node, drag a dot to connect.
 //   Code    — the mermaid source in a text field, the picture following it.
 //
-// `pele` and `@visimer/core` are optional peer dependencies of this entry
-// point only, and are loaded on demand: the main `creo-edit` entry depends
-// on neither, and a page with no diagram fetches neither.
+// A package of its own. `creo-edit` knows nothing about it and depends on
+// neither engine: `pele` and `@visimer/core` are THIS package's dependencies,
+// installed with it and still loaded on demand (`import()`), so a page with
+// no diagram fetches neither. `creo-edit` and `creo` are peers — the host's
+// one copy, which is what makes the block register into the registries the
+// host's editor reads.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -24,7 +27,7 @@ import type {
   Editor,
   EditorPlugin,
   SlashItem,
-} from "../../index";
+} from "creo-edit";
 import { adoptCodeBlocks, mermaidBlockDef } from "./block";
 import { mermaidCommands } from "./commands";
 import { createRuntime, runtimeOf } from "./runtime";

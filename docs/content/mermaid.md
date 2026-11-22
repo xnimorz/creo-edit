@@ -1,24 +1,26 @@
 # Mermaid diagrams
 
-`creo-edit/mermaid` adds a diagram block. It is drawn from [Mermaid](https://mermaid.js.org) source, and it can be edited two ways: by pointing at the picture, or by writing the source.
+`creo-edit-mermaid-plugin` adds a diagram block. It is drawn from [Mermaid](https://mermaid.js.org) source, and it can be edited two ways: by pointing at the picture, or by writing the source.
 
-It is a separate entry point. The main `creo-edit` entry does not depend on it, and a page with no diagram loads none of its engine.
+It is a package of its own. `creo-edit` does not depend on it, or on anything it uses: add the plugin when you want diagrams, and nothing changes for an app that does not.
 
 ## Install
 
 ```sh
-npm install creo-edit pele @visimer/core
+npm install creo-edit-mermaid-plugin
 ```
+
+It needs `creo-edit` 0.6 or later, which you already have installed, and brings its own two dependencies:
 
 - [`pele`](https://github.com/obsidianmd/pele) draws the diagram.
 - [`@visimer/core`](https://github.com/inkeep/visimer) turns a visual edit into an edit of the source. A display-only page never loads it.
 
-Both are optional peer dependencies of this entry point, loaded with `import()` the first time they are needed.
+Both are loaded with `import()` the first time they are needed, so a page with no diagram fetches neither.
 
 ```ts
 import { createEditor, slashCommandsPlugin, defaultSlashItems } from "creo-edit";
-import { mermaidPlugin, mermaidSlashItem } from "creo-edit/mermaid";
-import "creo-edit/mermaid/styles.css";
+import { mermaidPlugin, mermaidSlashItem } from "creo-edit-mermaid-plugin";
+import "creo-edit-mermaid-plugin/styles.css";
 
 const editor = createEditor({
   plugins: [
@@ -126,7 +128,7 @@ mermaidPlugin({
 Switching mode is not a command (it is not a document change):
 
 ```ts
-import { mermaidController } from "creo-edit/mermaid";
+import { mermaidController } from "creo-edit-mermaid-plugin";
 
 mermaidController(editor)?.setMode(blockId, "code");
 ```
@@ -136,7 +138,7 @@ mermaidController(editor)?.setMode(blockId, "code");
 The bar on the block is drawn from one list. `mermaidActions` hands you the same list, so a context menu or a phone's block sheet can offer exactly what the bar does:
 
 ```ts
-import { mermaidActions } from "creo-edit/mermaid";
+import { mermaidActions } from "creo-edit-mermaid-plugin";
 
 for (const action of mermaidActions(editor, blockId)) {
   // { key, scope: "block" | "entity", label, icon, on?, disabled?, choices?, run() }
@@ -163,11 +165,11 @@ The bar is sticky, so on a tall diagram the selection's actions stay in reach. U
 ## Loading and offline
 
 - The engine is fetched when the first diagram mounts, or a little earlier: with `preload: "idle"` the plugin warms it up when the browser is idle.
-- If your app bundles `pele` and `@visimer/core`, they are ordinary hashed files in your build. A service worker that precaches your build caches them, and diagrams work offline with nothing more to do.
-- If the engine comes from a CDN instead, `creo-edit/mermaid/sw` has a cache-first handler for your own service worker:
+- Your bundler emits the engine (`pele`, `@visimer/core`) as hashed files of your own build. A service worker that precaches your build caches them, and diagrams work offline with nothing more to do.
+- If the engine comes from a CDN instead, `creo-edit-mermaid-plugin/sw` has a cache-first handler for your own service worker:
 
 ```ts
-import { cacheMermaidEngine } from "creo-edit/mermaid/sw";
+import { cacheMermaidEngine } from "creo-edit-mermaid-plugin/sw";
 
 const mermaid = cacheMermaidEngine();
 self.addEventListener("fetch", (event) => {

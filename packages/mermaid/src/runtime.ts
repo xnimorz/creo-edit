@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { store, type Store } from "creo";
-import type { BlockId, Editor } from "../../index";
+import type { BlockId, Editor } from "creo-edit";
 import { loadPeleEngine } from "./engine";
 import type { VisimerModule } from "./kits";
 import { defaultMermaidTemplates } from "./templates";

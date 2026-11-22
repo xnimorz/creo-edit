@@ -50,7 +50,7 @@ async function run(handle: ReturnType<typeof cacheMermaidEngine>, url: string, m
 
 const PELE = "https://cdn.jsdelivr.net/npm/pele@1.13.0/dist/esm/lazy.js";
 
-describe("creo-edit/mermaid/sw", () => {
+describe("creo-edit-mermaid-plugin/sw", () => {
   test("takes versioned engine URLs and nothing else", () => {
     expect(defaultMermaidMatch(new URL(PELE))).toBe(true);
     expect(defaultMermaidMatch(new URL("https://esm.sh/@visimer/core@1.1.4/dist/index.js"))).toBe(true);

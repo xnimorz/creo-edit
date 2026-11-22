@@ -21,7 +21,7 @@ import {
   type CommandCtx,
   type CommandDef,
   type InlineRun,
-} from "../../index";
+} from "creo-edit";
 import { asMermaid, mermaidSpec } from "./block";
 import { runtimeOf } from "./runtime";
 import { MERMAID_TYPE, type MermaidBlock, type MermaidMode } from "./types";

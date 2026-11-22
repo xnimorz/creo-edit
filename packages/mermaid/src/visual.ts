@@ -30,7 +30,7 @@
 // always in the same place and covers nothing.
 // ---------------------------------------------------------------------------
 
-import { isolateInput } from "../../index";
+import { isolateInput } from "creo-edit";
 import { iconFor, icons } from "./icons";
 import {
   correlate,

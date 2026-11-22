@@ -1,0 +1,65 @@
+{
+  "name": "creo-edit-mermaid-plugin",
+  "version": "0.1.0",
+  "description": "Mermaid diagrams for creo-edit: a block you can edit by pointing at it, or by writing the source.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Nik (xnim.me)",
+  "homepage": "https://github.com/xnimorz/creo-editor/tree/main/packages/mermaid#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xnimorz/creo-editor.git",
+    "directory": "packages/mermaid"
+  },
+  "bugs": {
+    "url": "https://github.com/xnimorz/creo-editor/issues"
+  },
+  "keywords": [
+    "creo-edit",
+    "creo",
+    "editor",
+    "mermaid",
+    "diagram",
+    "flowchart",
+    "plugin"
+  ],
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sw": {
+      "types": "./dist/sw.d.ts",
+      "import": "./dist/sw.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test src/",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@visimer/core": "^1.1.4",
+    "pele": "^1.13.0"
+  },
+  "peerDependencies": {
+    "creo": ">=0.2.9",
+    "creo-edit": ">=0.6.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

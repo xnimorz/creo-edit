@@ -1,0 +1,7 @@
+# Do not install the peers (`creo`, `creo-edit`) into this package's
+# node_modules. In this repository they are the editor one directory up and
+# the single copy of creo in its node_modules — `tsconfig.json` maps both
+# names there. A second copy of either would be a second set of the
+# module-global registries the block registers into.
+[install]
+peer = false

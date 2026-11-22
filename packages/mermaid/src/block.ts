@@ -17,7 +17,7 @@ import {
   type BlockDef,
   type BlockSpec,
   type SerializedDocLike,
-} from "../../index";
+} from "creo-edit";
 import { MERMAID_TYPE, type MermaidBlock } from "./types";
 import { MermaidView } from "./view";
 

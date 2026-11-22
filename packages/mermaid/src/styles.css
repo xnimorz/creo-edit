@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   creo-edit/mermaid — block chrome and visual-editor chrome.
+   creo-edit-mermaid-plugin — block chrome and visual-editor chrome.
 
    Everything is driven by a handful of custom properties on `.ce-mermaid`,
    so a host themes it by overriding them (and Pele's own `--pele-*`
