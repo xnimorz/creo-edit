@@ -77,6 +77,16 @@ const PACKAGES: Pkg[] = [
       ["bun", "run", "build"],
     ],
   },
+  {
+    dir: "packages/rail",
+    sources: ["src", "build.ts", "tsconfig.build.json"],
+    checks: [
+      ["bun", "install", "--frozen-lockfile"],
+      ["bun", "run", "typecheck"],
+      ["bun", "test", "src/"],
+      ["bun", "run", "build"],
+    ],
+  },
 ];
 
 /** Tests are not shipped; a change to one is not a reason to release. */

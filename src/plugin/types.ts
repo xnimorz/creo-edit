@@ -516,6 +516,15 @@ export type EditorPlugin = {
   onInit?(editor: import("../createEditor").Editor): (() => void) | void;
 
   /**
+   * Called when the editor's root element is in the page — the DOM hook
+   * `onInit` is not. For chrome drawn beside the document rather than in a
+   * block: a rail, a minimap, a floating toolbar. The root can be mounted
+   * more than once (a host re-rendering the view); the teardown returned for
+   * the previous root runs before the next call, and at `editor.destroy()`.
+   */
+  onMount?(root: HTMLElement, editor: import("../createEditor").Editor): (() => void) | void;
+
+  /**
    * Called from `editor.destroy()`, after the input pipeline and overlay
    * managers are torn down. Release anything the plugin allocated outside the
    * editor: timers, observers, network subscriptions.

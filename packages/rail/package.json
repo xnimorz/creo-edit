@@ -1,0 +1,62 @@
+{
+  "name": "creo-edit-rail-plugin",
+  "version": "0.1.0",
+  "description": "A rail of ticks beside a creo-edit document: one per point the host picks (messages, headings), to see where you are and jump.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Nik (xnim.me)",
+  "homepage": "https://github.com/xnimorz/creo-editor/tree/main/packages/rail#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xnimorz/creo-editor.git",
+    "directory": "packages/rail"
+  },
+  "bugs": {
+    "url": "https://github.com/xnimorz/creo-editor/issues"
+  },
+  "keywords": [
+    "creo-edit",
+    "creo",
+    "editor",
+    "navigation",
+    "outline",
+    "minimap",
+    "plugin"
+  ],
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test src/",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "creo-edit": ">=0.8.0"
+  },
+  "peerDependenciesMeta": {
+    "creo-edit": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

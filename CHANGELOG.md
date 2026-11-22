@@ -5,6 +5,20 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+### Plugins
+
+- **`EditorPlugin.onMount(root, editor)`**: called when the editor's root
+  element is in the page, for chrome drawn beside the document rather than
+  in a block. The root can be mounted more than once; the teardown returned
+  for the previous root runs before the next call, and at `editor.destroy()`.
+  `onInit` is still called first, before there is a root.
+- **`creo-edit-rail-plugin`** (new package, `packages/rail`): a rail of ticks
+  beside the document, one per point the host picks — headings with the
+  `headingPoints()` preset, a chat's messages, anything with a block id.
+  Lights the point being read, shows a card on hover, jumps on click.
+
 ## 0.7.0
 
 Markdown's tables, quotes and rules, for a host drawing what a model wrote.

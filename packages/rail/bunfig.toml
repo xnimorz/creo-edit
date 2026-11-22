@@ -1,0 +1,12 @@
+# Do not install the peers (`creo-edit`, and `creo` for the tests) into this
+# package's node_modules. In this repository they are the editor one directory
+# up and the single copy of creo in its node_modules — `tsconfig.json` maps
+# both names there. A second copy of either would be a second set of the
+# editor's module-global registries.
+[install]
+peer = false
+
+# `creo-edit` is an OPTIONAL peer in package.json for the same reason as the
+# mermaid package's: Bun (1.2.8) hangs on `bun install` when a required peer
+# has no satisfying version on npm, which is this package's state whenever it
+# needs an editor feature not released yet (here `EditorPlugin.onMount`).

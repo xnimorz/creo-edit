@@ -1178,6 +1178,17 @@ export function createEditor(opts: EditorOptions = {}): Editor {
 
   // ---- Teardown --------------------------------------------------------
   const pluginTeardowns: (() => void)[] = [];
+  /** What each plugin's `onMount` put up for the root mounted now. */
+  const mountTeardowns: (() => void)[] = [];
+  const runMountTeardowns = (): void => {
+    for (const t of mountTeardowns.splice(0)) {
+      try {
+        t();
+      } catch {
+        // One plugin's failed teardown must not strand the others.
+      }
+    }
+  };
   let destroyed = false;
   const destroy = (): void => {
     if (destroyed) return;
@@ -1195,6 +1206,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     inlineWidgets?.destroy();
     inlineWidgets = null;
     triggers.destroy();
+    runMountTeardowns();
     for (const t of pluginTeardowns.splice(0)) {
       try {
         t();
@@ -1301,6 +1313,18 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               selStore,
               editorRoot: root,
             });
+          }
+          // Last, so a plugin's chrome finds the root fully wired. A second
+          // mount first takes down what the first one put up.
+          runMountTeardowns();
+          for (const p of installedPlugins) {
+            if (!p.onMount) continue;
+            try {
+              const teardown = p.onMount(root, editorSelf!);
+              if (teardown) mountTeardowns.push(teardown);
+            } catch (err) {
+              console.error(`creo-edit: plugin "${p.name}" onMount failed`, err);
+            }
           }
         },
         render() {
