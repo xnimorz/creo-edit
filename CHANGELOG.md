@@ -16,8 +16,8 @@ itself, and that takes changes from outside while the user reads or types.
   press used to delete an image, a rule, a calendar or a plugin's embed
   outright, and a press at the start of the block after one did nothing.
   Now the first press selects the block and the second deletes it, as one
-  undoable step. Hosts that want the old one-press delete can confirm in
-  `EditorOptions.confirmDelete`; details under *Editor* below.
+  undoable step; `EditorOptions.confirmDelete` can still keep the block.
+  Details under *Editor* below.
 
 ### Editor
 
