@@ -73,7 +73,10 @@ export type DiagramKit = {
   /** Flow direction ("TD", "LR", …), which decides where the quick-add
    *  button sits. null = the type has none. */
   direction(result: VisimerResult): string | null;
-  add(label: string): Op;
+  /** `id`: the id the new item takes in the source, for the types whose
+   *  items have one apart from their name (a flowchart's nodes, a state
+   *  diagram's states). Omitted, visimer picks the next free one. */
+  add(label: string, id?: string): Op;
   connect?(source: Entity, target: Entity): Op;
   rename(entity: Entity, label: string): Op | null;
   /** null = this kind of thing cannot be deleted visually. */
@@ -157,7 +160,7 @@ const flowchart: DiagramKit = {
     };
   },
   direction: (r) => dirOf(graph(r, "flowchart")) ?? "TB",
-  add: (label) => ({ type: "addNode", label }),
+  add: (label, id) => ({ type: "addNode", label, ...(id ? { id } : {}) }),
   connect: (s, t) => ({ type: "connect", source: s.ref, target: t.ref }),
   rename(e, label) {
     if (e.kind === "node") return { type: "renameNode", id: e.ref, label };
@@ -195,7 +198,7 @@ const state: DiagramKit = {
     };
   },
   direction: (r) => dirOf(graph(r, "state")) ?? "TB",
-  add: (label) => ({ type: "st.addState", label }),
+  add: (label, id) => ({ type: "st.addState", label, ...(id ? { id } : {}) }),
   connect: (s, t) => ({ type: "st.connect", source: s.ref, target: t.ref }),
   rename: (e, label) =>
     e.kind === "node"

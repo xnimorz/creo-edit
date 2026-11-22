@@ -51,6 +51,7 @@ export const navSections: NavSection[] = [
       { title: "Default demo with constructor", slug: "demo" },
       { title: "Large text & scroll with search", slug: "large-text-search" },
       { title: "IDE affordances", slug: "ide-affordances" },
+      { title: "Mermaid diagrams", slug: "mermaid-demo" },
     ],
   },
 ];

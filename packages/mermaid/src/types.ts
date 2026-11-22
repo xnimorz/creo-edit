@@ -158,6 +158,16 @@ export type MermaidPluginOptions = {
    *  Default false for both. */
   links?: boolean;
   images?: boolean;
+  /**
+   * The id a node added in the picture takes in the source — a flowchart's
+   * node, a state diagram's state (the other types name an item by its
+   * label). Omitted, it is the next free one (`E` after `D`), which is the
+   * readable choice for one author. A host whose documents are edited by
+   * several people at once passes ids no two of them would both pick: two
+   * nodes added at the same moment are otherwise both `E`, and merge into one.
+   * Must be a valid Mermaid id.
+   */
+  nodeId?: () => string;
   /** Starter diagrams offered in an empty block. */
   templates?: readonly MermaidTemplate[];
   labels?: Partial<MermaidLabels>;
