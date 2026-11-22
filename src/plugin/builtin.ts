@@ -178,7 +178,7 @@ const listItemDef: BlockDef<ListItemBlock> = {
     deserialize(s, id) {
       const sb = s as {
         ordered: boolean;
-        depth?: 0 | 1 | 2 | 3;
+        depth?: number;
         runs: SerializedRun[];
       };
       return {

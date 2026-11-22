@@ -28,6 +28,9 @@ function mount(blocks: BlockSpec[]): {
   const editor = createEditor({ initial });
   createApp(() => editor.EditorView(), new HtmlRender(root)).mount();
   const editorRoot = root.querySelector("[data-creo-edit]") as HTMLElement;
+  // The user is in the editor: only an editor with the focus writes the
+  // page's selection.
+  editorRoot.focus();
   return { root, editorRoot, editor, ids };
 }
 
@@ -608,5 +611,84 @@ describe("nativeInput — keymap shortcuts", () => {
     );
     editorRoot.dispatchEvent(ev);
     expect(blockText(editor, id)).toBe("");
+  });
+});
+
+// What a host with more than the editor on its page needs: other fields, a
+// control inside a block, an editor inside another's block.
+describe("nativeInput — sharing the page", () => {
+  const mac = /Mac|iPhone|iPod|iPad/i.test((navigator?.platform ?? "") + " " + (navigator?.userAgent ?? ""));
+  const key = (target: EventTarget, k: string, mods: KeyboardEventInit = {}) =>
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...mods }));
+
+  it("an editor without the focus leaves the page's selection alone; focused, it puts its caret there", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([spec({ id, type: "p", runs: [{ text: "hello" }] })]);
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    field.focus();
+    document.getSelection()!.removeAllRanges();
+    // A change from elsewhere (a sync) moves the model's caret: the field
+    // keeps the focus, and the page's selection stays out of the editor.
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 3) });
+    expect(document.activeElement).toBe(field);
+    expect(document.getSelection()!.rangeCount).toBe(0);
+    // Focused, the editor writes the caret it holds.
+    editor.focus();
+    const after = document.getSelection()!;
+    expect(findBlockElementById(editorRoot, id)!.contains(after.anchorNode)).toBe(true);
+    expect(after.anchorOffset).toBe(3);
+  });
+
+  it("a key pressed on a control inside a block is the control's", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([spec({ id, type: "li", ordered: false, depth: 0, runs: [{ text: "item" }] } as never)]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 0) });
+    // A card's field: in an island the editor does not edit.
+    const island = document.createElement("div");
+    island.setAttribute("contenteditable", "false");
+    const field = document.createElement("input");
+    island.appendChild(field);
+    findBlockElementById(editorRoot, id)!.appendChild(island);
+    key(field, "Tab");
+    expect((editor.docStore.get().byId.get(id) as { depth: number }).depth).toBe(0);
+    key(editorRoot, "Tab");
+    expect((editor.docStore.get().byId.get(id) as { depth: number }).depth).toBe(1);
+  });
+
+  it("a key acts on the page's selection as it is now, before selectionchange has told the editor", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([spec({ id, type: "p", runs: [{ text: "hello world" }] })]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 0) });
+    // The browser moves the selection (⇧End); its selectionchange has not
+    // arrived yet.
+    const text = findBlockElementById(editorRoot, id)!.querySelector("span")?.firstChild ?? findBlockElementById(editorRoot, id)!.firstChild!;
+    let node: Node = text;
+    while (node.nodeType !== 3 && node.firstChild) node = node.firstChild;
+    document.getSelection()!.setBaseAndExtent(node, 6, node, 11);
+    key(editorRoot, "b", mac ? { metaKey: true } : { ctrlKey: true });
+    const runs = (editor.docStore.get().byId.get(id) as { runs: { text: string; marks?: Map<string, unknown> }[] }).runs;
+    expect(runs.map((r) => [r.text, !!r.marks?.has("b")])).toEqual([
+      ["hello ", false],
+      ["world", true],
+    ]);
+  });
+
+  it("an editor nested in a block keeps its own selection", () => {
+    const id = newBlockId();
+    const { editorRoot, editor } = mount([spec({ id, type: "p", runs: [{ text: "outer" }] })]);
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 2) });
+    // Another editor's root inside one of this editor's blocks (a host's
+    // column): its text is not this document's.
+    const inner = document.createElement("div");
+    inner.setAttribute("data-creo-edit", "inner");
+    inner.innerHTML = `<p data-block-id="x" data-block-kind="p">inner</p>`;
+    findBlockElementById(editorRoot, id)!.appendChild(inner);
+    const t = inner.querySelector("p")!.firstChild!;
+    document.getSelection()!.setBaseAndExtent(t, 1, t, 1);
+    document.dispatchEvent(new Event("selectionchange"));
+    const sel = editor.selStore.get();
+    expect(sel.kind === "caret" && sel.at.blockId).toBe(id);
+    expect(sel.kind === "caret" && sel.at.offset).toBe(2);
   });
 });

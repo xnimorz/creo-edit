@@ -107,4 +107,4 @@ It works with windowed (`virtualized`) documents: a point far off screen is gone
 
 | | |
 |---|---|
-| `creo-edit` ≥ 0.8 | Peer dependency: your app's one copy. It needs `EditorPlugin.onMount`, new in 0.8. (Marked optional so package managers do not fetch it for you; the plugin does need it.) |
+| `creo-edit` ≥ 0.9 | Peer dependency: your app's one copy. It needs `EditorPlugin.onMount`, new in 0.9. (Marked optional so package managers do not fetch it for you; the plugin does need it.) |

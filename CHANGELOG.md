@@ -5,7 +5,7 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## 0.8.0
+## 0.9.0
 
 A hook for plugins that draw beside the document, and the first plugin to
 use it. No breaking API changes.
@@ -21,6 +21,57 @@ use it. No breaking API changes.
   beside the document, one per point the host picks — headings with the
   `headingPoints()` preset, a chat's messages, anything with a block id.
   Lights the point being read, shows a card on hover, jumps on click.
+
+## 0.8.0
+
+For a host with more on its page than the editor: other fields, controls
+inside blocks, editors inside other editors' blocks. Upstreamed from
+cront.app, which carried these as a patch. Three behaviour changes, each
+described below: an editor without the focus no longer writes the page's
+selection; a key pressed on a control inside a block no longer reaches the
+editor's key bindings; list depth is no longer capped at 3.
+
+### Editor
+
+- **An editor writes the page's selection only while it has the focus.**
+  A document changed from outside (a sync, a capture from another field)
+  used to move the page's selection into the editor, taking the caret out
+  of the field the user was typing in. The model selection still changes;
+  it reaches the page when the editor is focused — `editor.focus()` now
+  puts the caret held in `selStore` on the page. A click, a tap or Tab
+  keeps the caret the browser puts where the user went in.
+- **A key pressed on a control inside a block is that control's** (a
+  card's button or field, a diagram's canvas): the editor's key bindings
+  no longer take Tab or Enter there, so the focus can leave the control.
+  A block that wants the document's keys hands them on itself
+  (`editor.undo()`, `editor.dispatch(…)`).
+- **An editor nested in another's block keeps its own selection, focus and
+  clipboard.** The outer editor reads only nodes whose nearest
+  `[data-creo-edit]` is its own root.
+- **A key or an input acts on the selection as it is now.** The browser
+  reports a selection change later (`selectionchange`); a key right after a
+  caret move — ⌘B right after ⇧Home — used to act on the old selection.
+
+### Marks
+
+- **A mark toggled at a caret is kept for the text typed next there** (⌘B
+  with nothing selected, then typing, types bold). It changes no text and
+  is no undo step; moving the caret drops it. `marksAtCaret(ctx)` (new
+  export) says what text typed at the caret would carry, for a toolbar's
+  pressed state.
+
+### Lists
+
+- **No depth limit.** Tab indents a list item as far as wanted, and a
+  pasted list keeps its nesting (both stopped at 3). `ListItemBlock.depth`
+  is a `number`. The class `ce-li-d<n>` and `data-depth` carry any depth; a
+  stylesheet that indents only `ce-li-d1`…`ce-li-d3` needs a rule for more.
+
+### `creo-edit-mermaid-plugin` 0.2.0
+
+- ⌘Z / ⌘⇧Z (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) pressed on a diagram's canvas
+  undo and redo the document, now that the editor leaves keys on a control
+  inside a block to it.
 
 ## 0.7.0
 

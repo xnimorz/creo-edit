@@ -48,7 +48,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "creo-edit": ">=0.8.0"
+    "creo-edit": ">=0.9.0"
   },
   "peerDependenciesMeta": {
     "creo-edit": {

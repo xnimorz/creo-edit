@@ -100,7 +100,9 @@ export type ListItemBlock = {
   index: FracIndex;
   type: "li";
   ordered: boolean;
-  depth: 0 | 1 | 2 | 3;
+  /** Nesting level, from 0. No upper limit: Tab indents as far as wanted
+   *  and a pasted list keeps its depth. */
+  depth: number;
   runs: InlineRun[];
 };
 

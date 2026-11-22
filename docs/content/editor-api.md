@@ -281,7 +281,7 @@ type SerializedBlock =
       id?: string;
       type: "li";
       ordered: boolean;
-      depth?: 0 | 1 | 2 | 3;
+      depth?: number;
       runs: SerializedRun[];
     }
   | {

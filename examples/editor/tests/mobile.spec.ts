@@ -42,6 +42,8 @@ test.describe("Mobile — contentEditable setup", () => {
     // conscious decision rather than an accident.
     const h = await EditorHarness.open(page);
     await h.buildDoc([{ type: "p", runs: [{ text: "hello" }] }]);
+    // Only an editor with the focus puts its selection on the page.
+    await h.focusKeepingSelection();
     await h.setSelection({
       kind: "range",
       anchor: { blockId: "tb0", path: [0], offset: 0 },

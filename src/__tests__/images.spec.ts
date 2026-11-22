@@ -90,6 +90,7 @@ describe("Image insertion + deletion", () => {
     ).mount();
     editor.selStore.set({ kind: "caret", at: { blockId: id, path: [0], offset: 0 } });
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     const ev = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
       bubbles: true,
       cancelable: true,
@@ -110,6 +111,7 @@ describe("Image insertion + deletion", () => {
       SYNC_SCHEDULER,
     ).mount();
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
 
     const blob = new Blob(["fake-bytes"], { type: "image/png" });
     const file = new File([blob], "pic.png", { type: "image/png" });
@@ -148,6 +150,7 @@ describe("Image insertion + deletion", () => {
       SYNC_SCHEDULER,
     ).mount();
     const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus(); // a user pastes into the editor they are in
     const blob = new Blob(["xyz"], { type: "image/jpeg" });
     const file = new File([blob], "photo.jpg", { type: "image/jpeg" });
     const dt = new DataTransfer();

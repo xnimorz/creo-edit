@@ -1,6 +1,7 @@
 import type { Store } from "creo";
 import {
   isTextBearing,
+  marksAt,
   normalizeRuns,
   runsLength,
   splitRunsAt,
@@ -19,12 +20,15 @@ import {
   orderedRange,
 } from "../controller/selection";
 import { containerOf } from "../model/changes";
+import { runsAt } from "../model/cellAccess";
 import type {
+  Anchor,
   Block,
   DocState,
   InlineRun,
   MarkAttrs,
   MarkName,
+  MarkSet,
   Selection,
 } from "../model/types";
 
@@ -33,12 +37,68 @@ export type Stores = {
   selStore: Store<Selection>;
 };
 
+// ---------------------------------------------------------------------------
+// Pending marks — a mark toggled at a caret (⌘B with nothing selected) is
+// kept for the text typed next at that caret, as other editors' "stored
+// marks" are. Keyed by the selection store, so each editor has its own; held
+// only while the caret stays where it was toggled.
+// ---------------------------------------------------------------------------
+
+const pendingMarks = new WeakMap<Store<Selection>, { at: Anchor; marks: MarkSet }>();
+
+const sameCaret = (a: Anchor, b: Anchor): boolean =>
+  a.blockId === b.blockId &&
+  a.offset === b.offset &&
+  a.path.length === b.path.length &&
+  a.path.every((v, i) => v === b.path[i]);
+
+/**
+ * The marks text typed at the caret would carry: the ones toggled there, or
+ * else the ones it inherits from the text before it. `null` when the
+ * selection is not a caret in text.
+ */
+export function marksAtCaret({ docStore, selStore }: Stores): MarkSet | null {
+  const sel = selStore.get();
+  if (!isCaret(sel)) return null;
+  const pending = pendingMarks.get(selStore);
+  if (pending && sameCaret(pending.at, sel.at)) return pending.marks;
+  const block = getBlock(docStore.get(), sel.at.blockId);
+  const ctx = block && runsAt(block, sel.at);
+  if (!ctx) return null;
+  return marksAt(ctx.runs, anchorOffset(sel.at)) ?? new Map();
+}
+
+/**
+ * The marks toggled at `at` for the text typed next — taken, so they apply
+ * once. Undefined when none were toggled there.
+ */
+export function takePendingMarks(selStore: Store<Selection>, at: Anchor): MarkSet | undefined {
+  const pending = pendingMarks.get(selStore);
+  if (!pending) return undefined;
+  pendingMarks.delete(selStore);
+  return sameCaret(pending.at, at) ? pending.marks : undefined;
+}
+
+function togglePendingMark(stores: Stores, mark: MarkName, attrs: MarkAttrs): boolean {
+  const marks = marksAtCaret(stores);
+  if (!marks) return false;
+  const sel = stores.selStore.get();
+  if (!isCaret(sel)) return false;
+  const next = new Map(marks);
+  if (next.has(mark)) next.delete(mark);
+  else next.set(mark, attrs);
+  pendingMarks.set(stores.selStore, { at: sel.at, marks: next });
+  return true;
+}
+
 /**
  * Toggle a mark over the current selection.
  *
  * Behaviour:
- *  - Caret-only: no-op (real editors track a "pending mark" that biases the
- *    next character; we don't ship that to keep the API minimal).
+ *  - Caret-only: the mark is toggled for the text typed next at that caret
+ *    (a pending mark; `marksAtCaret` reads it). The document does not
+ *    change, so the dispatcher records no undo step for it. Moving the
+ *    caret drops it.
  *  - Single-block range: if every character in [start, end) already carries
  *    the mark WITH THE SAME ATTRS, REMOVE it; otherwise apply it everywhere
  *    in the range.
@@ -59,6 +119,7 @@ export function toggleMark(
   mark: MarkName,
   attrs: MarkAttrs = null,
 ): boolean {
+  if (isCaret(selStore.get())) return togglePendingMark({ docStore, selStore }, mark, attrs);
   return applyMark({ docStore, selStore }, mark, attrs, "toggle");
 }
 

@@ -880,6 +880,17 @@ export class VisualLayer {
       // Handled here: the editor must not also act on it.
       e.stopPropagation();
     };
+    // Undo and redo are the document's. The editor leaves a key pressed on a
+    // control inside a block to that control, so the canvas hands these on.
+    const history = historyKey(e);
+    if (history) {
+      const editor = this.host.runtime()?.editor;
+      if (!editor) return;
+      handled();
+      if (history === "undo") editor.undo();
+      else editor.redo();
+      return;
+    }
     if (!sel) {
       if (e.key === "Escape") {
         handled();
@@ -1023,4 +1034,13 @@ export class VisualLayer {
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
   }
+}
+
+/** ⌘Z / Ctrl+Z, ⌘⇧Z / Ctrl+Shift+Z and Ctrl+Y: the document's history keys. */
+function historyKey(e: KeyboardEvent): "undo" | "redo" | null {
+  if (e.altKey || !(e.metaKey || e.ctrlKey)) return null;
+  const k = e.key.toLowerCase();
+  if (k === "z") return e.shiftKey ? "redo" : "undo";
+  if (k === "y" && e.ctrlKey && !e.metaKey && !e.shiftKey) return "redo";
+  return null;
 }

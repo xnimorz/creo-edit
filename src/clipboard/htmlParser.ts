@@ -153,7 +153,7 @@ function walkBlock(node: Node, marks: MarkSet, out: BlockSpec[]): void {
 function walkList(
   listEl: HTMLElement,
   ordered: boolean,
-  depth: 0 | 1 | 2 | 3,
+  depth: number,
   marks: MarkSet,
   out: BlockSpec[],
 ): void {
@@ -180,7 +180,7 @@ function walkList(
       if (t === "ul" || t === "ol") {
         const nested = c as HTMLElement;
         const nestedOrdered = t === "ol";
-        const nextDepth = (Math.min(3, depth + 1) as 0 | 1 | 2 | 3);
+        const nextDepth = depth + 1;
         walkList(nested, nestedOrdered, nextDepth, marks, out);
       }
     }

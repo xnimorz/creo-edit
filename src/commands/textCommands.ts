@@ -5,6 +5,7 @@ import {
   insertText as insertTextRuns,
 } from "../model/blockText";
 import { mergeBackward } from "./structuralCommands";
+import { takePendingMarks } from "./markCommands";
 import { runsAt, runsLengthAt } from "../model/cellAccess";
 import {
   anchorOffset,
@@ -79,7 +80,9 @@ export function insertText({ docStore, selStore }: Stores, text: string): boolea
   const ctx = runsAt(block, at);
   if (!ctx) return false;
   const off = anchorOffset(at);
-  const newRuns = insertTextRuns(ctx.runs, off, text);
+  // A mark toggled at this caret (⌘B with nothing selected) is the typed
+  // text's; otherwise it inherits the marks of the text before it.
+  const newRuns = insertTextRuns(ctx.runs, off, text, takePendingMarks(selStore, sel.at));
   docStore.set(updateBlock(doc, ctx.setRuns(newRuns)));
   recordTextChange(at, off, off, text.length);
   selStore.set(caret(withCharOffset(at, off + text.length)));
