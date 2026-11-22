@@ -33,6 +33,7 @@ const editor = createEditor({
 | `plugins` | `EditorPlugin[]` | `[]` | Plugins to install in addition to the built-in defaults (paragraph, heading, list, code-block, image, cells). See [Authoring plugins](#/plugin-authoring). |
 | `editable` | `boolean \| (() => boolean)` | `true` | Whether the document accepts input. See [Read-only editors](#read-only-editors). |
 | `keepCaretVisible` | `boolean` | `true` | Scroll the caret back into view when the soft keyboard covers it. See [Mobile](#/mobile). |
+| `confirmDelete` | `(block) => boolean` | — | Asked before a selected atomic block is deleted; `false` keeps it. See [Atomic blocks are selected before they are deleted](#atomic-blocks-are-selected-before-they-are-deleted). |
 
 ## The `Editor` handle
 
@@ -225,6 +226,15 @@ What stays available while read-only:
 - host-level document APIs — `setDoc`, `setDocFromHTML`, `appendBlocks`, `prependBlocks`, `applyBlocks`. That's how a read-only viewer loads its content, so gating them would be self-defeating.
 
 `undo()` / `redo()` are gated, and refused commands are rejected *before* the history snapshot, so read-only dispatches leave no empty undo steps behind.
+
+## Atomic blocks are selected before they are deleted
+
+A Backspace or Delete next to an atomic block (an image, a rule, a diagram, any `isAtomic` plugin block) selects it first; the next press deletes it. That covers a caret on the block itself, at the start of the block after it (Backspace) and at the end of the block before it (Delete). A press meant for one character never takes a whole diagram with it.
+
+- "Selected" is a range from one side of the block to the other. Build one with `nodeSelection(blockId)`; `nodeSelectedBlock(doc, selection)` reads it back.
+- The block's view is passed `selected: true` while it is selected, and only its view re-renders when that changes.
+- `confirmDelete(block)` is asked before the second press deletes; return `false` to keep the block — for instance to ask in your own dialog, then `dispatch({ t: "deleteAtomic", blockId })` once the user agrees.
+- The deletion is the built-in `deleteAtomic` command: one undo step, a `removeBlock` change, refused when read-only or locked.
 
 ## Locked blocks
 

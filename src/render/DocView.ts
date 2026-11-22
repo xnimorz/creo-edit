@@ -1,6 +1,6 @@
 import { _ } from "creo";
 import { ol, ul, view } from "creo";
-import type { Block, DocState, ListItemBlock } from "../model/types";
+import type { Block, BlockId, DocState, ListItemBlock } from "../model/types";
 import { getView } from "../plugin/registry";
 
 /**
@@ -12,15 +12,16 @@ import { getView } from "../plugin/registry";
  * a fresh top-level DocState but reuse references for unchanged blocks, this
  * lets the reconciler skip every block that wasn't touched.
  */
-const BlockView = view<{ block: Block }>(({ props }) => ({
+const BlockView = view<{ block: Block; selected?: boolean }>(({ props }) => ({
   shouldUpdate(next) {
-    return next.block !== props().block;
+    const cur = props();
+    return next.block !== cur.block || next.selected !== cur.selected;
   },
   render() {
-    const b = props().block;
+    const { block: b, selected } = props();
     const v = getView(b.type);
     if (!v) return; // Unknown block kind — silently skip; plugin missing.
-    v({ block: b, key: b.id });
+    v(selected ? { block: b, key: b.id, selected } : { block: b, key: b.id });
   },
 }));
 
@@ -59,17 +60,19 @@ function planSpans(doc: DocState): Span[] {
   return out;
 }
 
-export const DocView = view<{ doc: DocState }>(({ props }) => ({
+/** `selected`: the atomic block the selection covers whole, told to its view. */
+export const DocView = view<{ doc: DocState; selected?: BlockId | null }>(({ props }) => ({
   shouldUpdate(next) {
-    return next.doc !== props().doc;
+    const cur = props();
+    return next.doc !== cur.doc || next.selected !== cur.selected;
   },
   render() {
-    const doc = props().doc;
+    const { doc, selected } = props();
     const spans = planSpans(doc);
     for (const span of spans) {
       if (span.kind === "single") {
         const b = doc.byId.get(doc.order[span.pos]!)!;
-        BlockView({ block: b, key: b.id });
+        BlockView({ block: b, key: b.id, selected: b.id === selected });
       } else {
         // Group key spans the included ids — stable as long as the same
         // contiguous run keeps the same start/end ids in order.
@@ -79,7 +82,7 @@ export const DocView = view<{ doc: DocState }>(({ props }) => ({
         const renderItems = () => {
           for (let i = span.start; i < span.end; i++) {
             const b = doc.byId.get(doc.order[i]!)!;
-            BlockView({ block: b, key: b.id });
+            BlockView({ block: b, key: b.id, selected: b.id === selected });
           }
         };
         if (span.ordered) {

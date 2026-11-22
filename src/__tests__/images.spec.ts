@@ -75,7 +75,7 @@ describe("Image insertion + deletion", () => {
     expect(root.querySelector("img")).toBeTruthy();
   });
 
-  it("Backspace on an image block removes it", () => {
+  it("Backspace on an image block selects it, and a second Backspace removes it", () => {
     const root = makeContainer();
     const id = newBlockId();
     const editor = createEditor({
@@ -98,6 +98,15 @@ describe("Image insertion + deletion", () => {
     Object.defineProperty(ev, "inputType", { value: "deleteContentBackward" });
     Object.defineProperty(ev, "data", { value: null });
     ta.dispatchEvent(ev);
+    expect(editor.docStore.get().byId.has(id)).toBe(true);
+    expect(root.querySelector(".ce-img-selected")).toBeTruthy();
+    const again = new (globalThis as { Event: typeof Event }).Event("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(again, "inputType", { value: "deleteContentBackward" });
+    Object.defineProperty(again, "data", { value: null });
+    ta.dispatchEvent(again);
     expect(editor.docStore.get().byId.has(id)).toBe(false);
   });
 

@@ -148,6 +148,7 @@ export type BlockViewProps = {
   block: Block;
   key?: string;
   viewport?: BlockViewport;
+  selected?: boolean;
 };
 
 const viewByType = new Map<string, PublicView<BlockViewProps, void>>();

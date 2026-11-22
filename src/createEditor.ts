@@ -38,6 +38,7 @@ import {
   type MoveBlockPayload,
 } from "./commands/blockCommands";
 import { insertBlocks as cmdPasteBlocks } from "./commands/insertCommands";
+import { deleteAtomicBlock, nodeSelectedBlock } from "./commands/imageCommands";
 import { clearEditorRef, setEditorRef } from "./dom/editorRef";
 import {
   mergeBackward as cmdMergeBackward,
@@ -295,7 +296,8 @@ export type Command =
   | { t: "insertBlocks"; payload: InsertBlocksPayload }
   | { t: "removeBlocks"; blockIds: BlockId[] }
   | { t: "replaceBlocks"; blocks: BlockInsertInput[] }
-  | { t: "pasteBlocks"; blocks: BlockSpec[] };
+  | { t: "pasteBlocks"; blocks: BlockSpec[] }
+  | { t: "deleteAtomic"; blockId: BlockId };
 
 /** Anything dispatchable — the typed `Command` union for built-ins, plus the
  *  open `{ t: string; payload?: unknown }` shape for plugin commands. */
@@ -388,6 +390,13 @@ export type EditorOptions = {
    * See `UnknownBlockPolicy`.
    */
   unknownBlocks?: UnknownBlockPolicy;
+  /**
+   * Asked before Backspace or Delete removes an atomic block the user has
+   * selected (the first press selects it, the second deletes it). Return
+   * false to keep it — for instance to ask in the host's own dialog and
+   * `dispatch({ t: "deleteAtomic", blockId })` once the user agrees.
+   */
+  confirmDelete?: (block: Block) => boolean;
   /**
    * Turn native spellcheck on for the editable root. Off by default because
    * the browser's red squiggles fight with `rangeDecorations` on a code or
@@ -666,6 +675,7 @@ const BUILTIN_COMMANDS = new Set<string>([
   "removeBlocks",
   "replaceBlocks",
   "pasteBlocks",
+  "deleteAtomic",
 ]);
 
 /** Built-ins that never touch the document, so they survive read-only mode. */
@@ -726,6 +736,16 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // Selection store — separate from doc so caret movement doesn't dirty the
   // document subscribers (and vice versa).
   const selStore = store.new<Selection>(defaultSelection(initialDoc));
+  // The atomic block the selection covers whole, if any: what a block's view
+  // is told as `selected`. Its own store so caret motion re-renders nothing
+  // unless it selects or deselects a block.
+  const nodeSelStore = store.new<BlockId | null>(null);
+  const syncNodeSelection = (): void => {
+    const id = nodeSelectedBlock(docStore.get(), selStore.get());
+    if (id !== nodeSelStore.get()) nodeSelStore.set(id);
+  };
+  selStore.subscribe(syncNodeSelection);
+  docStore.subscribe(syncNodeSelection);
 
   let nativeInput: NativeInputHandle | null = null;
   let drop: DropHandle | null = null;
@@ -946,6 +966,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
           ctx,
           (cmd as Extract<Command, { t: "pasteBlocks" }>).blocks,
         );
+      case "deleteAtomic":
+        return deleteAtomicBlock(ctx, (cmd as Extract<Command, { t: "deleteAtomic" }>).blockId);
       default: {
         // Plugin command — route through the registry. Payload shape is
         // plugin-defined; built-ins handled above don't reach this branch.
@@ -1404,6 +1426,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   const EditorView: PublicView<EditorViewProps, void> = view<EditorViewProps>(
     ({ props, use }) => {
       const doc = use(docStore);
+      const selectedBlock = use(nodeSelStore);
       // Subscribe to mode changes so the wrapper re-renders (and CSS class
       // updates).
       void use(modeStore);
@@ -1439,6 +1462,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               triggers,
               isEditable,
               spellcheck: opts.spellcheck === true,
+              confirmDelete: opts.confirmDelete,
             },
           );
           drop = attachDrop(
@@ -1547,9 +1571,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
                   // in the document", which is the wrong one as soon as a
                   // page holds two.
                   editorId,
+                  selectedBlock: nodeSelStore,
                 });
               } else {
-                DocView({ key: "whole", doc: doc.get() });
+                DocView({ key: "whole", doc: doc.get(), selected: selectedBlock.get() });
               }
             },
           );

@@ -11,6 +11,8 @@
 import type { Store } from "creo";
 import type {
   Anchor,
+  Block,
+  BlockId,
   DocState,
   Selection,
   Mark,
@@ -26,7 +28,7 @@ import {
   insertImageFiles,
   type UploadFn,
 } from "../commands/imageCommands";
-import { deleteSelectedAtomic } from "../commands/imageCommands";
+import { nodeSelectedBlock, nodeSelection } from "../commands/imageCommands";
 import { isAtomicBlockType } from "../plugin/atomic";
 import { lookupAnchorCodec, visibleTextOf } from "../plugin/anchorCodec";
 import { runsLengthAt } from "../plugin/runsAt";
@@ -61,6 +63,8 @@ export type NativeInputOptions = {
   selectAll: () => void;
   /** Optional upload hook for pasted / dropped image files. */
   uploadImage?: UploadFn;
+  /** Asked before a selected atomic block is deleted; false keeps it. */
+  confirmDelete?: (block: Block) => boolean;
   /** Plugin registry — keymap matching, command dispatch for plugin chords. */
   registry: Registry;
   /** The editor's command context — handed to plugin keymap predicates and
@@ -471,7 +475,32 @@ export function attachNativeInput(
   // mergeBackward; otherwise plain deleteBackward. (mergeBackward also
   // collapses cross-block ranges via its own range-collapse logic.) Symmetric
   // pair for deleteForward / mergeForward at end-of-block.
+  // An atomic block next to the caret is selected by the first Backspace or
+  // Delete and deleted by the second, so a press meant for a character never
+  // takes a whole diagram with it.
+  const selectBlock = (blockId: BlockId): void => {
+    selStore.set(nodeSelection(blockId));
+  };
+
+  const deleteSelectedNode = (): boolean => {
+    const doc = docStore.get();
+    const id = nodeSelectedBlock(doc, selStore.get());
+    if (id === null) return false;
+    const block = doc.byId.get(id)!;
+    if (options.confirmDelete && !options.confirmDelete(block)) return true;
+    options.dispatch({ t: "deleteAtomic", blockId: id });
+    return true;
+  };
+
+  const atomicAt = (pos: number): BlockId | null => {
+    const doc = docStore.get();
+    const id = doc.order[pos];
+    if (id === undefined) return null;
+    return isAtomicBlockType(doc.byId.get(id)!.type) ? id : null;
+  };
+
   const handleBackspace = (): void => {
+    if (deleteSelectedNode()) return;
     const sel = selStore.get();
     if (sel.kind === "range") {
       if (sel.anchor.blockId !== sel.focus.blockId) {
@@ -482,17 +511,22 @@ export function attachNativeInput(
       return;
     }
     const at = sel.at;
-    // Caret on an atomic (non-editable) block: delete the whole block.
-    const block = docStore.get().byId.get(at.blockId);
+    const doc = docStore.get();
+    const block = doc.byId.get(at.blockId);
     if (block && isAtomicBlockType(block.type)) {
-      deleteSelectedAtomic({ docStore, selStore });
+      selectBlock(block.id);
       return;
     }
     const lastPathEntry = at.path[at.path.length - 1] ?? 0;
     if (lastPathEntry === 0 && at.path.length === 1) {
-      // Top-level text-bearing block at offset 0 — try merge with prior block.
-      const doc = docStore.get();
+      // Top-level text-bearing block at offset 0 — the block before is
+      // selected if it is atomic, else merged with.
       const idx = doc.order.indexOf(at.blockId);
+      const before = atomicAt(idx - 1);
+      if (before !== null) {
+        selectBlock(before);
+        return;
+      }
       if (idx > 0) {
         options.dispatch({ t: "mergeBackward" });
         return;
@@ -502,6 +536,7 @@ export function attachNativeInput(
   };
 
   const handleDelete = (): void => {
+    if (deleteSelectedNode()) return;
     const sel = selStore.get();
     if (sel.kind === "range") {
       if (sel.anchor.blockId !== sel.focus.blockId) {
@@ -512,22 +547,28 @@ export function attachNativeInput(
       return;
     }
     const at = sel.at;
-    // Caret on an atomic block: forward-delete just removes the block.
-    const block = docStore.get().byId.get(at.blockId);
+    const doc = docStore.get();
+    const block = doc.byId.get(at.blockId);
     if (block && isAtomicBlockType(block.type)) {
-      deleteSelectedAtomic({ docStore, selStore });
+      selectBlock(block.id);
       return;
     }
     if (at.path.length === 1) {
-      const doc = docStore.get();
       const tb = doc.byId.get(at.blockId);
       if (tb && "runs" in tb) {
         const len = tb.runs.reduce((n, r) => n + r.text.length, 0);
         const off = at.path[0] ?? 0;
         const idx = doc.order.indexOf(at.blockId);
-        if (off === len && idx >= 0 && idx < doc.order.length - 1) {
-          options.dispatch({ t: "mergeForward" });
-          return;
+        if (off === len) {
+          const after = atomicAt(idx + 1);
+          if (after !== null) {
+            selectBlock(after);
+            return;
+          }
+          if (idx >= 0 && idx < doc.order.length - 1) {
+            options.dispatch({ t: "mergeForward" });
+            return;
+          }
         }
       }
     }

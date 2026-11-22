@@ -137,6 +137,9 @@ export type SelfVirtualizedProps<B extends Block = Block> = {
   /** Visible region in the block's own coordinate space, px from its top.
    *  Absent when the editor is not virtualized. */
   viewport?: BlockViewport;
+  /** True while the selection covers this atomic block whole: the first
+   *  Backspace or Delete next to it selects it, the second deletes it. */
+  selected?: boolean;
 };
 
 export type BlockDef<B extends Block = Block> = {

@@ -81,6 +81,8 @@ export type VirtualDocProps = {
   editorId?: string;
   /** Blocks not drawn, taking no height. A new set (identity) per change. */
   hidden?: Store<ReadonlySet<BlockId>>;
+  /** The atomic block the selection covers whole, told to its view. */
+  selectedBlock?: Store<BlockId | null>;
   /**
    * Extra inline style for a spacer, given the document and the index of the
    * block drawn right after it (`order.length` for the last spacer). For
@@ -113,6 +115,8 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
   const doc = use(props().docStore);
   const hiddenStore = props().hidden;
   if (hiddenStore) use(hiddenStore);
+  const selectedStore = props().selectedBlock;
+  if (selectedStore) use(selectedStore);
   // Everything else that moves the window — a scroll past the mounted slack,
   // a measurement, the selection leaving the mounted set — asks for a render
   // through this counter. The scroll position itself is a plain variable: a
@@ -797,7 +801,7 @@ export const VirtualDoc = view<VirtualDocProps>(({ props, use }) => {
           });
           return;
         }
-        v({ block, key: id });
+        v(selectedStore?.get() === id ? { block, key: id, selected: true } : { block, key: id });
       };
 
       div(
