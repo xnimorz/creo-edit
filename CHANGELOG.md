@@ -19,6 +19,34 @@ itself, and that takes changes from outside while the user reads or types.
   text as one `text` change over the span that differs, so anchors and the
   caret map rather than being clamped. No undo step unless asked. Types
   `BlockPatch`, `ApplyBlocksOptions`.
+- **Undo and redo no longer orphan every anchor.** Their batch now lists
+  what the step changed block by block (the same changes `applyBlocks`
+  reports), followed by the `replaceDoc` it always had, now marked
+  `described: true`; `mapAnchor` passes through a described `replaceDoc`.
+  An anchor in a block the step left alone survives, and one in a changed
+  text block maps around the span that differs. A consumer that matched on
+  `replaceDoc` alone still sees it, after the new changes.
+- **Locked blocks.** Any block may carry `locked: true` (round-tripped by
+  `toJSON` / `setDoc`), and a type may declare `BlockDef.locked(block)`. A
+  command whose changes reach a locked block — typing, splitting, merging
+  into or out of it, formatting, pasting, a range delete — is undone whole
+  and refused: no undo step, no `onChange`, the redo trail kept. Selection,
+  copy and `moveBlock` still work; host APIs are not refused. Built-in views
+  draw a locked block `contenteditable="false"` with `data-locked`; plugin
+  views spread the exported `lockedAttrs(block)`. Also `isLockedBlock`, and
+  the `BlockFlags` type every block and `SerializedBlock` now carries.
+- **An atomic block is selected before it is deleted.** Backspace or
+  Delete on an atomic block, or next to one (at the start of the block
+  after, at the end of the block before), now selects it — a range from
+  one side of it to the other — and the next press deletes it. Behaviour
+  change: one press used to delete it outright, and a press next to one did
+  nothing. The block's view is passed `selected: true` while it is selected
+  (`BlockViewProps.selected`, `SelfVirtualizedProps.selected`), in both the
+  whole and the virtualized renderer. `EditorOptions.confirmDelete(block)`
+  can keep it. The deletion is the new built-in `{ t: "deleteAtomic",
+  blockId }` — it used to write the stores directly, so it was not undoable
+  and reached no `onChange`. Helpers `nodeSelection(blockId)` and
+  `nodeSelectedBlock(doc, selection)`.
 
 ### Markdown
 
