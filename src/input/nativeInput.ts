@@ -644,6 +644,12 @@ export function attachNativeInput(
   // -------------------------------------------------------------------------
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    // A key that belongs to an IME composition (Enter confirming it, arrows
+    // picking a candidate) is the IME's: run as a chord it would split a
+    // quoted line or leave a table cell mid-word. 229 is what the key reports
+    // while a composition holds it, in browsers that predate `isComposing`.
+    if (composing || e.isComposing || e.keyCode === 229) return;
+
     // Active trigger (slash menu, @-mention, etc.) consumes keys first —
     // arrow nav, Enter pick, Escape cancel are all owned by the trigger UI.
     if (options.triggers.handleKeyDown(e)) return;

@@ -76,6 +76,37 @@ export function blockTextOf(block: Block): string {
   return "";
 }
 
+/**
+ * One run of text inside a block that an anchor can address, and the path
+ * prefix that addresses it: `[]` for a text-bearing block, `[row, col]` for a
+ * table cell, `[col]` for a column. A position `offset` chars into `text` is
+ * the anchor `{ blockId, path: [...path, offset], offset }`.
+ */
+export type TextSlot = { text: string; path: number[] };
+
+/**
+ * Every addressable run of text in a block, in reading order — table cells
+ * row by row. What a host searching the document should walk: unlike
+ * `blockTextOf`, whose offsets run across a table's cells, each slot's
+ * offsets are the anchor model's. Atomic blocks have none.
+ */
+export function textSlotsOf(block: Block): TextSlot[] {
+  if (isTextBearing(block)) return [{ text: runsText(block.runs), path: [] }];
+  const slots: TextSlot[] = [];
+  if (block.type === "table") {
+    for (let r = 0; r < block.rows; r++) {
+      for (let c = 0; c < block.cols; c++) {
+        slots.push({ text: runsText(block.cells[r]?.[c] ?? []), path: [r, c] });
+      }
+    }
+  } else if (block.type === "columns") {
+    for (let c = 0; c < block.cols; c++) {
+      slots.push({ text: runsText(block.cells[c] ?? []), path: [c] });
+    }
+  }
+  return slots;
+}
+
 function runAttrsEqual(
   a: RunAttrs | undefined,
   b: RunAttrs | undefined,

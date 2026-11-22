@@ -42,6 +42,7 @@ import {
 import { ColumnsViewPlugin, TableViewPlugin } from "./views";
 import { isInColumns, isInTable, tableCommandDefs } from "./commands";
 import { columnsControlsDecoration, tableControlsDecoration } from "./controls";
+import { normalizeAlign } from "./align";
 
 const tableDef: BlockDef<TableBlock> = {
   type: "table",
@@ -57,22 +58,26 @@ const tableDef: BlockDef<TableBlock> = {
   serializeCodec: {
     serialize(b) {
       const t = b as TableBlock;
+      const align = normalizeAlign(t.align, t.cols);
       return {
         id: t.id,
         type: "table",
         rows: t.rows,
         cols: t.cols,
         cells: t.cells.map((row) => row.map((cell) => cell.map(serializeRun))),
+        ...(align ? { align } : {}),
       };
     },
     deserialize(s, id) {
-      const sb = s as { rows: number; cols: number; cells: SerializedRun[][][] };
+      const sb = s as { rows: number; cols: number; cells: SerializedRun[][][]; align?: unknown };
+      const align = normalizeAlign(Array.isArray(sb.align) ? sb.align : undefined, sb.cols);
       return {
         id,
         type: "table",
         rows: sb.rows,
         cols: sb.cols,
         cells: sb.cells.map((row) => row.map((cell) => cell.map(deserializeRun))),
+        ...(align ? { align } : {}),
       } as BlockSpec;
     },
   },

@@ -76,6 +76,7 @@ import type {
   MarkAttrs,
   MarkName,
   Selection,
+  TableAlign,
 } from "./model/types";
 
 /**
@@ -157,6 +158,7 @@ export type SerializedBlock =
       rows: number;
       cols: number;
       cells: SerializedRun[][][];
+      align?: TableAlign[];
     }
   | {
       id?: string;
@@ -174,6 +176,15 @@ export type SerializedBlock =
       id?: string;
       type: "date-marker";
       date: string;
+    }
+  | {
+      id?: string;
+      type: "blockquote";
+      runs: SerializedRun[];
+    }
+  | {
+      id?: string;
+      type: "hr";
     };
 
 /**

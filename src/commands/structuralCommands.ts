@@ -25,6 +25,7 @@ import {
   type DocChange,
 } from "../model/changes";
 import { isAtomicBlockType } from "../plugin/atomic";
+import { isTextBearingType } from "../plugin/textBearing";
 import {
   anchorOffset,
   caret,
@@ -301,8 +302,12 @@ export function setBlockType(
       } satisfies CodeBlock;
       break;
     default:
-      // img / table / columns can't be reached from text — payload misuse, skip.
-      return false;
+      // A plugin's text-bearing type (a blockquote) takes the runs as they
+      // are. img / table / columns can't be reached from text — payload
+      // misuse, skip.
+      if (!isTextBearingType(payload.type)) return false;
+      next = { id: block.id, index: block.index, type: payload.type, runs } as Block;
+      break;
   }
   docStore.set(updateBlock(doc, next));
   // Content offsets are untouched (the runs are carried across verbatim), so

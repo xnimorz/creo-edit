@@ -68,6 +68,7 @@ export { HeadingView } from "./render/blocks/HeadingView";
 export { ListItemView } from "./render/blocks/ListItemView";
 export { CodeBlockView } from "./render/blocks/CodeBlockView";
 export { TableViewPlugin as TableView } from "./plugins/cells/views";
+export { tableAlignAt } from "./plugins/cells/align";
 export { ColumnsViewPlugin as ColumnsView } from "./plugins/cells/views";
 export { ImageView } from "./render/blocks/ImageView";
 export { InlineRunsView } from "./render/InlineRunsView";
@@ -134,7 +135,14 @@ export {
 // is what `splitBlock` / `mergeBackward` / `setBlockType` / `toggleMark` gate
 // on, so a plugin block that wants Enter to work must be registered here
 // (declaring the flag on its `BlockDef` does it).
-export { isTextBearing, blockTextOf, runsText, runsLength } from "./model/blockText";
+export {
+  isTextBearing,
+  blockTextOf,
+  runsText,
+  runsLength,
+  textSlotsOf,
+  type TextSlot,
+} from "./model/blockText";
 export { isTextBearingType, registerTextBearing } from "./plugin/textBearing";
 
 export type {
@@ -159,7 +167,10 @@ export type {
   MarkSet,
   ParagraphBlock,
   RunAttrs,
+  TableAlign,
   TableBlock,
+  BlockquoteBlock,
+  HorizontalRuleBlock,
   Anchor,
   AnchorRange,
   Selection,
@@ -333,6 +344,21 @@ export {
   DateMarkerView,
   calendarHelpers,
 } from "./plugins/calendar";
+
+// Blockquote and horizontal rule — markdown's `>` and `---` as blocks.
+// Opt-in: neither is in `defaultPlugins`.
+export {
+  blockquotePlugin,
+  blockquoteSlashItem,
+  BlockquoteView,
+  type BlockquoteOptions,
+} from "./plugins/blockquote";
+export {
+  horizontalRulePlugin,
+  horizontalRuleSlashItem,
+  HorizontalRuleView,
+  type HorizontalRuleOptions,
+} from "./plugins/horizontal-rule";
 
 // Infinite-scroll plugin — append/prepend blocks as the user scrolls.
 export {

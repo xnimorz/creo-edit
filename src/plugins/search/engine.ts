@@ -6,8 +6,8 @@
 //   - columns:                     path = [colIndex, charOffset]
 // ---------------------------------------------------------------------------
 
-import type { Anchor, Block, BlockId, DocState, InlineRun } from "../../model/types";
-import { isTextBearing } from "../../model/blockText";
+import type { Anchor, BlockId, DocState } from "../../model/types";
+import { textSlotsOf, type TextSlot } from "../../model/blockText";
 
 export type SearchMatch = {
   blockId: BlockId;
@@ -24,49 +24,7 @@ export type SearchOpts = {
   regex: boolean;
 };
 
-type Slot = {
-  text: string;
-  /** Anchor path prefix this slot belongs to. Concatenated with charOffset
-   *  to form the final anchor path. */
-  prefix: number[];
-};
-
-function runsText(runs: InlineRun[]): string {
-  let s = "";
-  for (const r of runs) s += r.text;
-  return s;
-}
-
-/** Yield every searchable text slot for a block, with the anchor prefix
- *  needed to address positions inside it. Skips non-text blocks (img,
- *  calendar, date-marker). */
-export function* slotsOf(block: Block): Generator<Slot> {
-  if (isTextBearing(block)) {
-    yield { text: runsText(block.runs), prefix: [] };
-    return;
-  }
-  if (block.type === "table") {
-    for (let r = 0; r < block.rows; r++) {
-      const row = block.cells[r];
-      if (!row) continue;
-      for (let c = 0; c < block.cols; c++) {
-        const cell = row[c];
-        if (!cell) continue;
-        yield { text: runsText(cell), prefix: [r, c] };
-      }
-    }
-    return;
-  }
-  if (block.type === "columns") {
-    for (let c = 0; c < block.cols; c++) {
-      const cell = block.cells[c];
-      if (!cell) continue;
-      yield { text: runsText(cell), prefix: [c] };
-    }
-    return;
-  }
-  // img / calendar / date-marker — no searchable text in v1.
-}
+type Slot = TextSlot;
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -128,12 +86,12 @@ function* matchSlot(
       blockId,
       start: {
         blockId,
-        path: [...slot.prefix, startCh],
+        path: [...slot.path, startCh],
         offset: startCh,
       },
       end: {
         blockId,
-        path: [...slot.prefix, endCh],
+        path: [...slot.path, endCh],
         offset: endCh,
       },
       snippet: matchedText,
@@ -158,7 +116,7 @@ export function searchDoc(
   for (const id of doc.order) {
     const block = doc.byId.get(id);
     if (!block) continue;
-    for (const slot of slotsOf(block)) {
+    for (const slot of textSlotsOf(block)) {
       if (slot.text.length === 0) continue;
       for (const m of matchSlot(slot, id, matcher, opts.wholeWord)) {
         out.push(m);
