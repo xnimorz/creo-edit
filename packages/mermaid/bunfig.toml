@@ -5,3 +5,13 @@
 # module-global registries the block registers into.
 [install]
 peer = false
+
+# Related, and in package.json rather than here: `creo-edit` is declared an
+# OPTIONAL peer (`peerDependenciesMeta`). It is not optional in any real
+# sense — the plugin imports it. But Bun (1.2.8) hangs forever on
+# `bun install` when a REQUIRED peer has no version on npm that satisfies its
+# range, and that is the state of this package every time it starts needing an
+# editor feature that has not been released yet. An optional peer is not
+# resolved at install time, so the install works in all three states: before
+# the editor release, between the version bump and the publish, and after.
+# npm still checks the range against whatever creo-edit the consumer has.

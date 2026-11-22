@@ -15,6 +15,9 @@
         "creo": ">=0.2.9",
         "creo-edit": ">=0.6.0",
       },
+      "optionalPeers": [
+        "creo-edit",
+      ],
     },
   },
   "packages": {

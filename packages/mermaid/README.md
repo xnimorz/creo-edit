@@ -27,7 +27,7 @@ editor.dispatch({ t: "mermaid.insert", payload: {} });
 
 | | |
 |---|---|
-| `creo-edit` ≥ 0.6, `creo` ≥ 0.2.9 | Peer dependencies: your app's one copy. |
+| `creo-edit` ≥ 0.6, `creo` ≥ 0.2.9 | Peer dependencies: your app's one copy. (`creo-edit` is marked optional so package managers do not try to fetch it for you; the plugin does need it.) |
 | [`pele`](https://github.com/obsidianmd/pele) | Dependency. Draws the diagram. |
 | [`@visimer/core`](https://github.com/inkeep/visimer) | Dependency. Turns a visual edit into an edit of the source. |
 
