@@ -20,6 +20,19 @@ itself, and that takes changes from outside while the user reads or types.
   caret map rather than being clamped. No undo step unless asked. Types
   `BlockPatch`, `ApplyBlocksOptions`.
 
+### Markdown
+
+- **`markdownToDoc(markdown)`**, the inverse of `docToMarkdown`: headings,
+  paragraphs, lists with depth, fenced code with its language, images, GFM
+  tables with alignment, bold / italic / strike / code / links. What it
+  does not recognise arrives as a paragraph with its text. Pure, no DOM.
+  `markdownToRuns(text)` is its inline reader.
+- **`MarkdownBlockCodec.parse(lines, at)`** lets a plugin block read itself
+  back; `blockquotePlugin` (`> text`) and `horizontalRulePlugin` (`---`) do.
+- **Fix:** `docToMarkdown` no longer backslash-escapes the text of a code
+  span — backslashes are literal there, so `x*y` in code came back as
+  `x\*y` — and fences a span holding backticks with a longer run.
+
 ### Plugins
 
 - **`embedPlugin({ type, mount, … })`**: an atomic block type whose inside

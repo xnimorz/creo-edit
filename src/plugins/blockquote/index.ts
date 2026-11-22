@@ -30,6 +30,7 @@ import {
 } from "../../model/runSerialize";
 import type { Block, BlockquoteBlock, BlockSpec } from "../../model/types";
 import { runsToMarkdown } from "../../markdown/serialize";
+import { parseInline } from "../../markdown/parse";
 import { defaultTextCodec } from "../../plugin/anchorCodec";
 import type {
   BlockDef,
@@ -86,6 +87,10 @@ const blockquoteDef: BlockDef<BlockquoteBlock> = {
     serialize(block) {
       const text = runsToMarkdown((block["runs"] as SerializedRun[] | undefined) ?? []);
       return text.length > 0 ? `> ${text}` : ">";
+    },
+    parse(lines, at) {
+      const m = /^\s{0,3}>\s?(.*)$/.exec(lines[at]!);
+      return m ? { block: { type: "blockquote", runs: parseInline(m[1]!) }, end: at + 1 } : null;
     },
   },
 };

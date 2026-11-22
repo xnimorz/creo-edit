@@ -404,3 +404,4 @@ export {
 // Used by the docs site's MD-mode raw-source view; useful in apps that
 // want a "save as .md" button.
 export { docToMarkdown } from "./markdown/serialize";
+export { markdownToDoc, parseInline as markdownToRuns } from "./markdown/parse";

@@ -166,6 +166,19 @@ Returns a `SerializedDoc` — a plain JSON-safe object suitable for storage. Rou
 
 The result is memoized on the document's identity, so calling it repeatedly between edits costs nothing — one serialization per document version, however many callers ask.
 
+### Markdown: `docToMarkdown(doc)` and `markdownToDoc(markdown)`
+
+```ts
+import { docToMarkdown, markdownToDoc } from "creo-edit";
+
+const md = docToMarkdown(editor.toJSON());
+editor.setDoc(markdownToDoc(md));
+```
+
+`markdownToDoc` reads back everything `docToMarkdown` writes — paragraphs (a paragraph's lines are one block, joined by `\n`), headings, bulleted and numbered list items with their depth, fenced code with its language, standalone images, GFM tables with alignment, and the inline marks bold, italic, strike, code and links — so the two round-trip. It also reads common markdown it did not write (`*` and `+` bullets, `1)` numbering, `~~~` fences, nesting by any indent width). Anything else arrives as a paragraph holding its text; nothing is dropped. It is pure string work, with no DOM.
+
+A plugin block joins through `MarkdownBlockCodec.parse(lines, at)`: asked at the first line of each block, before the built-in readers, it returns the block in wire form and the index of the line after the last one it took — or `null`. `blockquotePlugin` reads `> text` and `horizontalRulePlugin` reads `---` this way, once installed. `markdownToRuns(text)` is the inline reader on its own.
+
 ### `getText(blockId?)`
 
 Plain text straight off the model: the whole document with blocks joined by `\n`, or one block when `blockId` is given. Table cells join with `\t` across and `\n` down; atomic blocks (images) contribute nothing.

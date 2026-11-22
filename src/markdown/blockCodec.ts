@@ -23,6 +23,16 @@ export type MarkdownBlockCodec = {
     block: { type: string; [k: string]: unknown },
     state: { listKind: "ul" | "ol" | null; olCounter: number },
   ): string | null;
+  /**
+   * Read a block of this type from markdown, for `markdownToDoc`. Called at
+   * the first line of every block, before the built-in readers; return the
+   * block in wire form and the index of the line after the last one it took,
+   * or null to decline.
+   */
+  parse?(
+    lines: readonly string[],
+    at: number,
+  ): { block: { type: string; [k: string]: unknown }; end: number } | null;
 };
 
 const codecByType = new Map<string, MarkdownBlockCodec>();
@@ -36,4 +46,9 @@ export function registerMarkdownCodec(
 
 export function getMarkdownCodec(type: string): MarkdownBlockCodec | null {
   return codecByType.get(type) ?? null;
+}
+
+/** Every registered codec, in registration order. */
+export function allMarkdownCodecs(): MarkdownBlockCodec[] {
+  return [...codecByType.values()];
 }
