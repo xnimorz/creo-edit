@@ -5,7 +5,7 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
-## Unreleased
+## 0.8.0
 
 For a host with more on its page than the editor: other fields, controls
 inside blocks, editors inside other editors' blocks. Upstreamed from
@@ -50,7 +50,7 @@ editor's key bindings; list depth is no longer capped at 3.
   is a `number`. The class `ce-li-d<n>` and `data-depth` carry any depth; a
   stylesheet that indents only `ce-li-d1`…`ce-li-d3` needs a rule for more.
 
-### `creo-edit-mermaid-plugin`
+### `creo-edit-mermaid-plugin` 0.2.0
 
 - ⌘Z / ⌘⇧Z (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) pressed on a diagram's canvas
   undo and redo the document, now that the editor leaves keys on a control

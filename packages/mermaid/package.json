@@ -1,6 +1,6 @@
 {
   "name": "creo-edit-mermaid-plugin",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Mermaid diagrams for creo-edit: a block you can edit by pointing at it, or by writing the source.",
   "type": "module",
   "license": "MIT",
