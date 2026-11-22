@@ -20,6 +20,16 @@ itself, and that takes changes from outside while the user reads or types.
   caret map rather than being clamped. No undo step unless asked. Types
   `BlockPatch`, `ApplyBlocksOptions`.
 
+### Plugins
+
+- **`embedPlugin({ type, mount, … })`**: an atomic block type whose inside
+  the host draws (an iframe, a chart, a widget). One non-editable shell per
+  block is handed to `mount(block, shell, { editor, selected })`, which may
+  return `{ update, destroy }`; the shell carries `data-selected` while the
+  block is selected. JSON round-trips by default; `htmlCodec`,
+  `markdownCodec`, `plainText` and `locked` pass through. The editor never
+  sandboxes. Types `EmbedDef`, `EmbedInstance`, `EmbedContext`.
+
 ### Fixes
 
 - **A paste is one undo step and reaches `onChange`.** The paste handler

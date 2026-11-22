@@ -372,6 +372,14 @@ export {
   type HorizontalRuleOptions,
 } from "./plugins/horizontal-rule";
 
+// An atomic block whose inside the host draws: an iframe, a chart, a widget.
+export {
+  embedPlugin,
+  type EmbedContext,
+  type EmbedDef,
+  type EmbedInstance,
+} from "./plugins/embed";
+
 // Infinite-scroll plugin — append/prepend blocks as the user scrolls.
 export {
   infiniteScrollPlugin,
