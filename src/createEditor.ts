@@ -3,7 +3,8 @@ import { div, store, view } from "creo";
 import type { PublicView, Store } from "creo";
 import { moveTo } from "./commands/navigationCommands";
 import { attachDrop, type DropHandle } from "./clipboard/drop";
-import { parseHTML } from "./clipboard/htmlParser";
+import { parseHTML, type HtmlParseOptions } from "./clipboard/htmlParser";
+import { docToHtml as modelToHtml } from "./clipboard/htmlSerializer";
 import {
   attachVisualViewport,
   type ViewportHandle,
@@ -461,7 +462,7 @@ export type Editor = {
    *  `contenteditable` attribute. */
   setEditable: (editable: boolean) => void;
   EditorView: PublicView<EditorViewProps, void>;
-  setDocFromHTML: (html: string, opts?: SetDocOptions) => void;
+  setDocFromHTML: (html: string, opts?: SetDocOptions & HtmlParseOptions) => void;
   /**
    * Replace the entire document with a SerializedDoc. By default resets the
    * selection to end-of-doc and clears history — used for swapping content on
@@ -628,6 +629,15 @@ function deserializeDoc(
     if (decoded) blocks.push(decoded);
   }
   return docFromBlocks(blocks);
+}
+
+/**
+ * The document as HTML — the same markup a copy puts on the clipboard, one
+ * element per block, with each plugin block's `htmlCodec.serializeHTML`.
+ * Takes either the wire form (`toJSON()`) or the model (`docStore.get()`).
+ */
+export function docToHtml(doc: SerializedDoc | DocState): string {
+  return modelToHtml("order" in doc ? doc : deserializeDoc(doc));
 }
 
 function serializeDoc(doc: DocState): SerializedDoc {
@@ -1056,8 +1066,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     emitChanges([{ kind: "replaceDoc", reason }]);
   };
 
-  const setDocFromHTML = (html: string, htmlOpts?: SetDocOptions): void => {
-    const blocks = parseHTML(html);
+  const setDocFromHTML = (html: string, htmlOpts?: SetDocOptions & HtmlParseOptions): void => {
+    const blocks = parseHTML(html, htmlOpts);
     if (blocks.length === 0) return;
     applyReplacement(docFromBlocks(blocks), "setDocFromHTML", htmlOpts);
   };

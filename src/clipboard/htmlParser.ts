@@ -17,6 +17,8 @@
 
 import { newBlockId } from "../model/doc";
 import { getHtmlParserForTag } from "../plugin/htmlCodec";
+import { deserializeBlock } from "../plugin/serializeCodec";
+import { registerUnknownBlockType } from "../plugin/unknownBlock";
 // Inline runs (and therefore mark parsing) come from the shared, mark-registry
 // -driven collector so the structural walker here, the per-block plugin
 // codecs, and the cells codecs all agree on what an <a> or <strong> means.
@@ -39,7 +41,41 @@ import type { BlockSpec, InlineRun, MarkSet } from "../model/types";
  *
  * Falls back to a single paragraph if no block-level structure is present.
  */
-export function parseHTML(html: string): BlockSpec[] {
+export type HtmlParseOptions = {
+  /**
+   * Asked for every element the parser reaches at block level, before its
+   * own handling: return a block (wire form) to keep the element whole as
+   * that block, or null to let the parser go on — which flattens what it
+   * does not know into paragraphs. The element is already sanitized.
+   */
+  claimElement?(el: HTMLElement): { type: string; [k: string]: unknown } | null;
+};
+
+let claimElement: HtmlParseOptions["claimElement"] | null = null;
+
+export function parseHTML(html: string, opts?: HtmlParseOptions): BlockSpec[] {
+  const outer = claimElement;
+  claimElement = opts?.claimElement ?? null;
+  try {
+    return parseSanitized(html);
+  } finally {
+    claimElement = outer;
+  }
+}
+
+function claimed(el: HTMLElement): BlockSpec | null {
+  const wire = claimElement?.(el);
+  if (!wire) return null;
+  const id = typeof wire["id"] === "string" ? (wire["id"] as string) : newBlockId();
+  let block = deserializeBlock(wire.type, wire, id);
+  if (!block) {
+    registerUnknownBlockType(wire.type);
+    block = deserializeBlock(wire.type, wire, id);
+  }
+  return block;
+}
+
+function parseSanitized(html: string): BlockSpec[] {
   const sanitized = sanitize(html);
   const tpl = document.createElement("template");
   tpl.innerHTML = sanitized;
@@ -103,6 +139,12 @@ function walkBlock(node: Node, marks: MarkSet, out: BlockSpec[]): void {
   if (node.nodeType !== 1) return;
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
+
+  const kept = claimed(el);
+  if (kept) {
+    out.push(kept);
+    return;
+  }
 
   // List handling — ul/ol drive the walker recursively, accumulating depth.
   if (tag === "ul" || tag === "ol") {

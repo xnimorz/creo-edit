@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 
 // Editor factory
-export { createEditor } from "./createEditor";
+export { createEditor, docToHtml } from "./createEditor";
+export type { HtmlParseOptions } from "./clipboard/htmlParser";
 export type {
   Editor,
   EditorOptions,

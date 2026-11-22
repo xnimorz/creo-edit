@@ -33,6 +33,15 @@ itself, and that takes changes from outside while the user reads or types.
   span — backslashes are literal there, so `x*y` in code came back as
   `x\*y` — and fences a span holding backticks with a longer run.
 
+### HTML
+
+- **`docToHtml(doc)`** is public: the document as HTML (the markup a copy
+  writes), from the wire form or the model.
+- **`claimElement(el)`** on `setDocFromHTML(html, opts)` and `parseHTML`:
+  asked for each block-level element before the parser's own handling;
+  returning a block (wire form) keeps the element whole as that block
+  instead of flattening it into paragraphs. Type `HtmlParseOptions`.
+
 ### Plugins
 
 - **`embedPlugin({ type, mount, … })`**: an atomic block type whose inside
