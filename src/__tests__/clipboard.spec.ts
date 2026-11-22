@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import "./setup";
 import { clearDom, makeContainer, SYNC_SCHEDULER } from "./setup";
-import { createApp, HtmlRender } from "creo";
+import { createApp, div, HtmlRender, view } from "creo";
+import type { Block } from "../model/types";
+import type { EditorPlugin } from "../plugin/types";
 
 import { createEditor } from "../createEditor";
 import { caretAt } from "../controller/selection";
@@ -174,6 +176,36 @@ describe("Paste integration", () => {
     expect(totalText).toContain("world");
   });
 
+  it("a paste is one undo step and reaches onChange", () => {
+    const root = makeContainer();
+    const editor = createEditor({
+      initial: { blocks: [{ id: "a", type: "p", runs: [{ text: "ab" }] }] },
+    });
+    createApp(() => editor.EditorView(), new HtmlRender(root), SYNC_SCHEDULER).mount();
+    const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+    editor.focus();
+    editor.selStore.set({ kind: "caret", at: caretAt("a", 1) });
+    const seen: string[] = [];
+    editor.onChange((changes) => seen.push(...changes.map((c) => c.kind)));
+    ta.dispatchEvent(pasteEvent("<p>X</p><p>Y</p>", "X\nY"));
+    expect(editor.getText()).toContain("Y");
+    expect(seen.length).toBeGreaterThan(0);
+    editor.undo();
+    expect(editor.getText()).toBe("ab");
+  });
+
+  it("a paste into a read-only editor changes nothing", () => {
+    const root = makeContainer();
+    const editor = createEditor({
+      editable: false,
+      initial: { blocks: [{ id: "a", type: "p", runs: [{ text: "ab" }] }] },
+    });
+    createApp(() => editor.EditorView(), new HtmlRender(root), SYNC_SCHEDULER).mount();
+    editor.selStore.set({ kind: "caret", at: caretAt("a", 1) });
+    expect(editor.dispatch({ t: "pasteBlocks", blocks: [{ id: newBlockId(), type: "p", runs: [{ text: "X" }] }] })).toBe(false);
+    expect(editor.getText()).toBe("ab");
+  });
+
   it("Shift+Paste forces plain-text interpretation", () => {
     const root = makeContainer();
     const editor = createEditor();
@@ -270,5 +302,45 @@ describe("Paste integration", () => {
     ta.dispatchEvent(ev);
     expect(dt.getData("text/plain")).toBe("bcd");
     expect(dt.getData("text/html")).toContain("bcd");
+  });
+});
+
+describe("plain text of blocks that bear no text", () => {
+  const ChartView = view<{ block: Block }>(({ props }) => ({
+    render() {
+      div({ "data-block-id": props().block.id, "data-block-kind": "chart", contenteditable: "false" });
+    },
+  }));
+  const chartPlugin: EditorPlugin = {
+    name: "chart",
+    blocks: [
+      {
+        type: "chart" as Block["type"],
+        view: ChartView as never,
+        isAtomic: true,
+        serializeCodec: {
+          serialize: (b: Block) => b as unknown,
+          deserialize: (w: unknown, id: string) => ({ ...(w as object), id }) as never,
+        },
+        plainText: (b: Block) => `[chart: ${(b as unknown as { title: string }).title}]`,
+      },
+    ],
+  };
+
+  it("a copy across a custom block uses its plainText, and a table its cells", () => {
+    const editor = createEditor({
+      plugins: [chartPlugin],
+      initial: {
+        blocks: [
+          { id: "a", type: "p", runs: [{ text: "before" }] },
+          { id: "c", type: "chart", title: "Latency" } as never,
+          { id: "t", type: "table", rows: 1, cols: 2, cells: [[[{ text: "x" }], [{ text: "y" }]]] } as never,
+          { id: "b", type: "p", runs: [{ text: "after" }] },
+        ],
+      },
+    });
+    editor.selStore.set({ kind: "range", anchor: caretAt("a", 0), focus: caretAt("b", 5) });
+    const out = selectionToClipboard(editor.docStore.get(), editor.selStore.get());
+    expect(out.plain).toBe("before\n[chart: Latency]\nx\ty\nafter");
   });
 });

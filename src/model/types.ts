@@ -200,7 +200,18 @@ export type HorizontalRuleBlock = {
   type: "hr";
 };
 
-export type Block =
+/** What any block may carry, whatever its type. */
+export type BlockFlags = {
+  /**
+   * The block's content cannot be changed by editing: typing, deleting,
+   * splitting, merging, formatting, pasting into it, or a range delete that
+   * reaches it are refused. It can still be selected, copied and moved, and
+   * the host's own APIs (`setDoc`, `applyBlocks`) still change it.
+   */
+  locked?: boolean;
+};
+
+export type Block = (
   | ParagraphBlock
   | HeadingBlock
   | ListItemBlock
@@ -211,7 +222,8 @@ export type Block =
   | CalendarBlock
   | DateMarkerBlock
   | BlockquoteBlock
-  | HorizontalRuleBlock;
+  | HorizontalRuleBlock
+) & BlockFlags;
 
 export type BlockType = Block["type"];
 

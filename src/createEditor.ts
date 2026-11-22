@@ -3,7 +3,8 @@ import { div, store, view } from "creo";
 import type { PublicView, Store } from "creo";
 import { moveTo } from "./commands/navigationCommands";
 import { attachDrop, type DropHandle } from "./clipboard/drop";
-import { parseHTML } from "./clipboard/htmlParser";
+import { parseHTML, type HtmlParseOptions } from "./clipboard/htmlParser";
+import { docToHtml as modelToHtml } from "./clipboard/htmlSerializer";
 import {
   attachVisualViewport,
   type ViewportHandle,
@@ -37,6 +38,8 @@ import {
   type InsertBlocksPayload,
   type MoveBlockPayload,
 } from "./commands/blockCommands";
+import { insertBlocks as cmdPasteBlocks } from "./commands/insertCommands";
+import { deleteAtomicBlock, nodeSelectedBlock } from "./commands/imageCommands";
 import { clearEditorRef, setEditorRef } from "./dom/editorRef";
 import {
   mergeBackward as cmdMergeBackward,
@@ -57,7 +60,17 @@ import {
   attachNativeInput,
   type NativeInputHandle,
 } from "./input/nativeInput";
-import { docFromBlocks, emptyDoc, insertManyAt, newBlockId } from "./model/doc";
+import {
+  docFromBlocks,
+  emptyDoc,
+  findPos,
+  insertManyAt,
+  newBlockId,
+  removeBlocks as docRemoveBlocks,
+  updateBlock,
+} from "./model/doc";
+import { changesBetween, mapSelection } from "./model/docChanges";
+import { isLockedBlock } from "./plugin/locked";
 import { blockTextOf } from "./model/blockText";
 import {
   collectChanges,
@@ -77,6 +90,7 @@ import type {
   MarkName,
   Selection,
   TableAlign,
+  BlockFlags,
 } from "./model/types";
 
 /**
@@ -128,7 +142,7 @@ export type { SerializedRun };
  * this type — their entries appear as the catch-all `Record<string, unknown>`
  * branch.
  */
-export type SerializedBlock =
+export type SerializedBlock = (
   | { id?: string; type: "p"; runs: SerializedRun[] }
   | { id?: string; type: "h1" | "h2" | "h3" | "h4" | "h5" | "h6"; runs: SerializedRun[] }
   | {
@@ -185,7 +199,8 @@ export type SerializedBlock =
   | {
       id?: string;
       type: "hr";
-    };
+    }
+) & BlockFlags;
 
 /**
  * Catch-all shape for plugin-introduced block types. Plugins serializing
@@ -205,6 +220,31 @@ export type SerializedDoc = {
 
 export type EditorViewProps = {
   class?: string;
+};
+
+/**
+ * A change to some blocks of the document, from the host. Applied in this
+ * order: `remove`, then `replace`, then `insert`. Blocks are in wire form, as
+ * `setDoc` takes them.
+ */
+export type BlockPatch = {
+  remove?: readonly BlockId[];
+  /** New content for blocks already in the document, matched by id; each
+   *  keeps its place. An id the document does not have is ignored. */
+  replace?: readonly SerializedBlock[];
+  /** Each run goes after `after` (`null`: at the start), or before `before`,
+   *  or, with neither, at the end. */
+  insert?: readonly {
+    blocks: readonly SerializedBlock[];
+    after?: BlockId | null;
+    before?: BlockId;
+  }[];
+};
+
+export type ApplyBlocksOptions = {
+  /** Make the patch one undo step. Default false: the undo stack is left as
+   *  it is, so undoing past this point restores a document from before it. */
+  history?: boolean;
 };
 
 /** Options for the wholesale-replacement APIs (`setDoc`, `setDocFromHTML`). */
@@ -256,7 +296,9 @@ export type Command =
   | { t: "moveBlock"; payload: MoveBlockPayload }
   | { t: "insertBlocks"; payload: InsertBlocksPayload }
   | { t: "removeBlocks"; blockIds: BlockId[] }
-  | { t: "replaceBlocks"; blocks: BlockInsertInput[] };
+  | { t: "replaceBlocks"; blocks: BlockInsertInput[] }
+  | { t: "pasteBlocks"; blocks: BlockSpec[] }
+  | { t: "deleteAtomic"; blockId: BlockId };
 
 /** Anything dispatchable — the typed `Command` union for built-ins, plus the
  *  open `{ t: string; payload?: unknown }` shape for plugin commands. */
@@ -350,6 +392,13 @@ export type EditorOptions = {
    */
   unknownBlocks?: UnknownBlockPolicy;
   /**
+   * Asked before Backspace or Delete removes an atomic block the user has
+   * selected (the first press selects it, the second deletes it). Return
+   * false to keep it — for instance to ask in the host's own dialog and
+   * `dispatch({ t: "deleteAtomic", blockId })` once the user agrees.
+   */
+  confirmDelete?: (block: Block) => boolean;
+  /**
    * Turn native spellcheck on for the editable root. Off by default because
    * the browser's red squiggles fight with `rangeDecorations` on a code or
    * diff view; a prose editor generally wants it on.
@@ -413,7 +462,7 @@ export type Editor = {
    *  `contenteditable` attribute. */
   setEditable: (editable: boolean) => void;
   EditorView: PublicView<EditorViewProps, void>;
-  setDocFromHTML: (html: string, opts?: SetDocOptions) => void;
+  setDocFromHTML: (html: string, opts?: SetDocOptions & HtmlParseOptions) => void;
   /**
    * Replace the entire document with a SerializedDoc. By default resets the
    * selection to end-of-doc and clears history — used for swapping content on
@@ -460,6 +509,15 @@ export type Editor = {
    * adjust after the next animation frame.
    */
   prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
+  /**
+   * Change some blocks from outside — a file re-read, an agent's rewrite, a
+   * sync — without replacing the document. Not gated by `editable`, like
+   * `setDoc`. Untouched blocks keep their identity; `onChange` hears per-block
+   * changes (a text block whose text changed as one `text` change over the
+   * span that differs), and the selection is carried through them rather than
+   * clamped. Returns the ids of the inserted blocks.
+   */
+  applyBlocks: (patch: BlockPatch, opts?: ApplyBlocksOptions) => BlockId[];
   // Imperative focus / blur — wired in M3+.
   focus: () => void;
   blur: () => void;
@@ -573,6 +631,15 @@ function deserializeDoc(
   return docFromBlocks(blocks);
 }
 
+/**
+ * The document as HTML — the same markup a copy puts on the clipboard, one
+ * element per block, with each plugin block's `htmlCodec.serializeHTML`.
+ * Takes either the wire form (`toJSON()`) or the model (`docStore.get()`).
+ */
+export function docToHtml(doc: SerializedDoc | DocState): string {
+  return modelToHtml("order" in doc ? doc : deserializeDoc(doc));
+}
+
 function serializeDoc(doc: DocState): SerializedDoc {
   const blocks: SerializedBlock[] = [];
   for (const id of doc.order) {
@@ -617,10 +684,33 @@ const BUILTIN_COMMANDS = new Set<string>([
   "insertBlocks",
   "removeBlocks",
   "replaceBlocks",
+  "pasteBlocks",
+  "deleteAtomic",
 ]);
 
 /** Built-ins that never touch the document, so they survive read-only mode. */
 const READ_ONLY_SAFE_BUILTINS = new Set<string>(["noop", "moveCursor"]);
+
+function touchesLocked(before: DocState, changes: readonly DocChange[]): boolean {
+  const locked = (id: BlockId): boolean => {
+    const b = before.byId.get(id);
+    return b !== undefined && isLockedBlock(b);
+  };
+  for (const c of changes) {
+    switch (c.kind) {
+      case "insertBlock":
+      case "moveBlock":
+      case "replaceDoc":
+        continue;
+      case "merge":
+        if (locked(c.blockId) || locked(c.into)) return true;
+        continue;
+      default:
+        if (locked(c.blockId)) return true;
+    }
+  }
+  return false;
+}
 
 function historyTagFor(cmd: DispatchableCommand): string {
   switch (cmd.t) {
@@ -656,6 +746,16 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   // Selection store — separate from doc so caret movement doesn't dirty the
   // document subscribers (and vice versa).
   const selStore = store.new<Selection>(defaultSelection(initialDoc));
+  // The atomic block the selection covers whole, if any: what a block's view
+  // is told as `selected`. Its own store so caret motion re-renders nothing
+  // unless it selects or deselects a block.
+  const nodeSelStore = store.new<BlockId | null>(null);
+  const syncNodeSelection = (): void => {
+    const id = nodeSelectedBlock(docStore.get(), selStore.get());
+    if (id !== nodeSelStore.get()) nodeSelStore.set(id);
+  };
+  selStore.subscribe(syncNodeSelection);
+  docStore.subscribe(syncNodeSelection);
 
   let nativeInput: NativeInputHandle | null = null;
   let drop: DropHandle | null = null;
@@ -761,8 +861,32 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       const c = cmd as Extract<Command, { t: "toggleMark" }>;
       return cmdToggleMark(ctx, c.mark, c.attrs ?? null);
     }
-    // Snapshot for undo BEFORE mutating. Tag drives coalescing.
-    history.record(historyTagFor(cmd));
+    // A command whose changes reach a locked block is undone whole: stores,
+    // history and its changes, as though it had been refused up front. Which
+    // blocks a command touches is only known once it has run.
+    const mark = history.checkpoint();
+    const beforeDoc = docStore.get();
+    const beforeSel = selStore.get();
+    let refused = false;
+    const { result } = collectChanges(
+      () => {
+        // Snapshot for undo BEFORE mutating. Tag drives coalescing.
+        history.record(historyTagFor(cmd));
+        return applyCommand(cmd);
+      },
+      (changes) => {
+        if (!touchesLocked(beforeDoc, changes)) return true;
+        refused = true;
+        docStore.set(beforeDoc);
+        selStore.set(beforeSel);
+        history.rollback(mark);
+        return false;
+      },
+    );
+    return refused ? false : result;
+  };
+
+  const applyCommand = (cmd: DispatchableCommand): boolean => {
     switch (cmd.t) {
       case "noop":
         return true;
@@ -847,6 +971,13 @@ export function createEditor(opts: EditorOptions = {}): Editor {
           ctx,
           (cmd as Extract<Command, { t: "replaceBlocks" }>).blocks,
         );
+      case "pasteBlocks":
+        return cmdPasteBlocks(
+          ctx,
+          (cmd as Extract<Command, { t: "pasteBlocks" }>).blocks,
+        );
+      case "deleteAtomic":
+        return deleteAtomicBlock(ctx, (cmd as Extract<Command, { t: "deleteAtomic" }>).blockId);
       default: {
         // Plugin command — route through the registry. Payload shape is
         // plugin-defined; built-ins handled above don't reach this branch.
@@ -885,16 +1016,24 @@ export function createEditor(opts: EditorOptions = {}): Editor {
 
   dispatchRef = dispatch;
 
-  // Undo / redo mutate the document, so they follow the same gate. They
-  // restore whole snapshots, so no anchor can be mapped across them —
-  // subscribers get `replaceDoc` and re-derive.
+  // Undo / redo mutate the document, so they follow the same gate.
   const undo = (): void => {
     if (!isEditable()) return;
-    if (history.undo()) emitChanges([{ kind: "replaceDoc", reason: "undo" }]);
+    const before = docStore.get();
+    if (history.undo()) emitRestore(before, "undo");
   };
   const redo = (): void => {
     if (!isEditable()) return;
-    if (history.redo()) emitChanges([{ kind: "replaceDoc", reason: "redo" }]);
+    const before = docStore.get();
+    if (history.redo()) emitRestore(before, "redo");
+  };
+  // Still a `replaceDoc` for consumers that re-derive on it, preceded by what
+  // changed block by block so an anchor in a block the step left alone survives.
+  const emitRestore = (before: DocState, reason: "undo" | "redo"): void => {
+    emitChanges([
+      ...changesBetween(before, docStore.get()),
+      { kind: "replaceDoc", reason, described: true },
+    ]);
   };
 
   /**
@@ -927,8 +1066,8 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     emitChanges([{ kind: "replaceDoc", reason }]);
   };
 
-  const setDocFromHTML = (html: string, htmlOpts?: SetDocOptions): void => {
-    const blocks = parseHTML(html);
+  const setDocFromHTML = (html: string, htmlOpts?: SetDocOptions & HtmlParseOptions): void => {
+    const blocks = parseHTML(html, htmlOpts);
     if (blocks.length === 0) return;
     applyReplacement(docFromBlocks(blocks), "setDocFromHTML", htmlOpts);
   };
@@ -1017,6 +1156,61 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     const ids = withIds.map((s) => s.id!);
     emitInserts(ids, 0);
     return ids;
+  };
+
+  const decodeBlock = (sb: SerializedBlock): BlockSpec | null => {
+    const id = sb.id ?? newBlockId();
+    const policy = opts.unknownBlocks ?? "preserve";
+    let decoded = registryDeserializeBlock(sb.type, sb, id);
+    if (!decoded && policy === "preserve") {
+      registerUnknownBlockType(sb.type);
+      decoded = registryDeserializeBlock(sb.type, sb, id);
+    }
+    if (!decoded && policy === "throw") {
+      throw new Error(`creo-edit: no block codec registered for type "${sb.type}".`);
+    }
+    return decoded;
+  };
+
+  const applyBlocks = (patch: BlockPatch, applyOpts?: ApplyBlocksOptions): BlockId[] => {
+    const before = docStore.get();
+    let next = before;
+    if (patch.remove?.length) {
+      const present = patch.remove.filter((id) => next.byId.has(id));
+      if (present.length) next = docRemoveBlocks(next, present);
+    }
+    for (const sb of patch.replace ?? []) {
+      const existing = sb.id === undefined ? undefined : next.byId.get(sb.id);
+      if (!existing) continue;
+      const decoded = decodeBlock(sb);
+      if (decoded) next = updateBlock(next, { ...decoded, id: existing.id, index: existing.index } as Block);
+    }
+    const inserted: BlockId[] = [];
+    for (const run of patch.insert ?? []) {
+      const specs = run.blocks.map(decodeBlock).filter((b): b is BlockSpec => b !== null);
+      if (specs.length === 0) continue;
+      let at = next.order.length;
+      if (run.before !== undefined) {
+        const i = findPos(next, run.before);
+        if (i >= 0) at = i;
+      } else if (run.after === null) {
+        at = 0;
+      } else if (run.after !== undefined) {
+        const i = findPos(next, run.after);
+        if (i >= 0) at = i + 1;
+      }
+      next = insertManyAt(next, at, specs);
+      for (const spec of specs) inserted.push(spec.id!);
+    }
+    if (next === before) return inserted;
+
+    const changes = changesBetween(before, next);
+    if (applyOpts?.history) history.record("applyBlocks");
+    const sel = selStore.get();
+    docStore.set(next);
+    selStore.set(mapSelection(sel, changes) ?? clampSelection(next, sel));
+    emitChanges(changes);
+    return inserted;
   };
 
   // Mode state — held in a creo store so the EditorView re-renders when it
@@ -1242,6 +1436,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
   const EditorView: PublicView<EditorViewProps, void> = view<EditorViewProps>(
     ({ props, use }) => {
       const doc = use(docStore);
+      const selectedBlock = use(nodeSelStore);
       // Subscribe to mode changes so the wrapper re-renders (and CSS class
       // updates).
       void use(modeStore);
@@ -1277,6 +1472,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
               triggers,
               isEditable,
               spellcheck: opts.spellcheck === true,
+              confirmDelete: opts.confirmDelete,
             },
           );
           drop = attachDrop(
@@ -1385,9 +1581,10 @@ export function createEditor(opts: EditorOptions = {}): Editor {
                   // in the document", which is the wrong one as soon as a
                   // page holds two.
                   editorId,
+                  selectedBlock: nodeSelStore,
                 });
               } else {
-                DocView({ key: "whole", doc: doc.get() });
+                DocView({ key: "whole", doc: doc.get(), selected: selectedBlock.get() });
               }
             },
           );
@@ -1414,6 +1611,7 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     getText,
     appendBlocks,
     prependBlocks,
+    applyBlocks,
     focus,
     blur,
     getMode,

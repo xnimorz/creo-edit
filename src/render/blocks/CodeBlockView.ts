@@ -4,6 +4,7 @@ import type { CodeBlock, InlineRun } from "../../model/types";
 import { withRunText } from "../../model/blockText";
 import { LINE_START_ATTR } from "../../plugin/anchorCodec";
 import { InlineRunsView } from "../InlineRunsView";
+import { lockedAttrs } from "../../plugin/locked";
 
 // Split a code block's flat run list into one InlineRun[] per line. Runs
 // that contain `\n` are split into per-line pieces preserving their marks;
@@ -142,6 +143,7 @@ export const CodeBlockView = view<{ block: CodeBlock }>(({ props }) => {
           "data-block-kind": "code",
           class: "ce-block ce-code-block",
           ...(b.lang ? { "data-lang": b.lang } : {}),
+          ...lockedAttrs(b),
         },
         () => {
           if (memoRuns !== b.runs || memo === null) {

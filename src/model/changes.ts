@@ -141,6 +141,11 @@ export type BlockAttrsChange = {
 export type ReplaceDocChange = {
   kind: "replaceDoc";
   reason?: "setDoc" | "setDocFromHTML" | "undo" | "redo";
+  /**
+   * The changes before this one in the same batch describe the replacement
+   * block by block, so anchors map through it. Set on undo and redo.
+   */
+  described?: true;
 };
 
 export type DocChange =
@@ -166,7 +171,12 @@ const stack: DocChange[][] = [];
  * innermost open collector, so a command that delegates to another command
  * produces one flat, ordered batch.
  */
-export function collectChanges<T>(fn: () => T): {
+export function collectChanges<T>(
+  fn: () => T,
+  /** Asked once `fn` is done; false means its changes were undone, so they
+   *  are dropped rather than folded into an enclosing collector. */
+  keep: (changes: readonly DocChange[]) => boolean = () => true,
+): {
   result: T;
   changes: DocChange[];
 } {
@@ -177,6 +187,7 @@ export function collectChanges<T>(fn: () => T): {
     return { result, changes: batch };
   } finally {
     stack.pop();
+    if (!keep(batch)) batch.length = 0;
     // Nested collectors fold their changes into the enclosing one so an
     // outer dispatch still sees everything that happened.
     const parent = stack[stack.length - 1];
@@ -260,7 +271,7 @@ export function mapAnchor(
 function applyOne(a: Anchor, c: DocChange, bias: MapBias): Anchor | null {
   switch (c.kind) {
     case "replaceDoc":
-      return null;
+      return c.described ? a : null;
 
     case "removeBlock":
       return a.blockId === c.blockId ? null : a;

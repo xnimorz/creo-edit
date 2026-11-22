@@ -30,6 +30,7 @@ import {
 } from "../../model/runSerialize";
 import type { Block, BlockquoteBlock, BlockSpec } from "../../model/types";
 import { runsToMarkdown } from "../../markdown/serialize";
+import { parseInline } from "../../markdown/parse";
 import { defaultTextCodec } from "../../plugin/anchorCodec";
 import type {
   BlockDef,
@@ -41,6 +42,7 @@ import type {
 } from "../../plugin/types";
 import { InlineRunsView } from "../../render/InlineRunsView";
 import type { SlashItem } from "../slash/items";
+import { lockedAttrs } from "../../plugin/locked";
 
 export const BlockquoteView = view<{ block: BlockquoteBlock }>(({ props }) => ({
   shouldUpdate(next) {
@@ -49,7 +51,7 @@ export const BlockquoteView = view<{ block: BlockquoteBlock }>(({ props }) => ({
   render() {
     const b = props().block;
     blockquote(
-      { "data-block-id": b.id, "data-block-kind": "blockquote", class: "ce-block ce-blockquote" },
+      { "data-block-id": b.id, "data-block-kind": "blockquote", class: "ce-block ce-blockquote", ...lockedAttrs(b) },
       () => {
         InlineRunsView({ runs: b.runs });
       },
@@ -85,6 +87,10 @@ const blockquoteDef: BlockDef<BlockquoteBlock> = {
     serialize(block) {
       const text = runsToMarkdown((block["runs"] as SerializedRun[] | undefined) ?? []);
       return text.length > 0 ? `> ${text}` : ">";
+    },
+    parse(lines, at) {
+      const m = /^\s{0,3}>\s?(.*)$/.exec(lines[at]!);
+      return m ? { block: { type: "blockquote", runs: parseInline(m[1]!) }, end: at + 1 } : null;
     },
   },
 };

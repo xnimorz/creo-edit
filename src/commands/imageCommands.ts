@@ -1,7 +1,7 @@
 import type { Store } from "creo";
 import { findPos, removeBlock } from "../model/doc";
 import { recordChange } from "../model/changes";
-import { caret, isCaret } from "../controller/selection";
+import { caret } from "../controller/selection";
 import { isAtomicBlockType } from "../plugin/atomic";
 import type { DocState, Selection } from "../model/types";
 
@@ -84,30 +84,58 @@ export async function insertImageFiles(
 }
 
 /**
- * Delete the atomic block currently under the caret. Backspace / Delete
- * routes here whenever the caret sits on any atomic block (image, calendar,
- * or any plugin block flagged `isAtomic`). The caret lands at the start of
- * whatever block survives in that slot — preferring the next sibling, then
- * the previous, then the first remaining block.
+ * Delete the atomic block currently under the caret, or the one a node
+ * selection covers. The caret lands at the start of whatever block survives
+ * in that slot — preferring the next sibling, then the previous, then the
+ * first remaining block.
  */
 export function deleteSelectedAtomic(stores: Stores): boolean {
-  const sel = stores.selStore.get();
-  if (!isCaret(sel)) return false;
+  const id = atomicUnderSelection(stores.docStore.get(), stores.selStore.get());
+  return id === null ? false : deleteAtomicBlock(stores, id);
+}
+
+export function deleteAtomicBlock(stores: Stores, blockId: string): boolean {
   const doc = stores.docStore.get();
-  const block = doc.byId.get(sel.at.blockId);
+  const block = doc.byId.get(blockId);
   if (!block || !isAtomicBlockType(block.type)) return false;
-  // Find adjacent block to land caret on.
   const i = findPos(doc, block.id);
   const next = removeBlock(doc, block.id);
   stores.docStore.set(next);
   recordChange({ kind: "removeBlock", blockId: block.id });
   const newId = next.order[i] ?? next.order[i - 1] ?? next.order[0];
-  if (newId == null) {
-    stores.selStore.set(caret({ blockId: "", path: [0], offset: 0 }));
-  } else {
-    stores.selStore.set(caret({ blockId: newId, path: [0], offset: 0 }));
-  }
+  stores.selStore.set(caret({ blockId: newId ?? "", path: [0], offset: 0 }));
   return true;
+}
+
+/** The atomic block a caret sits on, or that a node selection covers. */
+export function atomicUnderSelection(doc: DocState, sel: Selection): string | null {
+  const id = sel.kind === "caret" ? sel.at.blockId : nodeSelectedBlock(doc, sel);
+  if (id === null) return null;
+  const block = doc.byId.get(id);
+  return block && isAtomicBlockType(block.type) ? id : null;
+}
+
+/**
+ * The atomic block a selection covers exactly — from one side of it to the
+ * other — or null. That is what "the block is selected" means for a block
+ * with no text inside.
+ */
+export function nodeSelectedBlock(doc: DocState, sel: Selection): string | null {
+  if (sel.kind !== "range" || sel.anchor.blockId !== sel.focus.blockId) return null;
+  const block = doc.byId.get(sel.anchor.blockId);
+  if (!block || !isAtomicBlockType(block.type)) return null;
+  const a = sel.anchor.path[0] ?? 0;
+  const f = sel.focus.path[0] ?? 0;
+  return a !== f ? block.id : null;
+}
+
+/** Select an atomic block whole. */
+export function nodeSelection(blockId: string): Selection {
+  return {
+    kind: "range",
+    anchor: { blockId, path: [0], offset: 0 },
+    focus: { blockId, path: [1], offset: 1 },
+  };
 }
 
 /** Backwards-compatible alias — img used to be the only atomic block. */

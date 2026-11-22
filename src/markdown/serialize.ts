@@ -26,11 +26,14 @@ export function runsToMarkdown(runs: SerializedRun[]): string {
       out += escapeInline(r.text);
       continue;
     }
-    let s = escapeInline(r.text);
+    // Backslashes are literal inside a code span, so its text is not escaped;
+    // the span is fenced past any backticks it holds instead.
+    const code = marks.has("code");
+    let s = code ? codeSpan(r.text) : escapeInline(r.text);
     // Registry order is innermost-first, matching how the runs render; wrap
     // in that same order so the outermost marker closes last.
     for (const def of orderedMarkDefs()) {
-      if (!def.markdown) continue;
+      if (!def.markdown || (code && def.name === "code")) continue;
       const attrs = marks.get(def.name);
       if (attrs === undefined) continue;
       s =
@@ -41,6 +44,16 @@ export function runsToMarkdown(runs: SerializedRun[]): string {
     out += s;
   }
   return out;
+}
+
+function codeSpan(text: string): string {
+  let longest = 0;
+  for (const m of text.matchAll(/`+/g)) longest = Math.max(longest, m[0].length);
+  const fence = "`".repeat(longest + 1);
+  // A reader strips one space from each end of a span that has both.
+  const spaced = text.startsWith(" ") && text.endsWith(" ") && /[^ ]/.test(text);
+  const pad = text.startsWith("`") || text.endsWith("`") || spaced ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
 }
 
 function escapeInline(s: string): string {

@@ -152,6 +152,39 @@ editor.dispatch({ t: "hr.insert" });
 
 Neither is in `defaultPlugins`. Their default look is in `creo-edit/plugins/styles.css` (`--ce-quote-bar`, `--ce-quote-fg`, `--ce-hr-color`).
 
+### `embedPlugin`
+
+An atomic block type whose inside the host draws — an iframe, a chart, a widget with its own controls. The editor draws one non-editable shell per block and hands it to `mount`; the caret goes around the block, and Backspace or Delete next to it selects it before deleting it.
+
+```ts
+import { embedPlugin } from "creo-edit";
+
+const islands = embedPlugin({
+  type: "island",
+  mount(block, shell, { editor, selected }) {
+    const frame = document.createElement("iframe");
+    frame.sandbox.add("allow-scripts");
+    frame.src = urlFor(block);
+    shell.appendChild(frame);
+    return {
+      update(next, ctx) { if (next.src !== block.src) frame.src = urlFor(next); },
+      destroy() { frame.remove(); },
+    };
+  },
+  plainText: (block) => `[${block.title}]`,
+  isolate: false, // only a frame inside: nothing to keep from the editor
+});
+
+editor.setDoc({ blocks: [{ type: "island", src: "…", title: "Latency" } as ExternalSerializedBlock] });
+```
+
+- `mount(block, shell, ctx)` runs when the block is mounted — again after a virtualized editor scrolls it back in — and may return `{ update, destroy }`. `update` is called when the block changes or is selected or deselected; `ctx.editor` is the editor it is drawn in.
+- The shell is `div.ce-block.ce-embed` (plus `className`) with `data-block-kind` set to the type, `data-selected="true"` while selected, and the lock attributes when locked. Style selection with `.ce-embed[data-selected]`.
+- JSON round-trips every field but the block's index unless you pass a `serializeCodec`. `htmlCodec`, `markdownCodec`, `plainText` and `locked` are passed through to the block definition.
+- `isolate` (default true) stops the shell's input events from reaching the editor, for an embed with its own fields; see `isolateInput`.
+- The editor never sandboxes what you put inside. Untrusted content is the host's to contain — a sandboxed iframe on an origin of its own.
+- A virtualized editor measures the shell like any block, so an embed that grows (a frame reporting its height) is re-measured. An unmounted embed is destroyed; keep what must survive scrolling in your own state.
+
 ### `infiniteScrollPlugin`
 
 Watches a scroll container and calls a host-supplied callback when the viewport gets near an edge. The plugin handles scroll-anchoring on prepend so the user's view doesn't jump as content grows above.

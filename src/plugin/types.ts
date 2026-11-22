@@ -137,6 +137,9 @@ export type SelfVirtualizedProps<B extends Block = Block> = {
   /** Visible region in the block's own coordinate space, px from its top.
    *  Absent when the editor is not virtualized. */
   viewport?: BlockViewport;
+  /** True while the selection covers this atomic block whole: the first
+   *  Backspace or Delete next to it selects it, the second deletes it. */
+  selected?: boolean;
 };
 
 export type BlockDef<B extends Block = Block> = {
@@ -204,6 +207,19 @@ export type BlockDef<B extends Block = Block> = {
    * Receives the SERIALIZED block, so it pairs with `serializeCodec`.
    */
   markdownCodec?: MarkdownBlockCodec;
+
+  /**
+   * The block as plain text, for the `text/plain` flavour of a copy. Without
+   * one, a block that bears no text contributes nothing.
+   */
+  plainText?(b: B): string;
+
+  /**
+   * Whether a block of this type is locked, beyond its own `locked` flag:
+   * for a type whose content is never the user's to edit, or one that
+   * decides from its data.
+   */
+  locked?(b: B): boolean;
 };
 
 // ---------------------------------------------------------------------------

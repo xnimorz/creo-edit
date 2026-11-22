@@ -33,6 +33,7 @@ const editor = createEditor({
 | `plugins` | `EditorPlugin[]` | `[]` | Plugins to install in addition to the built-in defaults (paragraph, heading, list, code-block, image, cells). See [Authoring plugins](#/plugin-authoring). |
 | `editable` | `boolean \| (() => boolean)` | `true` | Whether the document accepts input. See [Read-only editors](#read-only-editors). |
 | `keepCaretVisible` | `boolean` | `true` | Scroll the caret back into view when the soft keyboard covers it. See [Mobile](#/mobile). |
+| `confirmDelete` | `(block) => boolean` | — | Asked before a selected atomic block is deleted; `false` keeps it. See [Atomic blocks are selected before they are deleted](#atomic-blocks-are-selected-before-they-are-deleted). |
 
 ## The `Editor` handle
 
@@ -50,6 +51,7 @@ type Editor = {
   getText: (blockId?: BlockId) => string;
   appendBlocks: (specs: BlockInsertInput[]) => BlockId[];
   prependBlocks: (specs: BlockInsertInput[]) => BlockId[];
+  applyBlocks: (patch: BlockPatch, opts?: { history?: boolean }) => BlockId[];
   focus: () => void;
   blur: () => void;
   getMode: () => EditorMode;
@@ -164,11 +166,43 @@ Returns a `SerializedDoc` — a plain JSON-safe object suitable for storage. Rou
 
 The result is memoized on the document's identity, so calling it repeatedly between edits costs nothing — one serialization per document version, however many callers ask.
 
+### Markdown: `docToMarkdown(doc)` and `markdownToDoc(markdown)`
+
+```ts
+import { docToMarkdown, markdownToDoc } from "creo-edit";
+
+const md = docToMarkdown(editor.toJSON());
+editor.setDoc(markdownToDoc(md));
+```
+
+`markdownToDoc` reads back everything `docToMarkdown` writes — paragraphs (a paragraph's lines are one block, joined by `\n`), headings, bulleted and numbered list items with their depth, fenced code with its language, standalone images, GFM tables with alignment, and the inline marks bold, italic, strike, code and links — so the two round-trip. It also reads common markdown it did not write (`*` and `+` bullets, `1)` numbering, `~~~` fences, nesting by any indent width). Anything else arrives as a paragraph holding its text; nothing is dropped. It is pure string work, with no DOM.
+
+A plugin block joins through `MarkdownBlockCodec.parse(lines, at)`: asked at the first line of each block, before the built-in readers, it returns the block in wire form and the index of the line after the last one it took — or `null`. `blockquotePlugin` reads `> text` and `horizontalRulePlugin` reads `---` this way, once installed. `markdownToRuns(text)` is the inline reader on its own.
+
 ### `getText(blockId?)`
 
 Plain text straight off the model: the whole document with blocks joined by `\n`, or one block when `blockId` is given. Table cells join with `\t` across and `\n` down; atomic blocks (images) contribute nothing.
 
 Characters are counted exactly the way anchors count them — a `code` block's newlines are real characters in both — so `getText(id).slice(0, anchor.offset)` is the text before that anchor. Reach for this rather than `toJSON()` when you only want characters: hashing the buffer, diffing against disk, computing line starts, feeding a language server.
+
+### `applyBlocks(patch, opts?)`
+
+For changes that arrive from outside on the same document while someone may be reading or typing in it: a file re-read from disk, an agent's rewrite, a sync. The host decides *what* changed; the editor applies it without replacing the document.
+
+```ts
+editor.applyBlocks({
+  remove: ["b3"],
+  replace: [{ id: "b1", type: "p", runs: [{ text: "The new wording" }] }],
+  insert: [{ blocks: [{ id: "n1", type: "h2", runs: [{ text: "Risks" }] }], after: "b1" }],
+});
+```
+
+- Applied in the order `remove`, `replace`, `insert`. Blocks are in wire form, as `setDoc` takes them. A `replace` keeps the block's place; an id the document does not have is ignored. An `insert` run goes after `after` (`null` for the start), before `before`, or at the end.
+- Not gated by `editable`, like `setDoc`.
+- Untouched blocks keep their identity, so only what changed re-renders.
+- `onChange` hears per-block changes. A text block whose text changed is one `text` change over the span that differs, so an anchor before or after it maps instead of being dropped; the same text with a new type or marks is `blockAttrs`; a table or other shape that no offset describes is `resetBlock`; blocks that changed order are `moveBlock`.
+- The selection is carried through those changes, and clamped only where its text is gone.
+- No undo step unless `{ history: true }`. History is snapshots, so undoing past an unrecorded patch restores a document from before it.
 
 ### `focus()` / `blur()`
 
@@ -202,9 +236,36 @@ What stays available while read-only:
 
 - caret motion (`moveCursor`), selection, copy — a cut degrades to a copy;
 - plugin commands that opt in with `readOnlySafe: true` (the built-in table / columns navigation commands do);
-- host-level document APIs — `setDoc`, `setDocFromHTML`, `appendBlocks`, `prependBlocks`. That's how a read-only viewer loads its content, so gating them would be self-defeating.
+- host-level document APIs — `setDoc`, `setDocFromHTML`, `appendBlocks`, `prependBlocks`, `applyBlocks`. That's how a read-only viewer loads its content, so gating them would be self-defeating.
 
 `undo()` / `redo()` are gated, and refused commands are rejected *before* the history snapshot, so read-only dispatches leave no empty undo steps behind.
+
+## Atomic blocks are selected before they are deleted
+
+A Backspace or Delete next to an atomic block (an image, a rule, a diagram, any `isAtomic` plugin block) selects it first; the next press deletes it. That covers a caret on the block itself, at the start of the block after it (Backspace) and at the end of the block before it (Delete). A press meant for one character never takes a whole diagram with it.
+
+- "Selected" is a range from one side of the block to the other. Build one with `nodeSelection(blockId)`; `nodeSelectedBlock(doc, selection)` reads it back.
+- The block's view is passed `selected: true` while it is selected, and only its view re-renders when that changes.
+- `confirmDelete(block)` is asked before the second press deletes; return `false` to keep the block — for instance to ask in your own dialog, then `dispatch({ t: "deleteAtomic", blockId })` once the user agrees.
+- The deletion is the built-in `deleteAtomic` command: one undo step, a `removeBlock` change, refused when read-only or locked.
+
+## Locked blocks
+
+Some blocks are not the user's to change — a decision already agreed, text quoted from elsewhere, a block another party owns — but should still read, select and copy like the rest. Mark them `locked`:
+
+```ts
+editor.setDoc({ blocks: [
+  { type: "p", runs: [{ text: "Decided: the schema stays." }], locked: true },
+  { type: "p", runs: [{ text: "Your notes here" }] },
+] });
+```
+
+- Every editing command is refused when its changes would reach a locked block: typing, deleting, splitting it, merging into or out of it, formatting, pasting into it, a range delete that reaches it. The refusal is whole — no undo step, no `onChange`, the redo trail kept — and `dispatch` returns `false`.
+- Selecting, copying and `moveBlock` still work: the lock is about content, not position.
+- The host's own APIs (`setDoc`, `applyBlocks`, `appendBlocks`) are not refused; they are how the owner changes it.
+- `locked: true` round-trips through `toJSON()` / `setDoc()` for every block type.
+- A type whose blocks are always (or conditionally) locked declares `BlockDef.locked(block)`.
+- The built-in views draw a locked block with `contenteditable="false"` and `data-locked="true"`, so the browser cannot type or compose into it. A plugin view does the same by spreading `lockedAttrs(block)` into its outer element. `isLockedBlock(block)` answers for either source.
 
 ## Position mapping across edits
 
@@ -256,8 +317,10 @@ type DocChange =
   // Internal shape changed unmappably (a table row inserted above the
   // anchor's row). Anchors inside the block map to null.
   | { kind: "resetBlock"; blockId: BlockId }
-  // Whole document replaced (setDoc / setDocFromHTML / undo / redo).
-  | { kind: "replaceDoc" };
+  // Whole document replaced (setDoc / setDocFromHTML / undo / redo). On
+  // undo and redo it is `described`: the changes before it in the batch say
+  // what the step changed block by block, and anchors map through it.
+  | { kind: "replaceDoc"; reason?: "setDoc" | "setDocFromHTML" | "undo" | "redo"; described?: true };
 ```
 
 Granularity is per-block rather than a whole-document offset space. `mapAnchor` returns `null` when the anchored text was deleted outright, its block was removed, or its block was reset — which is the honest answer, and better than a plausible wrong anchor.

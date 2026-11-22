@@ -1,6 +1,7 @@
 import { p, view } from "creo";
 import type { ParagraphBlock } from "../../model/types";
 import { InlineRunsView } from "../InlineRunsView";
+import { lockedAttrs } from "../../plugin/locked";
 
 export const ParagraphView = view<{ block: ParagraphBlock }>(({ props }) => ({
   shouldUpdate(next) {
@@ -8,7 +9,7 @@ export const ParagraphView = view<{ block: ParagraphBlock }>(({ props }) => ({
   },
   render() {
     const b = props().block;
-    p({ "data-block-id": b.id, "data-block-kind": "p", class: "ce-block ce-p" }, () => {
+    p({ "data-block-id": b.id, "data-block-kind": "p", class: "ce-block ce-p", ...lockedAttrs(b) }, () => {
       InlineRunsView({ runs: b.runs });
     });
   },

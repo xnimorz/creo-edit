@@ -5,6 +5,103 @@ All notable changes to `creo-edit` are documented here. This project follows
 minor bumps carry new features and may include small, documented behaviour
 changes.
 
+## Unreleased
+
+Primitives for a host that mixes text the user edits with content it draws
+itself, and that takes changes from outside while the user reads or types.
+
+### Behaviour change
+
+- **Backspace or Delete next to an atomic block selects it first.** One
+  press used to delete an image, a rule, a calendar or a plugin's embed
+  outright, and a press at the start of the block after one did nothing.
+  Now the first press selects the block and the second deletes it, as one
+  undoable step; `EditorOptions.confirmDelete` can still keep the block.
+  Details under *Editor* below.
+
+### Editor
+
+- **`editor.applyBlocks(patch, { history? })`** changes some blocks from
+  outside without replacing the document: `remove` ids, `replace` blocks by
+  id in place, `insert` runs after or before a block. Not gated by
+  `editable`. `onChange` hears per-block changes, with a text block's new
+  text as one `text` change over the span that differs, so anchors and the
+  caret map rather than being clamped. No undo step unless asked. Types
+  `BlockPatch`, `ApplyBlocksOptions`.
+- **Undo and redo no longer orphan every anchor.** Their batch now lists
+  what the step changed block by block (the same changes `applyBlocks`
+  reports), followed by the `replaceDoc` it always had, now marked
+  `described: true`; `mapAnchor` passes through a described `replaceDoc`.
+  An anchor in a block the step left alone survives, and one in a changed
+  text block maps around the span that differs. A consumer that matched on
+  `replaceDoc` alone still sees it, after the new changes.
+- **Locked blocks.** Any block may carry `locked: true` (round-tripped by
+  `toJSON` / `setDoc`), and a type may declare `BlockDef.locked(block)`. A
+  command whose changes reach a locked block — typing, splitting, merging
+  into or out of it, formatting, pasting, a range delete — is undone whole
+  and refused: no undo step, no `onChange`, the redo trail kept. Selection,
+  copy and `moveBlock` still work; host APIs are not refused. Built-in views
+  draw a locked block `contenteditable="false"` with `data-locked`; plugin
+  views spread the exported `lockedAttrs(block)`. Also `isLockedBlock`, and
+  the `BlockFlags` type every block and `SerializedBlock` now carries.
+- **An atomic block is selected before it is deleted.** Backspace or
+  Delete on an atomic block, or next to one (at the start of the block
+  after, at the end of the block before), now selects it — a range from
+  one side of it to the other — and the next press deletes it. Behaviour
+  change: one press used to delete it outright, and a press next to one did
+  nothing. The block's view is passed `selected: true` while it is selected
+  (`BlockViewProps.selected`, `SelfVirtualizedProps.selected`), in both the
+  whole and the virtualized renderer. `EditorOptions.confirmDelete(block)`
+  can keep it. The deletion is the new built-in `{ t: "deleteAtomic",
+  blockId }` — it used to write the stores directly, so it was not undoable
+  and reached no `onChange`. Helpers `nodeSelection(blockId)` and
+  `nodeSelectedBlock(doc, selection)`.
+
+### Markdown
+
+- **`markdownToDoc(markdown)`**, the inverse of `docToMarkdown`: headings,
+  paragraphs, lists with depth, fenced code with its language, images, GFM
+  tables with alignment, bold / italic / strike / code / links. What it
+  does not recognise arrives as a paragraph with its text. Pure, no DOM.
+  `markdownToRuns(text)` is its inline reader.
+- **`MarkdownBlockCodec.parse(lines, at)`** lets a plugin block read itself
+  back; `blockquotePlugin` (`> text`) and `horizontalRulePlugin` (`---`) do.
+- **Fix:** `docToMarkdown` no longer backslash-escapes the text of a code
+  span — backslashes are literal there, so `x*y` in code came back as
+  `x\*y` — and fences a span holding backticks with a longer run.
+
+### HTML
+
+- **`docToHtml(doc)`** is public: the document as HTML (the markup a copy
+  writes), from the wire form or the model.
+- **`claimElement(el)`** on `setDocFromHTML(html, opts)` and `parseHTML`:
+  asked for each block-level element before the parser's own handling;
+  returning a block (wire form) keeps the element whole as that block
+  instead of flattening it into paragraphs. Type `HtmlParseOptions`.
+
+### Plugins
+
+- **`embedPlugin({ type, mount, … })`**: an atomic block type whose inside
+  the host draws (an iframe, a chart, a widget). One non-editable shell per
+  block is handed to `mount(block, shell, { editor, selected })`, which may
+  return `{ update, destroy }`; the shell carries `data-selected` while the
+  block is selected. JSON round-trips by default; `htmlCodec`,
+  `markdownCodec`, `plainText` and `locked` pass through. The editor never
+  sandboxes. Types `EmbedDef`, `EmbedInstance`, `EmbedContext`.
+
+### Fixes
+
+- **A paste is one undo step and reaches `onChange`.** The paste handler
+  wrote the document directly, so it could not be undone and subscribers
+  never heard of it. It now dispatches the new built-in
+  `{ t: "pasteBlocks", blocks }`, which also means a read-only editor
+  refuses it at the dispatcher like every other edit.
+- **Copying across a block that bears no text no longer writes `[table]`.**
+  `BlockDef.plainText(block)` gives a plugin block its text for the
+  `text/plain` flavour; tables now copy their cells (tab-separated, a line
+  per row) and columns theirs, as `docToPlain` already did. A block with
+  neither contributes no line.
+
 ## 0.9.0
 
 A hook for plugins that draw beside the document, and the first plugin to

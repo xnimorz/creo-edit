@@ -76,6 +76,11 @@ const hrDef: BlockDef<HorizontalRuleBlock> = {
     serialize() {
       return "---";
     },
+    parse(lines, at) {
+      return /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(lines[at]!)
+        ? { block: { type: "hr" }, end: at + 1 }
+        : null;
+    },
   },
 };
 

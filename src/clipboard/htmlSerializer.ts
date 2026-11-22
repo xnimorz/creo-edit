@@ -19,6 +19,7 @@ import {
   orderedRange,
 } from "../controller/selection";
 import { getHtmlSerializer } from "../plugin/htmlCodec";
+import { lookupPlainText } from "../plugin/plainText";
 import type {
   Block,
   ColumnsBlock,
@@ -64,29 +65,35 @@ export function docToHtml(doc: DocState): string {
 export function docToPlain(doc: DocState): string {
   const lines: string[] = [];
   for (const b of iterBlocks(doc)) {
-    if (isTextBearing(b)) {
-      lines.push(escapePlain(runsText((b as TextBearingBlock).runs)));
-    } else if (b.type === "img") {
-      lines.push(b.alt ?? "[image]");
-    } else if (b.type === "table") {
-      const t = b as TableBlock;
-      for (let r = 0; r < t.rows; r++) {
-        const cols: string[] = [];
-        for (let c = 0; c < t.cols; c++) {
-          cols.push(escapePlain(runsText(t.cells[r]?.[c] ?? [])));
-        }
-        lines.push(cols.join("\t"));
-      }
-    } else if (b.type === "columns") {
-      const cb = b as ColumnsBlock;
-      const cols: string[] = [];
-      for (let c = 0; c < cb.cols; c++) {
-        cols.push(escapePlain(runsText(cb.cells[c] ?? [])));
-      }
-      lines.push(cols.join("\t"));
-    }
+    const text = blockPlainText(b);
+    if (text !== null) lines.push(text);
   }
   return lines.join("\n");
+}
+
+/** Null when the block has nothing to say as text, so it takes no line. */
+function blockPlainText(b: Block): string | null {
+  if (isTextBearing(b)) return escapePlain(runsText((b as TextBearingBlock).runs));
+  const own = lookupPlainText(b.type);
+  if (own) return own(b);
+  if (b.type === "img") return b.alt ?? "[image]";
+  if (b.type === "table") {
+    const t = b as TableBlock;
+    const rows: string[] = [];
+    for (let r = 0; r < t.rows; r++) {
+      const cols: string[] = [];
+      for (let c = 0; c < t.cols; c++) cols.push(escapePlain(runsText(t.cells[r]?.[c] ?? [])));
+      rows.push(cols.join("\t"));
+    }
+    return rows.join("\n");
+  }
+  if (b.type === "columns") {
+    const cb = b as ColumnsBlock;
+    const cols: string[] = [];
+    for (let c = 0; c < cb.cols; c++) cols.push(escapePlain(runsText(cb.cells[c] ?? [])));
+    return cols.join("\t");
+  }
+  return null;
 }
 
 function runsText(runs: InlineRun[]): string {
@@ -157,13 +164,8 @@ export function selectionToClipboard(
       slice = { ...(b as TextBearingBlock), runs } as Block;
       lines.push(runsText(runs));
     } else {
-      lines.push(
-        b.type === "img"
-          ? (b.alt ?? "[image]")
-          : b.type === "columns"
-            ? "[columns]"
-            : "[table]",
-      );
+      const text = blockPlainText(b);
+      if (text !== null) lines.push(text);
     }
     html += blockToHtml(slice, listOpen);
   }

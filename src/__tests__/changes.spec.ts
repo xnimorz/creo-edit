@@ -239,10 +239,27 @@ describe("change emission", () => {
     editor.redo();
     editor.setDoc(twoParas);
     expect(batches.slice(1)).toEqual([
-      [{ kind: "replaceDoc", reason: "undo" }],
-      [{ kind: "replaceDoc", reason: "redo" }],
+      [
+        { kind: "text", blockId: id, container: [], from: 0, to: 1, insertedLength: 0 },
+        { kind: "replaceDoc", reason: "undo", described: true },
+      ],
+      [
+        { kind: "text", blockId: id, container: [], from: 0, to: 0, insertedLength: 1 },
+        { kind: "replaceDoc", reason: "redo", described: true },
+      ],
       [{ kind: "replaceDoc", reason: "setDoc" }],
     ]);
+  });
+
+  it("an anchor in a block that undo left alone survives it", () => {
+    const { editor, batches } = mount(twoParas);
+    const [first, second] = editor.docStore.get().order as [string, string];
+    editor.selStore.set({ kind: "caret", at: A(first, 0) });
+    editor.dispatch({ t: "insertText", text: "x" });
+    editor.undo();
+    const undone = batches[batches.length - 1]!;
+    expect(mapAnchor(A(second, 2), undone)).toEqual(A(second, 2));
+    expect(mapAnchor(A(first, 3), undone)?.offset).toBe(2);
   });
 
   it("appendBlocks / prependBlocks report insertBlock with positions", () => {

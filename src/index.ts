@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 
 // Editor factory
-export { createEditor } from "./createEditor";
+export { createEditor, docToHtml } from "./createEditor";
+export type { HtmlParseOptions } from "./clipboard/htmlParser";
 export type {
   Editor,
   EditorOptions,
@@ -16,6 +17,8 @@ export type {
   SerializedRun,
   EditorMode,
   SetDocOptions,
+  BlockPatch,
+  ApplyBlocksOptions,
   UnknownBlockPolicy,
   // The sanctioned wire shape for a plugin-introduced block type. Cast
   // through it when building `SerializedDoc.blocks` for a type outside the
@@ -152,6 +155,7 @@ export { isTextBearingType, registerTextBearing } from "./plugin/textBearing";
 
 export type {
   Block,
+  BlockFlags,
   BlockId,
   BlockSpec,
   BlockType,
@@ -297,6 +301,10 @@ export {
   imageCodec,
 } from "./plugin/anchorCodec";
 export { isAtomicBlockType, registerAtomic } from "./plugin/atomic";
+// A plugin block's view spreads `lockedAttrs(block)` into its outer element,
+// as the built-in views do, so the browser does not edit a locked block's DOM.
+export { isLockedBlock, lockedAttrs } from "./plugin/locked";
+export { nodeSelectedBlock, nodeSelection } from "./commands/imageCommands";
 export { TriggerManager } from "./plugin/triggers";
 export { DecorationManager } from "./plugin/decorations";
 export { RangeDecorationManager } from "./plugin/rangeDecorations";
@@ -365,6 +373,14 @@ export {
   type HorizontalRuleOptions,
 } from "./plugins/horizontal-rule";
 
+// An atomic block whose inside the host draws: an iframe, a chart, a widget.
+export {
+  embedPlugin,
+  type EmbedContext,
+  type EmbedDef,
+  type EmbedInstance,
+} from "./plugins/embed";
+
 // Infinite-scroll plugin — append/prepend blocks as the user scrolls.
 export {
   infiniteScrollPlugin,
@@ -389,3 +405,4 @@ export {
 // Used by the docs site's MD-mode raw-source view; useful in apps that
 // want a "save as .md" button.
 export { docToMarkdown } from "./markdown/serialize";
+export { markdownToDoc, parseInline as markdownToRuns } from "./markdown/parse";
