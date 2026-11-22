@@ -89,6 +89,10 @@ export type NativeInputHandle = {
    *  attribute. Called by `editor.setEditable`, and on focus / pointerdown so
    *  a thunk-driven flip lands before the user can type. */
   syncEditable: () => void;
+  /** Put the model's selection on the page now — once the editor has the
+   *  focus (`editor.focus()`); before, the editor leaves the page's
+   *  selection alone. */
+  writeSelection: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -194,6 +198,18 @@ export function attachNativeInput(
     preLength: number;
   } | null = null;
 
+  /**
+   * True for a node of THIS editor: inside the root, and not inside another
+   * editor nested in one of its blocks (a column of a columns block in a
+   * host, a document drawn in a document). A nested editor's selection,
+   * focus and clipboard are its own; reading them here would turn its caret
+   * into an anchor of this document.
+   */
+  const ownNode = (node: Node | null): boolean => {
+    const el = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+    return !!el && root.contains(el) && el.closest("[data-creo-edit]") === root;
+  };
+
   /** Convert the current native selection to an editor Selection. */
   const readNativeSelection = (): Selection | null => {
     const native = document.getSelection();
@@ -203,8 +219,8 @@ export function attachNativeInput(
     const f = native.focusNode;
     const fo = native.focusOffset;
     if (!a || !f) return null;
-    // Reject selections that escape the editor.
-    if (!root.contains(a) || !root.contains(f)) return null;
+    // Reject selections that escape the editor, or are a nested editor's.
+    if (!ownNode(a) || !ownNode(f)) return null;
     const anchor = domToAnchor(a, ao, root);
     const focus = domToAnchor(f, fo, root);
     if (!anchor || !focus) return null;
@@ -246,8 +262,26 @@ export function attachNativeInput(
     return active.isContentEditable !== true;
   };
 
+  /**
+   * True when this editor has the focus: its root, or its own text. Only
+   * then may it move the page's selection. A document changed from outside
+   * (a sync, a capture from another field) re-renders the editor, and
+   * writing the selection then would move the focus into it — the field the
+   * user is typing in would lose its caret, and its keystrokes would land in
+   * the document. Nothing is lost by not writing: the model selection stays
+   * canonical, and the browser hands the editor one back (`selectionchange`)
+   * the moment it is clicked, tabbed into or `focus()`ed.
+   */
+  const hasFocus = (): boolean => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active === root) return true;
+    if (!active || !ownNode(active)) return false;
+    return active.isContentEditable === true && active.tagName !== "INPUT" && active.tagName !== "TEXTAREA";
+  };
+
   const applyNativeSelection = (sel: Selection): void => {
     if (focusIsInsideABlock()) return;
+    if (!hasFocus()) return;
     const native = document.getSelection();
     if (!native) return;
     const anchorPoint =
@@ -522,6 +556,7 @@ export function attachNativeInput(
     }
 
     e.preventDefault();
+    syncSelection();
 
     switch (t) {
       case "insertText": {
@@ -643,12 +678,30 @@ export function attachNativeInput(
   // still flow through keydown.
   // -------------------------------------------------------------------------
 
+  // The page's selection moves at once; the editor hears of it from
+  // `selectionchange`, which the browser fires later. A key or an input
+  // right after a caret move (⌘B right after ⇧Home, a letter right after a
+  // click) must act on where the selection is now, not where it was.
+  const syncSelection = (): void => {
+    if (composing || renderPending) return;
+    const sel = readNativeSelection();
+    if (sel && !selectionsEqual(sel, selStore.get())) selStore.set(sel);
+  };
+
   const onKeyDown = (e: KeyboardEvent): void => {
+    // A key pressed on a control inside a block (a card's button, a field)
+    // is that control's: the keymap would take Tab or Enter for the
+    // document, and the focus could never leave the control.
+    const target = e.target;
+    if (target !== root && !(target instanceof HTMLElement && target.isContentEditable)) return;
+
     // A key that belongs to an IME composition (Enter confirming it, arrows
     // picking a candidate) is the IME's: run as a chord it would split a
     // quoted line or leave a table cell mid-word. 229 is what the key reports
     // while a composition holds it, in browsers that predate `isComposing`.
     if (composing || e.isComposing || e.keyCode === 229) return;
+
+    syncSelection();
 
     // Active trigger (slash menu, @-mention, etc.) consumes keys first —
     // arrow nav, Enter pick, Escape cancel are all owned by the trigger UI.
@@ -839,9 +892,7 @@ export function attachNativeInput(
     if (!sel) return false;
     const a = sel.anchorNode;
     const f = sel.focusNode;
-    if (a && root.contains(a)) return true;
-    if (f && root.contains(f)) return true;
-    return false;
+    return ownNode(a) || ownNode(f);
   };
 
   const onCopy = (e: ClipboardEvent): void => {
@@ -950,10 +1001,18 @@ export function attachNativeInput(
 
   return {
     syncEditable,
+    writeSelection: () => {
+      if (composing || renderPending) return;
+      const current = readNativeSelection();
+      const target = selStore.get();
+      if (current && selectionsEqual(current, target)) return;
+      applyNativeSelection(target);
+    },
     destroy: () => {
       attached = false;
       document.removeEventListener("selectionchange", onSelectionChange);
       root.removeEventListener("focusin", syncEditable);
+
       root.removeEventListener("pointerdown", syncEditable, true);
       root.removeEventListener("beforeinput", onBeforeInput as EventListener);
       root.removeEventListener("keydown", onKeyDown);

@@ -71,7 +71,7 @@ export function toggleList(
   return true;
 }
 
-/** Tab — increase list depth (max 3). No-op for non-list blocks. */
+/** Tab — increase list depth (no limit). No-op for non-list blocks. */
 export function indentList({ docStore, selStore }: Stores): boolean {
   const ids = collectTouchedBlockIds(docStore.get(), selStore.get());
   let working = docStore.get();
@@ -80,10 +80,9 @@ export function indentList({ docStore, selStore }: Stores): boolean {
     const b = getBlock(working, id);
     if (!b || b.type !== "li") continue;
     const li = b as ListItemBlock;
-    if (li.depth >= 3) continue;
     working = updateBlock(working, {
       ...li,
-      depth: (li.depth + 1) as 0 | 1 | 2 | 3,
+      depth: li.depth + 1,
     });
     recordChange({ kind: "blockAttrs", blockId: id, type: "li" });
     changed = true;
@@ -104,7 +103,7 @@ export function outdentList({ docStore, selStore }: Stores): boolean {
     if (li.depth > 0) {
       working = updateBlock(working, {
         ...li,
-        depth: (li.depth - 1) as 0 | 1 | 2 | 3,
+        depth: li.depth - 1,
       });
       recordChange({ kind: "blockAttrs", blockId: id, type: "li" });
       changed = true;

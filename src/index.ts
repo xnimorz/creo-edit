@@ -48,6 +48,11 @@ export {
   endOfDoc,
 } from "./controller/selection";
 
+// The marks text typed at the caret would carry — a mark toggled there with
+// nothing selected (⌘B), or else what the text before it has. For a
+// toolbar's pressed state.
+export { marksAtCaret } from "./commands/markCommands";
+
 export {
   nextAnchor,
   prevAnchor,

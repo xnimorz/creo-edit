@@ -7,6 +7,7 @@ import { createEditor } from "../createEditor";
 import { caretAt } from "../controller/selection";
 import { newBlockId } from "../model/doc";
 import type { ListItemBlock } from "../model/types";
+import { parseHTML } from "../clipboard/htmlParser";
 
 afterEach(() => {
   clearDom();
@@ -132,6 +133,22 @@ describe("List commands", () => {
     // Outdent at depth 0 → demote to paragraph.
     press("Tab", true);
     expect(editor.docStore.get().byId.get(ids[0]!)!.type).toBe("p");
+  });
+
+  it("a list nests as deep as wanted: Tab past 3, and a pasted list keeps its depth", () => {
+    const root = makeContainer();
+    const { ids, blocks } = multi(["a"]);
+    const editor = createEditor({ initial: { blocks } });
+    createApp(() => editor.EditorView(), new HtmlRender(root), SYNC).mount();
+    editor.selStore.set({ kind: "caret", at: caretAt(ids[0]!, 0) });
+    editor.dispatch({ t: "toggleList", ordered: false });
+    for (let i = 0; i < 6; i++) editor.dispatch({ t: "indentList" });
+    const li = editor.docStore.get().byId.get(ids[0]!) as ListItemBlock;
+    expect(li.depth).toBe(6);
+    expect(root.querySelector(`[data-block-id="${ids[0]}"]`)!.getAttribute("data-depth")).toBe("6");
+
+    const nested = parseHTML("<ul><li>0<ul><li>1<ul><li>2<ul><li>3<ul><li>4</li></ul></li></ul></li></ul></li></ul></li></ul>");
+    expect(nested.map((b) => (b as ListItemBlock).depth)).toEqual([0, 1, 2, 3, 4]);
   });
 
   it("Enter inside a list item creates a new list item of the same kind", () => {

@@ -29,14 +29,14 @@ editor.dispatch({ t: "splitBlock" });
 
 | Command | Effect |
 |---|---|
-| `{ t: "toggleMark", mark }` | Toggle a `Mark` (`"b" \| "i" \| "u" \| "s" \| "code"`) over the selection (or at the caret as a "pending mark" applied to the next typed character). |
+| `{ t: "toggleMark", mark }` | Toggle a `Mark` (`"b" \| "i" \| "u" \| "s" \| "code"`) over the selection (or, at a caret, for the text typed next there — a pending mark; `marksAtCaret` reads it). |
 
 ## Lists
 
 | Command | Effect |
 |---|---|
 | `{ t: "toggleList", ordered }` | Convert the current paragraph into an `li` (ordered/unordered), or back into `p`. |
-| `{ t: "indentList" }` | Increase `depth` of the current list item (max 3). |
+| `{ t: "indentList" }` | Increase `depth` of the current list item (no limit). |
 | `{ t: "outdentList" }` | Decrease `depth`. At depth 0, converts back to a paragraph. |
 
 ## Insertion

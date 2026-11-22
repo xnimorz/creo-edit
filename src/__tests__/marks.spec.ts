@@ -5,6 +5,7 @@ import { clearDom, makeContainer, SYNC_SCHEDULER } from "./setup";
 import { createApp, HtmlRender } from "creo";
 
 import { createEditor } from "../createEditor";
+import { marksAtCaret } from "../commands/markCommands";
 import { caretAt } from "../controller/selection";
 import { newBlockId } from "../model/doc";
 import { docToMarkdown } from "../markdown/serialize";
@@ -100,12 +101,43 @@ describe("toggleMark", () => {
     }
   });
 
-  it("caret-only toggle is a no-op", () => {
+  it("caret-only toggle changes no text and is no undo step", () => {
     const { editor, id } = setupWithText("hi");
     editor.selStore.set({ kind: "caret", at: caretAt(id, 1) });
     const before = getRuns(editor, id);
-    editor.dispatch({ t: "toggleMark", mark: "b" });
+    expect(editor.dispatch({ t: "toggleMark", mark: "b" })).toBe(true);
     expect(getRuns(editor, id)).toBe(before);
+    // ⌘Z undoes what was typed before it, not an empty step.
+    editor.dispatch({ t: "insertText", text: "!" });
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 2) });
+    editor.dispatch({ t: "toggleMark", mark: "i" });
+    editor.undo();
+    expect(getRuns(editor, id).map((r) => r.text).join("")).toBe("hi");
+  });
+
+  it("a mark toggled at a caret is the next typed text's, and only there", () => {
+    const { editor, id } = setupWithText("ab");
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 1) });
+    editor.dispatch({ t: "toggleMark", mark: "b" });
+    expect(hasMark(marksAtCaret(editor.commandCtx)!, "b")).toBe(true);
+    editor.dispatch({ t: "insertText", text: "X" });
+    editor.dispatch({ t: "insertText", text: "Y" });
+    // The second letter inherits from the first, as typing always does.
+    expect(getRuns(editor, id).map((r) => [r.text, hasMark(r.marks, "b")])).toEqual([
+      ["a", false],
+      ["XY", true],
+      ["b", false],
+    ]);
+    // Toggled off again at a bold caret: the next text is plain.
+    editor.dispatch({ t: "toggleMark", mark: "b" });
+    editor.dispatch({ t: "insertText", text: "z" });
+    expect(getRuns(editor, id).map((r) => r.text)).toEqual(["a", "XY", "zb"]);
+    // A caret moved away drops what was toggled.
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 0) });
+    editor.dispatch({ t: "toggleMark", mark: "i" });
+    editor.selStore.set({ kind: "caret", at: caretAt(id, 1) });
+    editor.dispatch({ t: "insertText", text: "-" });
+    expect(getRuns(editor, id).some((r) => hasMark(r.marks, "i"))).toBe(false);
   });
 
   it("Cmd+B chord (mac) triggers toggleMark", () => {

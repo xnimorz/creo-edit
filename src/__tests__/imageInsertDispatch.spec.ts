@@ -29,6 +29,7 @@ function mount(opts: EditorOptions = {}) {
   const editor = createEditor(opts);
   createApp(() => editor.EditorView(), new HtmlRender(root), SYNC_SCHEDULER).mount();
   const ta = root.querySelector("[data-creo-edit]") as HTMLElement;
+  editor.focus(); // a user pastes or drops into the editor they are in
   return { editor, ta };
 }
 

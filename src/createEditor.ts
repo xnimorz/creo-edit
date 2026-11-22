@@ -50,7 +50,7 @@ import {
   deleteForward as cmdDeleteForward,
   insertText as cmdInsertText,
 } from "./commands/textCommands";
-import { clampSelection, endOfDoc } from "./controller/selection";
+import { clampSelection, endOfDoc, isCaret } from "./controller/selection";
 import { createHistory, type History } from "./controller/history";
 import { attachAutoRebalance } from "./model/rebalance";
 import {
@@ -135,7 +135,7 @@ export type SerializedBlock =
       id?: string;
       type: "li";
       ordered: boolean;
-      depth?: 0 | 1 | 2 | 3;
+      depth?: number;
       runs: SerializedRun[];
     }
   | {
@@ -755,6 +755,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
       const def = registry.commands.get(cmd.t);
       if (!def || def.readOnlySafe !== true) return false;
     }
+    // A mark toggled at a caret changes nothing yet — it is kept for the
+    // text typed next there — so it is no undo step.
+    if (cmd.t === "toggleMark" && isCaret(selStore.get())) {
+      const c = cmd as Extract<Command, { t: "toggleMark" }>;
+      return cmdToggleMark(ctx, c.mark, c.attrs ?? null);
+    }
     // Snapshot for undo BEFORE mutating. Tag drives coalescing.
     history.record(historyTagFor(cmd));
     switch (cmd.t) {
@@ -1055,8 +1061,12 @@ export function createEditor(opts: EditorOptions = {}): Editor {
     v?.scrollToIndex(idx, opts);
   };
 
+  // The editor writes the page's selection only while it has the focus, so
+  // a caret set before `focus()` is put on the page here. (A click, a tap or
+  // Tab keeps the caret the browser puts where the user went in.)
   const focus = (): void => {
     getRoot()?.focus();
+    nativeInput?.writeSelection();
   };
   const blur = (): void => {
     getRoot()?.blur();
