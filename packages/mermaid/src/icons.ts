@@ -35,6 +35,7 @@ export const icons = {
   done: svg('<path d="M3 8.5 6.5 12 13 4.5"/>'),
   crit: svg('<path d="M8 3v6.5M8 12.4v.1"/>'),
   milestone: svg('<path d="M8 2.5 13.5 8 8 13.5 2.5 8z"/>'),
+  calendar: svg('<rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>'),
   // Edge line styles.
   solid: svg('<path d="M2 8h12"/>'),
   dotted: svg('<path d="M2 8h12" stroke-dasharray="1.5 2.5"/>'),

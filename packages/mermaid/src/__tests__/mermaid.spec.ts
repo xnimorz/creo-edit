@@ -548,7 +548,7 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     expect(block().querySelector(".ce-mermaid-info")!.textContent).toMatch(/Tab adds one inside/);
   });
 
-  test("a mind map: Tab adds an idea under the selected one, Enter the next beside it", async () => {
+  test("a mind map: Tab adds an idea under the selected one, Shift+Enter the next beside it; Enter renames", async () => {
     const { block, editor } = await of(MAP);
     press(entity(block(), "idea:2"), "pointerdown");
     key(canvas(block()), "Tab");
@@ -556,15 +556,32 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     expect(input(block())!.value).toBe("New idea");
     type(input(block())!, "Under one");
     expect(selected(block())).toEqual(["idea:3"]);
-    // Enter on a selected idea: the next one, beside it. Tab in its field:
-    // named, and one under it.
+    // Enter renames, as in every kind of diagram.
     key(canvas(block()), "Enter");
+    expect(input(block())!.value).toBe("Under one");
+    key(input(block())!, "Escape");
+    expect(sourceOf(editor)).toContain("      Under one\n    Idea two");
+    // Shift+Enter on a selected idea: the next one, beside it. Tab in its
+    // field: named, and one under it.
+    key(canvas(block()), "Enter", { shiftKey: true });
     type(input(block())!, "Beside it", "Tab");
     type(input(block())!, "Deeper");
     expect(sourceOf(editor)).toBe(
       "mindmap\n  root((Topic))\n    Idea one\n      Under one\n      Beside it\n        Deeper\n    Idea two\n      Detail",
     );
     // Each step is one undo.
+    editor.undo();
+    expect(sourceOf(editor)).toContain("        New idea\n");
+    editor.redo();
+    // Shift+Enter in a name's field: named, and on to the next one beside it.
+    press(entity(block(), "idea:5"), "pointerdown");
+    key(canvas(block()), "F2");
+    input(block())!.value = "Deepest";
+    key(input(block())!, "Enter", { shiftKey: true });
+    type(input(block())!, "Beside the deepest");
+    expect(sourceOf(editor)).toContain("        Deepest\n        Beside the deepest\n    Idea two");
+    editor.undo();
+    editor.undo();
     editor.undo();
     expect(sourceOf(editor)).toContain("        New idea\n");
     // The + does what Tab does; the bar's button adds one under the root.
@@ -643,7 +660,7 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     expect(canvas(block()).textContent).not.toContain("Too late");
   });
 
-  test("a timeline: + on a period adds an event, Enter the next period; an event is its own", async () => {
+  test("a timeline: + on a period adds an event, Shift+Enter the next period; an event is its own", async () => {
     const { block, editor } = await of(TIMELINE);
     expect(block().dataset.interactive).toBe("true");
     press(entity(block(), "period:2"), "pointerdown");
@@ -661,6 +678,9 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
 
     press(entity(block(), "period:2"), "pointerdown");
     key(canvas(block()), "Enter");
+    expect(input(block())!.value).toBe("2024");
+    key(input(block())!, "Escape");
+    key(canvas(block()), "Enter", { shiftKey: true });
     type(input(block())!, "2024 H2", "Tab");
     type(input(block())!, "Beta");
     expect(sourceOf(editor)).toBe(
@@ -676,8 +696,8 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     key(canvas(block()), "F2");
     type(input(block())!, "Our story");
     expect(sourceOf(editor)).toContain("  title Our story\n");
-    // Enter on a heading renames: there is no "next" of it.
-    key(canvas(block()), "Enter");
+    // A heading has no "next": Shift+Enter renames it, as Enter does.
+    key(canvas(block()), "Enter", { shiftKey: true });
     expect(input(block())!.value).toBe("Our story");
   });
 
@@ -719,6 +739,78 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     expect(sourceOf(editor)).toContain("  Implement :active, 2w");
     expect(field("start").value).toBe("");
     expect(block().querySelector(".ce-mermaid-info")!.textContent).toMatch(/not applied/);
+  });
+
+  test("a Gantt chart: a day is picked from a calendar — the host's, else the browser's", async () => {
+    const asked: { label: string; value: string | null; pick(day: string): void }[] = [];
+    const { block, editor } = await mount([{ id: "m1", type: "mermaid", source: GANTT }], {
+      plugin: { pickDate: (request) => asked.push(request) },
+    });
+    press(entity(block(), "task:4"), "pointerdown");
+    const start = mermaidActions(editor, "m1").find((a) => a.key === "start")!;
+    expect(start.field!.date!.value).toBe("2026-01-05");
+    // A length that is no date holds no day, and can still be given one.
+    expect(mermaidActions(editor, "m1").find((a) => a.key === "length")!.field!.date!.value).toBeNull();
+    const pick = (name: string): HTMLElement => block().querySelector(`[data-action="pick:${name}"]`)!;
+    click(pick("start"));
+    expect(asked).toHaveLength(1);
+    expect([asked[0]!.label, asked[0]!.value]).toEqual(["Start", "2026-01-05"]);
+    asked[0]!.pick("2026-02-03");
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-02-03, 5d");
+    expect(selected(block())).toEqual(["task:4"]);
+    click(pick("length"));
+    asked[1]!.pick("2026-02-10");
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-02-03, 2026-02-10");
+    expect(mermaidActions(editor, "m1").find((a) => a.key === "length")!.field!.date!.value).toBe("2026-02-10");
+    // One undo each.
+    editor.undo();
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-02-03, 5d");
+
+    // The host's calendar may take the focus — it is beside the document,
+    // not in the block: the task stays selected, and its bar with it.
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    click(pick("start"));
+    outside.focus();
+    block().dispatchEvent(new win.FocusEvent("focusout", { bubbles: true }) as unknown as Event);
+    await tick(10);
+    expect(selected(block())).toEqual(["task:4"]);
+    asked[2]!.pick("2026-02-04");
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-02-04, 5d");
+    expect(block().querySelector('[data-action="pick:start"]')).not.toBeNull();
+    // With nothing being picked, the focus elsewhere lets the selection go.
+    block().dispatchEvent(new win.FocusEvent("focusout", { bubbles: true }) as unknown as Event);
+    await tick(10);
+    expect(selected(block())).toEqual([]);
+    outside.remove();
+    asked.length = 2;
+
+    // A chart whose dates are written another way gets them written so…
+    const other = await mount(
+      [{ id: "m1", type: "mermaid", source: "gantt\n  dateFormat DD/MM/YYYY\n  A :05/01/2026, 5d" }],
+      { plugin: { pickDate: (request) => asked.push(request) } },
+    );
+    press(entity(other.block(), "task:2"), "pointerdown");
+    click(other.block().querySelector('[data-action="pick:start"]')!);
+    expect(asked[2]!.value).toBe("2026-01-05");
+    asked[2]!.pick("2026-03-09");
+    expect(sourceOf(other.editor)).toBe("gantt\n  dateFormat DD/MM/YYYY\n  A :09/03/2026, 5d");
+    // …and one whose dates say more than a day has no calendar: they are typed.
+    const timed = await of("gantt\n  dateFormat YYYY-MM-DD HH:mm\n  A :2026-01-05 09:00, 5d");
+    press(entity(timed.block(), "task:2"), "pointerdown");
+    expect(timed.block().querySelector('[data-action="pick:start"]')).toBeNull();
+    expect(timed.block().querySelector('.ce-mermaid-field-input[data-field="start"]')).not.toBeNull();
+
+    // With no picker of the host's: the browser's, owned by a field of its own.
+    const plain = await of(GANTT);
+    press(entity(plain.block(), "task:5"), "pointerdown");
+    click(plain.block().querySelector('[data-action="pick:start"]')!);
+    const native = plain.block().querySelector<HTMLInputElement>(".ce-mermaid-native-date")!;
+    expect(native.type).toBe("date");
+    native.value = "2026-01-20";
+    native.dispatchEvent(new win.Event("change", { bubbles: true }) as unknown as Event);
+    expect(sourceOf(plain.editor)).toContain("  Implement :2026-01-20, 10d");
+    expect(plain.block().querySelector(".ce-mermaid-native-date")).toBeNull();
   });
 
   test("a Gantt chart: Tab adds the next task; a field being typed in survives the bar's redraw", async () => {

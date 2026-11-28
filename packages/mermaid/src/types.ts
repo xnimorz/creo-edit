@@ -107,8 +107,23 @@ export type MermaidAction = {
     placeholder: string;
     hint: string;
     commit(value: string): boolean;
+    /** The value can be a day picked from a calendar: the day it is now
+     *  (`2026-01-05`, null when it is none), and `pick` to write another. */
+    date?: { value: string | null; pick(day: string): boolean };
   };
   run(): void;
+};
+
+/** A day asked for (`options.pickDate`): a Gantt task's start, or its end. */
+export type MermaidDateRequest = {
+  /** What was pressed: the picker opens beside it. */
+  anchor: HTMLElement;
+  /** What the day is for: "Start", "Length". */
+  label: string;
+  /** The day it is now, `2026-01-05`, or null. */
+  value: string | null;
+  /** Write a day. */
+  pick(day: string): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -134,6 +149,8 @@ export type MermaidLabels = {
   reverse: string;
   /** A Gantt task's marks: active, done, critical, milestone. */
   status: string;
+  /** The calendar beside a field that takes a date. */
+  pickDate: string;
   delete: string;
   emptyTitle: string;
   emptyHint: string;
@@ -187,6 +204,13 @@ export type MermaidPluginOptions = {
    * Must be a valid Mermaid id.
    */
   nodeId?: () => string;
+  /**
+   * Pick a day for a field that takes a date (a Gantt task's start), with
+   * the host's own calendar: open it beside `request.anchor`, call
+   * `request.pick` with the day picked. Omitted, the browser's own date
+   * picker is used.
+   */
+  pickDate?: (request: MermaidDateRequest) => void;
   /** Starter diagrams offered in an empty block. */
   templates?: readonly MermaidTemplate[];
   labels?: Partial<MermaidLabels>;

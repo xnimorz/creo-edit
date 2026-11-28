@@ -12,7 +12,7 @@ import {
   type EditSession,
   type VisimerModule,
 } from "../kits";
-import { readGantt } from "../gantt";
+import { dayFormat, readGantt } from "../gantt";
 import { readMindmap } from "../mindmap";
 import { readTimeline } from "../timeline";
 import { decodeLabel, encodeLabel, remapId, remapLine } from "../textkit";
@@ -525,6 +525,35 @@ describe("Gantt charts", () => {
     expect(set("B", "after B")).toBeNull();
     expect(set("B", "after Nobody")).toBeNull();
     expect(none.s.code()).toBe("gantt\n  A :2d\n  B :1d\n");
+  });
+
+  test("a day picked is written the chart's way, and a date of the chart read back as a day", () => {
+    const iso = dayFormat("YYYY-MM-DD")!;
+    expect(iso.write("2026-01-05")).toBe("2026-01-05");
+    expect(iso.read("2026-01-05")).toBe("2026-01-05");
+    expect([iso.read("after a1"), iso.read("5d"), iso.read(""), iso.read("2026-13-01"), iso.read("2026-1-5")]).toEqual([null, null, null, null, null]);
+    const eu = dayFormat("DD.MM.YYYY")!;
+    expect([eu.write("2026-01-05"), eu.read("05.01.2026"), eu.read("05x01x2026")]).toEqual(["05.01.2026", "2026-01-05", null]);
+    const loose = dayFormat("D/M/YYYY")!;
+    expect([loose.write("2026-01-05"), loose.read("5/1/2026"), loose.read("25/12/2026")]).toEqual(["5/1/2026", "2026-01-05", "2026-12-25"]);
+    // More than a day, or less: no picker — the date is typed.
+    for (const f of ["YYYY-MM-DD HH:mm", "MMM D, YYYY", "YY-MM-DD", "MM-DD", "YYYY-MM-DD-DD", "X"]) expect(dayFormat(f)).toBeNull();
+
+    const o = open("gantt\n  dateFormat DD.MM.YYYY\n  A :a, 05.01.2026, 2d\n  B :after a, 12.01.2026\n  C :3d\n");
+    expect(o.nodes().map((n) => n.dates)).toEqual([
+      { start: "2026-01-05", length: null },
+      { start: null, length: "2026-01-12" },
+      { start: null, length: null },
+    ]);
+    expect(o.run(o.kit.setDate!(o.node("A"), "start", "2026-01-07"))).toContain("  A :a, 07.01.2026, 2d\n");
+    expect(o.run(o.kit.setDate!(o.node("B"), "length", "2026-01-20"))).toContain("  B :after a, 20.01.2026\n");
+    // A task with only a length: the day picked for its start goes before it.
+    expect(o.run(o.kit.setDate!(o.node("C"), "start", "2026-02-02"))).toContain("  C :02.02.2026, 3d\n");
+    expect(o.s.run(o.kit.setDate!(o.node("C"), "start", "tomorrow"))).toBeNull();
+    expect(() => render(o.s.code())).not.toThrow();
+    const timed = open("gantt\n  dateFormat YYYY-MM-DD HH:mm\n  A :2026-01-05 09:00, 2d\n");
+    expect(timed.nodes()[0]!.dates).toBeUndefined();
+    expect(timed.s.run(timed.kit.setDate!(timed.node("A"), "start", "2026-01-07"))).toBeNull();
   });
 
   test("a task with an id cannot leave its start out: it names the one before", () => {

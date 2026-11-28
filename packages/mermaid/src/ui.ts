@@ -24,6 +24,7 @@ import type {
   EngineMounted,
   MermaidAction,
   MermaidBlock,
+  MermaidDateRequest,
   MermaidDiagnostic,
   MermaidMode,
 } from "./types";
@@ -781,7 +782,79 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
     });
     this.barOff.push(isolateInput(input));
     wrap.append(name, input);
+
+    // A value that can be a day: a calendar beside it — the host's
+    // (`options.pickDate`), else the browser's.
+    const date = field.date;
+    if (date && !input.readOnly) {
+      const pick = el("button", "ce-mermaid-btn ce-mermaid-field-pick");
+      pick.type = "button";
+      pick.dataset.action = `pick:${key}`;
+      pick.innerHTML = icons.calendar;
+      const say = `${this.rt?.labels.pickDate ?? "Pick a date"} · ${label}`;
+      pick.title = say;
+      pick.setAttribute("aria-label", say);
+      pick.addEventListener("pointerdown", keepFocus);
+      pick.addEventListener("click", (e) => {
+        e.preventDefault();
+        const request: MermaidDateRequest = {
+          anchor: pick,
+          label,
+          value: date.value,
+          pick: (day) => {
+            // What was half typed gives way to the day picked.
+            delete input.dataset.typed;
+            this.visual.release();
+            date.pick(day);
+          },
+        };
+        const own = this.rt?.options.pickDate;
+        if (own) {
+          // Its calendar may take the focus; the task stays selected.
+          this.visual.hold();
+          own(request);
+        } else this.nativeDate(request);
+      });
+      wrap.appendChild(pick);
+    }
     return wrap;
+  }
+
+  /**
+   * The browser's own date picker, opened beside what was pressed: a date
+   * field nobody sees, there only to own the picker.
+   */
+  private nativeDate(request: MermaidDateRequest): void {
+    const holder = request.anchor.parentElement;
+    if (!holder) return;
+    holder.querySelector(".ce-mermaid-native-date")?.remove();
+    const input = el("input", "ce-mermaid-native-date");
+    input.type = "date";
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    if (request.value) input.value = request.value;
+    let done = false;
+    const close = (): void => {
+      if (done) return;
+      done = true;
+      stop();
+      input.remove();
+    };
+    input.addEventListener("change", () => {
+      const day = input.value;
+      close();
+      if (day) request.pick(day);
+    });
+    input.addEventListener("blur", () => setTimeout(close, 0));
+    const stop = isolateInput(input);
+    holder.appendChild(input);
+    try {
+      input.showPicker();
+    } catch {
+      // No `showPicker` here, or not allowed: the field itself, then.
+      input.focus({ preventScroll: true });
+      input.click();
+    }
   }
 
   private copySource(): void {

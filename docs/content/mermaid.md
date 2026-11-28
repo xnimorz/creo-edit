@@ -92,12 +92,12 @@ These three are not graphs: there is nothing to connect, so there are no dots. S
 | Do this | Mind map | Timeline | Gantt chart |
 |---|---|---|---|
 | **+** beside the selection, or `Tab` | An idea under the selected one | An event in the selected period | A task after the selected one |
-| `Enter` | The next idea beside it | The next period (from an event: the period's next event) | A task after it |
+| `Shift+Enter` (also while typing a name) | The next idea beside it | The next period (from an event: the period's next event) | A task after it |
 | `Tab` while typing a name | Commit, and add one under it | Commit, and add an event | Commit, and add the next task |
 | Double-click empty space, or **Add** | An idea under the root | A period at the end | A task at the end |
 | `Delete` | The idea and all under it | A period with its events; an event; a section's or the title's line | A task; a section's or the title's line |
 
-`F2`, a double-click, or just typing renames — `Enter` is "the next one" here, as in an outline.
+`Enter` renames, as in every other kind.
 
 With something selected, the bar shows:
 
@@ -105,6 +105,7 @@ With something selected, the bar shows:
 - **A Gantt task**: its marks (active, done, critical, milestone — any of them at once, except that a task is active or done), and two fields, **Start** and **Length**, written when the field is left or `Enter` is pressed.
   - *Start* takes a date in the chart's `dateFormat`, or `after` and another task — its id, or simply its name. Left empty, the task starts where the one before it ends.
   - *Length* takes `5d`, `2w`, `12h` (or `5`, `5 days`, `2 weeks`), or the date the task ends.
+  - The calendar beside each picks the day instead — the browser's date picker, or your own (`pickDate`, below) — and writes it in the chart's `dateFormat`. A chart whose format says more than a day (`YYYY-MM-DD HH:mm`) has no calendar: its dates are typed.
   - A value the chart cannot be drawn with is not written.
 - **A timeline's section, a title**: rename and delete. Deleting a section removes its heading, not its periods.
 
@@ -133,6 +134,7 @@ mermaidPlugin({
   links: false,          // working links inside diagrams
   images: false,         // external images inside diagrams
   nodeId,                // () => string: the id a node added in the picture takes
+  pickDate,              // (request) => void: your own calendar for a Gantt task's dates
   templates,             // starters offered by an empty block
   labels,                // UI strings
   modes,                 // Store<ReadonlyMap<BlockId, "diagram" | "code">>
@@ -145,6 +147,14 @@ mermaidPlugin({
 **`links` / `images`** — off, so a diagram from someone else can neither navigate nor make a network request.
 
 **`nodeId`** — a node added in the picture takes the next free id (`E` after `D`). That is the readable choice for one author; where several people edit one document at once, two nodes added at the same moment would both be `E`, and merge into one. Such a host passes ids no two devices would both pick. It applies to flowchart nodes and states, and to a Gantt task that has to be given an id (`t1` otherwise); the other types name an item by its label.
+
+**`pickDate`** — a Gantt task's start and end are picked from the browser's own date picker. A host with a calendar of its own opens that instead: `request.anchor` is the button pressed (open beside it), `request.value` the day the field holds (`"2026-01-05"`, or `null`), `request.label` what it is for, and `request.pick(day)` writes the day picked.
+
+```ts
+mermaidPlugin({
+  pickDate: ({ anchor, value, pick }) => myCalendar.open({ beside: anchor, selected: value, onPick: pick }),
+});
+```
 
 **`modes`** — pass your own store to persist which mode each block shows, or to drive it from your own UI.
 
@@ -177,7 +187,7 @@ for (const action of mermaidActions(editor, blockId)) {
 }
 ```
 
-`scope: "entity"` actions apply to whatever is selected in the diagram. One with `choices` is a set to pick from (a shape; a task's marks, of which several can be `on`). One with `field` is a value that is typed (a task's start): `field.value` is what it is now, and `field.commit(text)` writes another, returning `false` when the diagram would not draw with it.
+`scope: "entity"` actions apply to whatever is selected in the diagram. One with `choices` is a set to pick from (a shape; a task's marks, of which several can be `on`). One with `field` is a value that is typed (a task's start): `field.value` is what it is now, and `field.commit(text)` writes another, returning `false` when the diagram would not draw with it. Where the value can be a day, `field.date` has it as one (`value`: `"2026-01-05"` or `null`) and takes one (`pick(day)`).
 
 ## A shell of your own
 

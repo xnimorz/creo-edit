@@ -10,25 +10,28 @@ changes.
 Mind maps, timelines and Gantt charts are edited in the picture. The editor
 itself is unchanged; no breaking API changes.
 
-- **Mind maps.** **+** or Tab adds an idea under the selected one, Enter the
-  next one beside it; Delete removes an idea with all under it; an idea's
+- **Mind maps.** **+** or Tab adds an idea under the selected one,
+  Shift+Enter the next one beside it (Enter renames, as everywhere); Delete removes an idea with all under it; an idea's
   shape (plain, square, rounded, circle, hexagon, cloud, bang) is in the bar.
   The root is renamed and reshaped, not removed.
 - **Timelines.** Periods, their events, sections and the title are each
   selected, renamed and removed on their own. **+** or Tab on a period adds
-  an event to it, Enter the next period.
+  an event to it, Shift+Enter the next period.
 - **Gantt charts.** Tasks, sections and the title are renamed and removed;
-  **+**, Tab or Enter adds a task after the selected one. The bar holds a
-  task's marks (active, done, critical, milestone) and two fields: **Start**
-  — a date, or `after` and another task's name or id; empty is "after the
-  one before" — and **Length** (`5d`, `2 weeks`, or the date it ends).
+  **+** or Tab adds a task after the selected one. The bar holds a task's
+  marks (active, done, critical, milestone) and two fields: **Start** — a
+  date, or `after` and another task's name or id; empty is "after the one
+  before" — and **Length** (`5d`, `2 weeks`, or the date it ends). A
+  calendar beside each picks the day: the browser's date picker, or the
+  host's own (`options.pickDate`), written in the chart's `dateFormat`.
 - A label takes any character: one the source's grammar would read as syntax
   is written as its code (`#58;`) and shown as itself.
 - These three kinds know a thing in the source by its line. What is selected
   — and a name being typed — follows it when the source changes under it
   (someone else adding a line above).
-- `MermaidAction.field`: an action that is a typed value, for a host drawing
-  the list itself. New labels: `status`, `hintTree`, `hintList`.
+- `MermaidAction.field`: an action that is a typed value — with `date`
+  where it can be a day picked — for a host drawing the list itself. New
+  labels: `status`, `pickDate`, `hintTree`, `hintList`.
 - `--ce-mmd-hover-glow`: the filter on what the pointer is over. Hover now
   lights the innermost thing only.
 - An unreadable date in a Gantt chart is caught before it is written

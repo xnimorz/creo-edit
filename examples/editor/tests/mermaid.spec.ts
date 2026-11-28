@@ -308,7 +308,7 @@ test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
   const plus = (page: Page) => page.locator(".ce-mmd-plus");
   const field = (page: Page, name: string) => page.locator(`.ce-mermaid-field-input[data-field="${name}"]`);
 
-  test("mind map: the + is on the side an idea grows to; Tab goes under, Enter beside", async ({ page }) => {
+  test("mind map: the + is on the side an idea grows to; Tab goes under, Shift+Enter beside", async ({ page }) => {
     await openKind(page, "mindmap");
     const root = await centre(thing(page, "idea:1"));
     // An idea right of the root grows right, one left of it left; the root
@@ -326,7 +326,11 @@ test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
     await thing(page, "idea:6").click();
     await page.keyboard.press("Tab");
     await rename(page, "Launch party");
+    // Enter renames here as in a flowchart; with Shift it is the next one.
     await page.keyboard.press("Enter");
+    await expect(label(page)).toHaveValue("Launch party");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Shift+Enter");
     await rename(page, "Retro", "Tab");
     await rename(page, "Notes");
     expect(await source(page)).toBe(
@@ -382,7 +386,7 @@ test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
     await rename(page, "Before");
     expect(await source(page)).toContain("  section Before\n");
     await pressOwn(page, "period:5");
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Shift+Enter");
     await rename(page, "2022");
     expect(await source(page)).toContain("  2021 : Launch\n  2022\n  section Later");
   });
@@ -411,7 +415,10 @@ test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
     // …and leaving it writes it, as Enter does.
     await page.keyboard.press("Tab");
     await expect.poll(() => source(page)).toContain("  Implement :active, 2026-01-14, 3w\n");
-    await expect(field(page, "length")).toBeFocused();
+    // The focus went on to the bar's next control — the field's calendar, or
+    // where a browser leaves buttons out of the Tab order, the next field —
+    // and is still there though the bar was drawn again.
+    await expect(page.locator(".ce-mermaid-bar :focus")).toHaveCount(1);
     expect(await selected(page)).toEqual(["task:5"]);
 
     // A start nobody can read is not written.
@@ -431,6 +438,32 @@ test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
     await page.keyboard.press(`${mod}+z`);
     await page.keyboard.press(`${mod}+z`);
     expect(await source(page)).not.toContain("Review");
+  });
+
+  test("Gantt: a day is picked from the browser's calendar, and written the chart's way", async ({ page }) => {
+    await openKind(page, "gantt");
+    await thing(page, "task:4").click();
+    const pick = page.locator('.ce-mermaid-field-pick[data-action="pick:start"]');
+    await expect(pick).toBeVisible();
+    // The calendar sits inside the bar's one row, beside its field.
+    const row = (await page.locator(".ce-mermaid-bar").boundingBox())!;
+    const at = (await pick.boundingBox())!;
+    expect(at.y).toBeGreaterThanOrEqual(row.y);
+    expect(at.y + at.height).toBeLessThanOrEqual(row.y + row.height);
+    await pick.click();
+    // The browser's picker is its own window; what owns it is a date field.
+    const native = page.locator(".ce-mermaid-native-date");
+    await expect(native).toHaveValue("2026-01-05");
+    await native.evaluate((el: HTMLInputElement) => {
+      el.value = "2026-01-08";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(await source(page)).toContain("  Design :d1, 2026-01-08, 5d\n");
+    await expect(field(page, "start")).toHaveValue("2026-01-08");
+    await expect(native).toHaveCount(0);
+    expect(await selected(page)).toEqual(["task:4"]);
+    // The editor around it took none of that as typing.
+    await expect(page.locator("[data-creo-edit] p").last()).toHaveText("Text after the diagram.");
   });
 
   test("text around the diagram is still editable after working in one", async ({ page }) => {

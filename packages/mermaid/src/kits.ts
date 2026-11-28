@@ -78,6 +78,9 @@ export type Entity = {
   flags?: readonly string[];
   /** The kit's `fields`, as written (a Gantt task's start and length). */
   fields?: Readonly<Record<string, string>>;
+  /** The fields a day can be picked for, each with the day it holds now
+   *  (`2026-01-05`), or null when it holds none (`after a1`, `5d`). */
+  dates?: Readonly<Record<string, string | null>>;
 };
 
 export type Entities = { nodes: Entity[]; edges: Entity[]; groups: Entity[] };
@@ -120,8 +123,8 @@ export type DiagramKit = {
    *  are joined by `connect`; a tree's puts the new one under it, a list's
    *  after it. */
   add(label: string, id?: string, from?: Entity | null): Op;
-  /** The next one beside `entity` (Enter), where that is not what `add`
-   *  does: an idea after this idea, a period after this period. */
+  /** The next one beside `entity` (Shift+Enter): an idea after this idea, a
+   *  period after this period. */
   addAfter?(entity: Entity, label: string): Op | null;
   /** What the + beside `entity` says; null = it has none. Default: "Add a
    *  connected <item>". */
@@ -144,6 +147,8 @@ export type DiagramKit = {
   /** `newId`: an id for something that has to be given one (the task
    *  another is said to come after), from the host when it names them. */
   setField?(node: Entity, field: string, value: string, newId: () => string | undefined): Op;
+  /** A day (`2026-01-05`) picked for one of the node's `dates`. */
+  setDate?(node: Entity, field: string, day: string): Op;
   /**
    * Find what draws each entity, where ids and order as `correlate` reads
    * them are not how this type is drawn: call `tag` for each pair.

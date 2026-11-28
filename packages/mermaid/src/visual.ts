@@ -20,7 +20,8 @@
 //
 // A mind map, a timeline and a Gantt chart have nothing to connect: there +
 // and Tab add one INSIDE the selected (an idea under an idea, an event in a
-// period) or after it (a task), and Enter adds the next one beside it.
+// period) or after it (a task), and Shift+Enter adds the next one beside it.
+// Enter renames, in every kind.
 //
 // Layout of the pieces: Pele owns the SVG inside `canvas` and replaces it on
 // every draw, so nothing of ours can live in there. Selection chrome is in
@@ -173,6 +174,8 @@ export class VisualLayer {
   private following = true;
   /** The document's source the ids held here were read from. */
   private lastDoc: string | null = null;
+  /** A day is being picked in a calendar of the host's (`hold`). */
+  private holding = false;
   private dead = false;
   private off: (() => void)[] = [];
 
@@ -228,8 +231,19 @@ export class VisualLayer {
     on<FocusEvent>(root, "focusout", () => {
       setTimeout(() => {
         if (this.dead || this.input) return;
-        if (!root.contains(document.activeElement)) this.select(null);
+        const active = document.activeElement;
+        if (root.contains(active)) return;
+        // …but in a calendar of the host's, opened for what is selected
+        // (`hold`), the work is still on it. Such a calendar is beside the
+        // document, never in it: the focus in the document has left.
+        const away = !active || active === document.body || !!root.closest("[data-creo-edit]")?.contains(active);
+        if (this.holding && !away) return;
+        this.holding = false;
+        this.select(null);
       }, 0);
+    });
+    on<FocusEvent>(root, "focusin", () => {
+      this.holding = false;
     });
 
     if (typeof ResizeObserver !== "undefined") {
@@ -514,6 +528,20 @@ export class VisualLayer {
     this.placeInput();
   }
 
+  /**
+   * The host is about to open something of its own for what is selected (a
+   * calendar: `options.pickDate`), which may take the focus: the selection
+   * is kept while the focus is in it. Let go by `release`, by the focus
+   * coming back, or by its going anywhere in the document.
+   */
+  hold(): void {
+    this.holding = true;
+  }
+
+  release(): void {
+    this.holding = false;
+  }
+
   private centreOf(e: Entity): { x: number; y: number } | null {
     const r = this.found.has(e.id) ? this.rectOf(e) : null;
     return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
@@ -622,6 +650,18 @@ export class VisualLayer {
                 if (!session.run(setField(e, f.key, value, () => this.newId()))) return false;
                 return this.selection === e.id ? { select: e.id } : {};
               }),
+            ...(kit.setDate && e.dates && f.key in e.dates
+              ? {
+                  date: {
+                    value: e.dates[f.key] ?? null,
+                    pick: (day: string) =>
+                      this.apply((session) => {
+                        if (!session.run(kit.setDate?.(e, f.key, day) ?? null)) return false;
+                        return this.selection === e.id ? { select: e.id } : {};
+                      }),
+                  },
+                }
+              : {}),
           },
         });
       }
@@ -716,8 +756,8 @@ export class VisualLayer {
     return id;
   }
 
-  /** Enter: the next one beside `from`, ready to be named. False where the
-   *  type has no such thing (a graph, a group). */
+  /** Shift+Enter: the next one beside `from`, ready to be named. False
+   *  where the type has no such thing (a graph, a group). */
   private addNext(from: Entity): boolean {
     if (!this.kit?.addAfter || this.kit.addAfter(from, this.kit.newLabel) === null) return false;
     this.apply((session, kit) => {
@@ -802,13 +842,14 @@ export class VisualLayer {
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();
-        this.commitEdit();
+        // Shift: named, and on to the next one beside it.
+        this.commitEdit(ev.shiftKey ? "next" : null);
       } else if (ev.key === "Escape") {
         ev.preventDefault();
         this.cancelEdit();
       } else if (ev.key === "Tab" && !ev.shiftKey && e.kind === "node") {
         ev.preventDefault();
-        this.commitEdit(true);
+        this.commitEdit("inside");
       }
     });
     input.addEventListener("blur", () => {
@@ -945,8 +986,12 @@ export class VisualLayer {
     this.focusCanvas();
   }
 
-  /** `thenAdd`: Tab — keep going with a new node connected to this one. */
-  private commitEdit(thenAdd = false): void {
+  /**
+   * `then`: keep going — "inside" (Tab) with a new node connected to this
+   * one (under it, in a tree), "next" (Shift+Enter) with the one beside it,
+   * where the type has such a thing.
+   */
+  private commitEdit(then: "inside" | "next" | null = null): void {
     this.rebase();
     const input = this.input;
     const id = this.editing;
@@ -956,7 +1001,7 @@ export class VisualLayer {
     this.closeInput();
     this.focusCanvas();
     const unchanged = value === "" || value === this.editFrom;
-    if (unchanged && !thenAdd) {
+    if (unchanged && !then) {
       this.host.preview(null);
       return;
     }
@@ -974,10 +1019,16 @@ export class VisualLayer {
         const nodes = kit.entities(session.ed.result).nodes;
         node = nodes.find((n) => n.id === e.id) ?? nodes.find((n) => n.label === value);
       }
-      if (thenAdd && node && node.kind === "node") {
+      if (then === "inside" && node && node.kind === "node") {
         const created = this.addIn(session, kit, node);
         if (created) return { select: created, edit: true };
       }
+      if (then === "next" && node) {
+        const created = session.run(kit.addAfter?.(node, kit.newLabel) ?? null);
+        if (created && created.length > 0) return { select: created[0]!, edit: true };
+      }
+      // Nothing renamed and nothing added: nothing to write.
+      if (unchanged) return null;
       return { select: e.id, orLabel: value };
     });
     // Refused: the canvas may still be showing the name as it was typed.
@@ -1046,8 +1097,9 @@ export class VisualLayer {
       case "Enter":
       case "F2":
         handled();
-        // Where things are in a row, Enter is "and the next one".
-        if (e.key === "Enter" && this.addNext(sel)) return;
+        // Enter renames, in every kind. With Shift, where things are in a
+        // row, it is "and the next one".
+        if (e.key === "Enter" && e.shiftKey && this.addNext(sel)) return;
         this.startEdit(sel.id);
         return;
       case "Tab":

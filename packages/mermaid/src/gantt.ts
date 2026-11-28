@@ -94,7 +94,56 @@ export type Gantt = {
   title: Named | null;
   sections: Named[];
   tasks: Task[];
+  /** How the chart writes its dates (`dateFormat`). */
+  dateFormat: string;
 };
+
+/**
+ * A day — `2026-01-05`, as a date picker gives one — written the way the
+ * chart writes its dates, and a date of the chart read back as a day. Null
+ * when the chart's format says more than a day (a time, a month's name): its
+ * dates are typed then.
+ */
+export function dayFormat(format: string): { write(day: string): string; read(text: string): string | null } | null {
+  const parts = format.trim().match(/([A-Za-z])\1*|[^A-Za-z]+/g) ?? [];
+  const kinds: Record<string, "y" | "m" | "d"> = { YYYY: "y", MM: "m", M: "m", DD: "d", D: "d" };
+  const seen = new Set<string>();
+  let pattern = "";
+  for (const part of parts) {
+    if (!/[A-Za-z]/.test(part)) {
+      pattern += part.replace(/[.*+?^${}()|[\]\\\/-]/g, "\\$&");
+      continue;
+    }
+    const kind = kinds[part];
+    if (!kind || seen.has(kind)) return null;
+    seen.add(kind);
+    pattern += part === "YYYY" ? "(?<y>\\d{4})" : part.length === 2 ? `(?<${kind}>\\d{2})` : `(?<${kind}>\\d{1,2})`;
+  }
+  if (seen.size !== 3) return null;
+  const shape = new RegExp(`^${pattern}$`);
+  const two = (n: number): string => String(n).padStart(2, "0");
+  return {
+    write(day) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+      if (!m) return day;
+      const value: Record<string, string> = {
+        YYYY: m[1]!,
+        MM: m[2]!,
+        M: String(Number(m[2])),
+        DD: m[3]!,
+        D: String(Number(m[3])),
+      };
+      return parts.map((part) => value[part] ?? part).join("");
+    },
+    read(text) {
+      const g = shape.exec(text.trim())?.groups;
+      if (!g) return null;
+      const [y, m, d] = [Number(g.y), Number(g.m), Number(g.d)];
+      if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+      return `${g.y}-${two(m)}-${two(d)}`;
+    },
+  };
+}
 
 function tokens(text: string, at: number): Token[] {
   const out: Token[] = [];
@@ -138,9 +187,11 @@ function named(line: Line, keyword: number): Named | null {
 }
 
 export function readGantt(result: VisimerResult): Gantt {
-  const out: Gantt = { title: null, sections: [], tasks: [] };
+  const out: Gantt = { title: null, sections: [], tasks: [], dateFormat: "YYYY-MM-DD" };
   for (const line of statements(result)) {
     const text = line.text.trim();
+    const format = /^dateFormat\s+(.+)$/i.exec(text);
+    if (format) out.dateFormat = format[1]!.trim();
     if (SETTING.test(text) || /^(accTitle|accDescr)\s*[:{]/i.test(text)) continue;
     if (/^title(\s|$)/i.test(text)) {
       out.title = named(line, 5) ?? out.title;
@@ -351,8 +402,18 @@ function setStart(
   return { edits };
 }
 
+/** A day picked for a task's start, or for the day it ends. */
+function setDate(result: VisimerResult, entity: Entity, field: string, day: string): Compiled | null {
+  const format = dayFormat(readGantt(result).dateFormat);
+  if (!format || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const text = format.write(day);
+  if (field === "start") return setStart(result, entity, text, () => undefined);
+  return field === "length" ? setLength(result, entity, text) : null;
+}
+
 function entities(result: VisimerResult): Entities {
   const g = readGantt(result);
+  const format = dayFormat(g.dateFormat);
   const flags = GANTT_FLAGS.map((f) => f.key as string);
   const group = (n: Named, sub: string): Entity => ({
     id: `${sub}:${n.line}`,
@@ -371,6 +432,10 @@ function entities(result: VisimerResult): Entities {
       label: t.label,
       flags: t.marks.map((m) => m.text).filter((m) => flags.includes(m)),
       fields: { start: t.from?.text ?? "", length: t.until?.text ?? "" },
+      // Both can be a day picked — where the chart's dates are days.
+      ...(format
+        ? { dates: { start: format.read(t.from?.text ?? ""), length: format.read(t.until?.text ?? "") } }
+        : {}),
     })),
     edges: [],
     groups: [...(g.title ? [group(g.title, "title")] : []), ...g.sections.map((s) => group(s, "section"))],
@@ -398,6 +463,7 @@ export const gantt: DiagramKit = {
   fields: GANTT_FIELDS,
   setField: (e, field, typed, newId): TextOp => (r) =>
     field === "start" ? setStart(r, e, typed, newId) : field === "length" ? setLength(r, e, typed) : null,
+  setDate: (e, field, day): TextOp => (r) => setDate(r, e, field, day),
   // Pele draws the tasks in the order they are written and tags each with
   // its id — its own count (`task1`) for one that has none. Paired by order;
   // an id that is written must agree.
