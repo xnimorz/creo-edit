@@ -2,7 +2,7 @@ import type { MermaidTemplate } from "./types";
 
 // Starter diagrams offered by an empty block. Small on purpose: a starter is
 // something to edit, and every node here is one the user would have to delete
-// if it were not theirs. The first five are the types the visual editor can
+// if it were not theirs. All but the pie are types the visual editor can
 // edit, so someone who never opens Code mode still gets somewhere.
 export const defaultMermaidTemplates: readonly MermaidTemplate[] = [
   {

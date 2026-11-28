@@ -115,6 +115,68 @@
   border-left: 1px solid var(--ce-mmd-border);
   border-right: 1px solid var(--ce-mmd-border);
 }
+/* A value of the selection that is typed: a task's start, its length. */
+.ce-mermaid-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+  cursor: text;
+}
+.ce-mermaid-field-name {
+  color: var(--ce-mmd-muted);
+}
+.ce-mermaid-field-input {
+  box-sizing: border-box;
+  height: 24px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--ce-mmd-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ce-mermaid-field-input:focus {
+  border-color: var(--ce-mmd-accent);
+  outline: none;
+  color: inherit;
+}
+.ce-mermaid-field-input::placeholder {
+  color: var(--ce-mmd-muted);
+  opacity: 0.75;
+}
+/* The calendar beside a field that takes a date. */
+.ce-mermaid-field-pick {
+  width: 22px;
+  height: 24px;
+  margin-left: -3px;
+  padding: 0;
+  justify-content: center;
+  color: var(--ce-mmd-muted);
+}
+.ce-mermaid-field-pick:hover {
+  color: inherit;
+}
+/* The browser's date picker belongs to a field: this one, which is there
+   only to own it, where the calendar was pressed. */
+.ce-mermaid-field {
+  position: relative;
+}
+.ce-mermaid-native-date {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .ce-mermaid-icon {
   width: 26px;
   padding: 0;
@@ -262,9 +324,16 @@
 .ce-mermaid[data-interactive] [data-ce-entity] {
   cursor: pointer;
 }
-.ce-mermaid[data-interactive] .pele-node[data-ce-entity]:hover,
-.ce-mermaid[data-interactive] .pele-cluster[data-ce-entity]:hover {
-  filter: drop-shadow(0 0 2px var(--ce-mmd-accent));
+/* Under the pointer. One drawn AROUND others (a timeline's period holds its
+   events, a section its periods) lights its own shape, and only while the
+   pointer is on none of what it holds. A host restyles the glow alone:
+   `--ce-mmd-hover-glow`. */
+.ce-mermaid[data-interactive] .pele-node[data-ce-entity]:not(:has([data-ce-entity])):hover,
+.ce-mermaid[data-interactive] .pele-cluster[data-ce-entity]:not(:has([data-ce-entity])):hover,
+.ce-mermaid[data-interactive] .pele-task[data-ce-entity]:hover,
+.ce-mermaid[data-interactive] text[data-ce-entity]:hover,
+.ce-mermaid[data-interactive] [data-ce-entity]:has([data-ce-entity]):hover:not(:has([data-ce-entity]:hover)) > rect {
+  filter: var(--ce-mmd-hover-glow, drop-shadow(0 0 2px var(--ce-mmd-accent)));
 }
 /* The invisible, wide copy of an edge that takes the pointer. */
 .ce-mmd-hit {
@@ -400,4 +469,69 @@
   stroke-width: 2;
   stroke-dasharray: 6 4;
   stroke-linecap: round;
+}
+
+/* --- Dragging ---------------------------------------------------------------
+   What is dragged follows the pointer as a chip; where it would go is marked
+   (`.ce-mmd-target`, and a line for "before" / "after"). */
+.ce-mmd-drag {
+  position: absolute;
+  z-index: 6;
+  max-width: 220px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ce-mmd-accent);
+  color: #fff;
+  font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.ce-mmd-dropline {
+  position: absolute;
+  z-index: 5;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ce-mmd-accent);
+  pointer-events: none;
+}
+.ce-mmd-moving {
+  opacity: 0.45;
+}
+.ce-mermaid[data-dragging] .ce-mermaid-canvas,
+.ce-mermaid[data-dragging] [data-ce-entity] {
+  cursor: grabbing;
+}
+.ce-mermaid[data-dragging] .ce-mmd-box,
+.ce-mermaid[data-dragging] .ce-mmd-dot,
+.ce-mermaid[data-dragging] .ce-mmd-plus {
+  display: none;
+}
+/* A Gantt bar: its ends are pulled, its middle moved. */
+.ce-mermaid[data-interactive] .pele-task[data-ce-entity] {
+  cursor: grab;
+}
+.ce-mermaid[data-bar-edge] .pele-task[data-ce-entity],
+.ce-mermaid[data-bar-drag="start"] .ce-mermaid-canvas,
+.ce-mermaid[data-bar-drag="end"] .ce-mermaid-canvas {
+  cursor: ew-resize;
+}
+/* A finger drags what it has selected: that one does not scroll the page. */
+.ce-mermaid[data-interactive] .ce-mmd-selected.pele-node,
+.ce-mermaid[data-interactive] .ce-mmd-selected.pele-task {
+  touch-action: none;
+}
+/* The field a paste lands in, for the moment it takes. */
+.ce-mmd-clip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
 }

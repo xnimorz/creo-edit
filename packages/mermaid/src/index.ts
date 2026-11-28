@@ -130,6 +130,7 @@ export type {
   EngineMounted,
   MermaidAction,
   MermaidBlock,
+  MermaidDateRequest,
   MermaidDiagnostic,
   MermaidEngine,
   MermaidLabels,

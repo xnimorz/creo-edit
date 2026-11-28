@@ -72,6 +72,12 @@ export type MermaidEngine = {
    * a visual edit that would leave the diagram broken.
    */
   check(source: string): MermaidDiagnostic | null;
+  /**
+   * A Gantt chart's tasks as the engine places them, in the order they are
+   * written: when each starts and ends (ms, the end exclusive). What lets a
+   * bar be dragged. Null when it cannot tell (not loaded, not a Gantt chart).
+   */
+  ganttTimes?(source: string): ({ start: number; end: number } | null)[] | null;
   /** Fetch ahead of time whatever drawing `types` will need. */
   preload?(types?: readonly string[]): Promise<void>;
 };
@@ -82,7 +88,8 @@ export type MermaidEngine = {
 
 export type MermaidAction = {
   /** Stable id: "mode", "add", "direction", "copy", "download", "edit",
-   *  "shape", "line", "reverse", "delete". */
+   *  "shape", "line", "reverse", "flags", "delete" — and a field's own
+   *  ("start", "length"). */
   key: string;
   /** `block` actions always apply; `entity` ones act on what is selected in
    *  the diagram. */
@@ -93,9 +100,36 @@ export type MermaidAction = {
   /** Pressed (the mode switch while Code is showing). */
   on?: boolean;
   disabled?: boolean;
-  /** Sub-choices (a node's shapes). Drawn as a second row in the default UI. */
+  /** Sub-choices (a node's shapes, a task's marks — of which several can be
+   *  `on`). Drawn as a second row in the default UI. */
   choices?: readonly { key: string; label: string; icon: string; on?: boolean; run(): void }[];
+  /**
+   * A value typed rather than picked (a Gantt task's start, its length):
+   * what it is now, and `commit` to write another. False when the diagram
+   * would not draw with it, and it was not written. `run` does nothing.
+   */
+  field?: {
+    value: string;
+    placeholder: string;
+    hint: string;
+    commit(value: string): boolean;
+    /** The value can be a day picked from a calendar: the day it is now
+     *  (`2026-01-05`, null when it is none), and `pick` to write another. */
+    date?: { value: string | null; pick(day: string): boolean };
+  };
   run(): void;
+};
+
+/** A day asked for (`options.pickDate`): a Gantt task's start, or its end. */
+export type MermaidDateRequest = {
+  /** What was pressed: the picker opens beside it. */
+  anchor: HTMLElement;
+  /** What the day is for: "Start", "Length". */
+  label: string;
+  /** The day it is now, `2026-01-05`, or null. */
+  value: string | null;
+  /** Write a day. */
+  pick(day: string): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -119,11 +153,21 @@ export type MermaidLabels = {
   shape: string;
   line: string;
   reverse: string;
+  /** A Gantt task's marks: active, done, critical, milestone. */
+  status: string;
+  /** Copying what is selected: its words (and what is under it). */
+  copyItem: string;
+  /** The calendar beside a field that takes a date. */
+  pickDate: string;
   delete: string;
   emptyTitle: string;
   emptyHint: string;
   sourceLabel: string;
   hint: string;
+  /** The hint for a type whose things are inside one another (a mind map,
+   *  a timeline), and for one whose things are in a row (a Gantt chart). */
+  hintTree: string;
+  hintList: string;
   rejected: string;
 };
 
@@ -168,6 +212,13 @@ export type MermaidPluginOptions = {
    * Must be a valid Mermaid id.
    */
   nodeId?: () => string;
+  /**
+   * Pick a day for a field that takes a date (a Gantt task's start), with
+   * the host's own calendar: open it beside `request.anchor`, call
+   * `request.pick` with the day picked. Omitted, the browser's own date
+   * picker is used.
+   */
+  pickDate?: (request: MermaidDateRequest) => void;
   /** Starter diagrams offered in an empty block. */
   templates?: readonly MermaidTemplate[];
   labels?: Partial<MermaidLabels>;

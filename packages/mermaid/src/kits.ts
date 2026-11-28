@@ -17,13 +17,28 @@
 // the second A→B), but both list edges in source order. When the counts
 // disagree the edges of that diagram are simply not selectable — a wrong
 // match would edit the wrong line.
+//
+// The five graph types (flowchart, state, sequence, class, entity) are edited
+// through visimer's operations. A mind map, a timeline and a Gantt chart are
+// not graphs, and visimer reads the first two only as lines: their kits
+// (`mindmap.ts`, `timeline.ts`, `gantt.ts`) read the source themselves and
+// compile their own text edits (`textkit.ts`), which the session applies in
+// visimer's place. Everything above the kit — selecting, renaming in place,
+// the check that the result still draws — is the same for both.
 // ---------------------------------------------------------------------------
+
+import { gantt } from "./gantt";
+import { mindmap } from "./mindmap";
+import type { TextEdit, TextOp } from "./textkit";
+import { timeline } from "./timeline";
 
 /** What the kits need from `@visimer/core`. Structural — see `types.ts`. */
 export type VisimerEditor = {
   readonly code: string;
   readonly result: VisimerResult;
   dispatch(op: Record<string, unknown>): { created?: string[] } | null;
+  /** Raw text edits — what every operation of visimer's own comes down to. */
+  applyEdits(edits: TextEdit[], origin?: string): void;
   deleteEntities(ids: string[]): void;
 };
 export type VisimerModule = {
@@ -31,8 +46,14 @@ export type VisimerModule = {
 };
 export type VisimerResult = {
   typeInfo: { id: string; capability: string } | null;
+  /** The source, its lines and its header line's index (`textkit.ts`). */
   [graph: string]: unknown;
 };
+
+export type Side = "top" | "right" | "bottom" | "left";
+
+/** Where a node dragged onto another goes. */
+export type DropPlace = "inside" | "before" | "after";
 
 export type EntityKind = "node" | "edge" | "group";
 
@@ -51,11 +72,27 @@ export type Entity = {
   /** Edge endpoints, as node ids. */
   source?: string;
   target?: string;
+  /** What it is within its kind, where a kit tells them apart (a timeline's
+   *  "period" and "event"). */
+  sub?: string;
+  /** The one a tree starts from. */
+  root?: boolean;
+  /** The entity it is inside, in a tree (a mind map's idea's parent). */
+  parent?: string;
+  /** The kit's `flags` this one has (a Gantt task's "done"). */
+  flags?: readonly string[];
+  /** The kit's `fields`, as written (a Gantt task's start and length). */
+  fields?: Readonly<Record<string, string>>;
+  /** The fields a day can be picked for, each with the day it holds now
+   *  (`2026-01-05`), or null when it holds none (`after a1`, `5d`). */
+  dates?: Readonly<Record<string, string | null>>;
 };
 
 export type Entities = { nodes: Entity[]; edges: Entity[]; groups: Entity[] };
 
-export type Op = Record<string, unknown>;
+/** An operation: visimer's (a record it dispatches), or a text kit's own
+ *  (compiled against the source when it runs). */
+export type Op = Record<string, unknown> | TextOp;
 
 export type DiagramKit = {
   /** Visimer's type id. */
@@ -64,6 +101,17 @@ export type DiagramKit = {
   item: string;
   /** Label a freshly added item gets, selected for typing over. */
   newLabel: string;
+  /**
+   * How the type is worked on, for the hint in the bar: a "graph" has things
+   * to connect (the default), a "tree" things inside one another, a "list"
+   * things in a row.
+   */
+  hint?: "graph" | "tree" | "list";
+  /**
+   * Entity ids are lines of the source (`idea:4`), not names in it: one has
+   * to be carried over a change made elsewhere (`textkit.ts` `remapId`).
+   */
+  positional?: boolean;
   entities(result: VisimerResult): Entities;
   /** CSS selectors inside Pele's SVG. */
   nodeSelector: string;
@@ -75,8 +123,17 @@ export type DiagramKit = {
   direction(result: VisimerResult): string | null;
   /** `id`: the id the new item takes in the source, for the types whose
    *  items have one apart from their name (a flowchart's nodes, a state
-   *  diagram's states). Omitted, visimer picks the next free one. */
-  add(label: string, id?: string): Op;
+   *  diagram's states). Omitted, visimer picks the next free one.
+   *  `from`: the item it was added from. A graph's kit ignores it — the two
+   *  are joined by `connect`; a tree's puts the new one under it, a list's
+   *  after it. */
+  add(label: string, id?: string, from?: Entity | null): Op;
+  /** The next one beside `entity` (Shift+Enter): an idea after this idea, a
+   *  period after this period. */
+  addAfter?(entity: Entity, label: string): Op | null;
+  /** What the + beside `entity` says; null = it has none. Default: "Add a
+   *  connected <item>". */
+  addLabel?(entity: Entity): string | null;
   connect?(source: Entity, target: Entity): Op;
   rename(entity: Entity, label: string): Op | null;
   /** null = this kind of thing cannot be deleted visually. */
@@ -87,6 +144,48 @@ export type DiagramKit = {
   setDirection?(direction: string): Op;
   shapes?: readonly { key: string; label: string }[];
   lines?: readonly { key: string; label: string }[];
+  /** What a node can be marked as, any number at once (a task: "done"). */
+  flags?: readonly { key: string; label: string }[];
+  setFlag?(node: Entity, flag: string, on: boolean): Op;
+  /** What a node has beside its label, typed in the bar (a task's start). */
+  fields?: readonly { key: string; label: string; placeholder: string; hint: string }[];
+  /** `newId`: an id for something that has to be given one (the task
+   *  another is said to come after), from the host when it names them. */
+  setField?(node: Entity, field: string, value: string, newId: () => string | undefined): Op;
+  /** A day (`2026-01-05`) picked for one of the node's `dates`. */
+  setDate?(node: Entity, field: string, day: string): Op;
+  /**
+   * Move a node, with all it holds, to `place` relative to `target`: inside
+   * it (its last), or just before or after it, beside it. Creates the moved
+   * node's new id. Kits without it have nothing to drag.
+   */
+  move?(node: Entity, target: Entity, place: DropPlace): Op;
+  /**
+   * A task's bar dragged: the days it now starts and ends (`2026-01-05`; the
+   * end exclusive, as a bar is drawn) and which end moved — "both" when the
+   * bar was moved whole. The operations to run, in order.
+   */
+  retime?(node: Entity, to: { start: string; end: string; moved: "start" | "end" | "both" }): Op[];
+  /** What a copy of `entity` puts on the clipboard. Default: its label. */
+  copyText?(entity: Entity, result: VisimerResult): string;
+  /**
+   * Text pasted with `target` selected (null: none): a kit that reads it
+   * whole (a mind map, an outline). Otherwise each line is added as an item
+   * of its own, from the selection, as + would.
+   */
+  paste?(target: Entity | null, text: string): Op;
+  /**
+   * Find what draws each entity, where ids and order as `correlate` reads
+   * them are not how this type is drawn: call `tag` for each pair.
+   */
+  correlate?(svg: Element, entities: Entities, tag: (el: Element, entity: Entity) => void): void;
+  /** Which side of `entity` the + goes on, where the type has no one
+   *  direction. `centre`: where another entity is drawn, or null. */
+  side?(
+    entity: Entity,
+    centre: (entity: Entity) => { x: number; y: number } | null,
+    entities: Entities,
+  ): Side;
 };
 
 type Rec = Record<string, unknown>;
@@ -324,7 +423,16 @@ const er: DiagramKit = {
       : { type: "er.deleteEntity", id: e.ref },
 };
 
-const KITS: readonly DiagramKit[] = [flowchart, state, sequence, classKit, er];
+const KITS: readonly DiagramKit[] = [
+  flowchart,
+  state,
+  sequence,
+  classKit,
+  er,
+  mindmap,
+  timeline,
+  gantt,
+];
 
 /** The kit for a parsed source, or null when the type has no visual editing. */
 export function kitFor(result: VisimerResult): DiagramKit | null {
@@ -363,6 +471,13 @@ export function openSession(visimer: VisimerModule, source: string): EditSession
     run(op) {
       if (!op) return null;
       try {
+        if (typeof op === "function") {
+          const compiled = op(ed.result);
+          if (!compiled || compiled.edits.length === 0) return null;
+          const before = ed.code;
+          ed.applyEdits(compiled.edits, "canvas");
+          return ed.code === before ? null : (compiled.created ?? []);
+        }
         const res = ed.dispatch(op);
         return res ? (res.created ?? []) : null;
       } catch {
@@ -400,6 +515,14 @@ export function correlate(
   entities: Entities,
 ): Map<string, Entity> {
   const found = new Map<string, Entity>();
+
+  if (kit.correlate) {
+    kit.correlate(svgRoot, entities, (el, e) => {
+      el.setAttribute(ENTITY_ATTR, e.id);
+      found.set(e.id, e);
+    });
+    return found;
+  }
 
   const byDomId = new Map<string, Entity>();
   for (const n of entities.nodes) byDomId.set(n.domId, n);

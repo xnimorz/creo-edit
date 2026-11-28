@@ -37,11 +37,16 @@ export const defaultLabels: MermaidLabels = {
   shape: "Shape",
   line: "Line",
   reverse: "Reverse",
+  status: "Status",
+  copyItem: "Copy text",
+  pickDate: "Pick a date",
   delete: "Delete",
   emptyTitle: "Start a diagram",
   emptyHint: "Pick a starting point, or switch to Code and write your own.",
   sourceLabel: "Mermaid source",
   hint: "Double-click to rename · drag a dot to connect · + adds a connected one · Tab adds the next",
+  hintTree: "Double-click to rename · + or Tab adds one inside · Shift+Enter adds the next · drag to move",
+  hintList: "Double-click to rename · + or Tab adds the next · drag a bar, or its ends",
   rejected: "That change would break the diagram, so it was not applied.",
 };
 

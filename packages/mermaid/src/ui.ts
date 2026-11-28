@@ -24,6 +24,7 @@ import type {
   EngineMounted,
   MermaidAction,
   MermaidBlock,
+  MermaidDateRequest,
   MermaidDiagnostic,
   MermaidMode,
 } from "./types";
@@ -75,6 +76,8 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
   private tries = 0;
   private dead = false;
   private off: (() => void)[] = [];
+  /** Undoes what the bar's fields were given; they are built anew each time. */
+  private barOff: (() => void)[] = [];
 
   constructor(
     readonly root: HTMLElement,
@@ -185,6 +188,8 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
     this.dead = true;
     for (const f of this.off) f();
     this.off = [];
+    for (const f of this.barOff) f();
+    this.barOff = [];
     if (this.note) clearTimeout(this.note.timer);
     this.visual.destroy();
     this.mounted?.destroy();
@@ -566,6 +571,27 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
     const rt = this.rt;
     if (!rt || this.dead) return;
     const bar = this.bar;
+    // The bar is drawn again for any change — a note timing out, a diagram
+    // someone else edited. Whatever in it has the focus has it afterwards,
+    // and a field being typed in keeps its text and its caret.
+    const active = document.activeElement as HTMLInputElement | null;
+    const inBar = !!active && bar.contains(active);
+    const held =
+      inBar && active.dataset.field
+        ? {
+            field: active.dataset.field,
+            typed: active.dataset.typed === "true" ? active.value : null,
+            from: active.selectionStart,
+            to: active.selectionEnd,
+          }
+        : null;
+    const pressed = inBar && !held ? (active.dataset.action ?? active.dataset.mode ?? null) : null;
+    // Taken out of the page, a field that has the focus is told it was left
+    // — and would write itself in the middle of this. What it holds is
+    // carried over instead (`held`).
+    if (held) delete active!.dataset.typed;
+    for (const f of this.barOff) f();
+    this.barOff = [];
     bar.replaceChildren();
     if (rt.options.bar === false) {
       bar.hidden = true;
@@ -631,7 +657,9 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
         return b;
       };
       for (const a of entity) {
-        if (a.choices) {
+        if (a.field) {
+          group.appendChild(this.fieldOf(a.key, a.label, a.field));
+        } else if (a.choices) {
           const choices = el("div", "ce-mermaid-choices");
           choices.setAttribute("role", "group");
           choices.setAttribute("aria-label", a.label);
@@ -649,7 +677,8 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
       info.textContent = this.note.text;
       info.dataset.kind = "note";
     } else if (entity.length === 0 && this.visual.kit && this.interactive()) {
-      info.textContent = L.hint;
+      const how = this.visual.kit.hint;
+      info.textContent = how === "tree" ? L.hintTree : how === "list" ? L.hintList : L.hint;
     }
     bar.appendChild(info);
 
@@ -664,6 +693,167 @@ export class MermaidBlockUI implements VisualHost, BlockUiHandle {
       b.disabled = a.disabled === true;
       press(b, a.run);
       bar.appendChild(b);
+    }
+
+    if (pressed) {
+      const again = Array.from(bar.querySelectorAll<HTMLElement>("button")).find(
+        (b) => (b.dataset.action ?? b.dataset.mode) === pressed,
+      );
+      again?.focus({ preventScroll: true });
+    }
+    if (held) {
+      const again = Array.from(bar.querySelectorAll("input")).find((i) => i.dataset.field === held.field);
+      if (again) {
+        if (held.typed !== null) {
+          again.value = held.typed;
+          again.dataset.typed = "true";
+        }
+        again.focus({ preventScroll: true });
+        try {
+          again.setSelectionRange(held.from, held.to);
+        } catch {
+          /* not every field has a caret to place */
+        }
+      }
+    }
+  }
+
+  /** A value of the selection that is typed: a label and a field, written
+   *  when the field is left or Enter is pressed. */
+  private fieldOf(
+    key: string,
+    label: string,
+    field: NonNullable<MermaidAction["field"]>,
+  ): HTMLElement {
+    const wrap = el("label", "ce-mermaid-field");
+    wrap.title = field.hint;
+    const name = el("span", "ce-mermaid-field-name");
+    name.textContent = label;
+    const input = el("input", "ce-mermaid-field-input");
+    input.type = "text";
+    input.value = field.value;
+    input.placeholder = field.placeholder;
+    input.dataset.field = key;
+    input.spellcheck = false;
+    input.autocapitalize = "off";
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("aria-label", label);
+    // As wide as what it holds, within bounds: the bar is one row, and a
+    // field that grew with every letter would wrap it under the hand.
+    const fit = (): void => {
+      input.size = Math.max(4, Math.min(16, (input.value || input.placeholder).length + 1));
+    };
+    fit();
+    const commit = (): void => {
+      if (input.dataset.typed !== "true") return;
+      delete input.dataset.typed;
+      const value = input.value.trim();
+      // Refused: back to what the diagram has.
+      if (value !== field.value && !field.commit(value) && input.isConnected) {
+        input.value = field.value;
+        fit();
+      }
+    };
+    // Listeners first, isolation second: same node, registration order.
+    input.addEventListener("input", () => {
+      input.dataset.typed = "true";
+      fit();
+    });
+    // On being left — `blur`, not `change`: a field drawn again with its
+    // text carried over (`renderBar`) was not typed in as far as the browser
+    // knows, and would tell of no change.
+    input.addEventListener("blur", (e) => {
+      const to = (e as FocusEvent).relatedTarget as Node | null;
+      // The focus is on its way to another control of the bar, which writing
+      // now would draw again under it: once it has arrived.
+      if (to && this.bar.contains(to)) setTimeout(commit, 0);
+      else commit();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        delete input.dataset.typed;
+        input.value = field.value;
+        this.visual.focusCanvas();
+      }
+    });
+    this.barOff.push(isolateInput(input));
+    wrap.append(name, input);
+
+    // A value that can be a day: a calendar beside it — the host's
+    // (`options.pickDate`), else the browser's.
+    const date = field.date;
+    if (date && !input.readOnly) {
+      const pick = el("button", "ce-mermaid-btn ce-mermaid-field-pick");
+      pick.type = "button";
+      pick.dataset.action = `pick:${key}`;
+      pick.innerHTML = icons.calendar;
+      const say = `${this.rt?.labels.pickDate ?? "Pick a date"} · ${label}`;
+      pick.title = say;
+      pick.setAttribute("aria-label", say);
+      pick.addEventListener("pointerdown", keepFocus);
+      pick.addEventListener("click", (e) => {
+        e.preventDefault();
+        const request: MermaidDateRequest = {
+          anchor: pick,
+          label,
+          value: date.value,
+          pick: (day) => {
+            // What was half typed gives way to the day picked.
+            delete input.dataset.typed;
+            this.visual.release();
+            date.pick(day);
+          },
+        };
+        const own = this.rt?.options.pickDate;
+        if (own) {
+          // Its calendar may take the focus; the task stays selected.
+          this.visual.hold();
+          own(request);
+        } else this.nativeDate(request);
+      });
+      wrap.appendChild(pick);
+    }
+    return wrap;
+  }
+
+  /**
+   * The browser's own date picker, opened beside what was pressed: a date
+   * field nobody sees, there only to own the picker.
+   */
+  private nativeDate(request: MermaidDateRequest): void {
+    const holder = request.anchor.parentElement;
+    if (!holder) return;
+    holder.querySelector(".ce-mermaid-native-date")?.remove();
+    const input = el("input", "ce-mermaid-native-date");
+    input.type = "date";
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    if (request.value) input.value = request.value;
+    let done = false;
+    const close = (): void => {
+      if (done) return;
+      done = true;
+      stop();
+      input.remove();
+    };
+    input.addEventListener("change", () => {
+      const day = input.value;
+      close();
+      if (day) request.pick(day);
+    });
+    input.addEventListener("blur", () => setTimeout(close, 0));
+    const stop = isolateInput(input);
+    holder.appendChild(input);
+    try {
+      input.showPicker();
+    } catch {
+      // No `showPicker` here, or not allowed: the field itself, then.
+      input.focus({ preventScroll: true });
+      input.click();
     }
   }
 

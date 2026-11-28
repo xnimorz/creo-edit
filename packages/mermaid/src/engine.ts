@@ -134,10 +134,31 @@ export function createPeleEngine(
     check(source: string): MermaidDiagnostic | null {
       if (!loaded(source)) return null;
       try {
-        pele.parse(source);
+        const model = pele.parse(source) as { getTasks?: () => unknown } | null;
+        // A Gantt chart's dates are read when its tasks are asked for, not
+        // when it is parsed: a start nobody can read parses, then fails to
+        // draw.
+        if (model && typeof model.getTasks === "function") model.getTasks();
         return null;
       } catch (e) {
         return toDiagnostic(e);
+      }
+    },
+
+    ganttTimes(source: string) {
+      if (!loaded(source)) return null;
+      try {
+        const model = pele.parse(source) as {
+          getTasks?: () => { startTime?: Date; endTime?: Date }[];
+        } | null;
+        if (!model || typeof model.getTasks !== "function") return null;
+        return model.getTasks().map((t) =>
+          t.startTime instanceof Date && t.endTime instanceof Date
+            ? { start: t.startTime.getTime(), end: t.endTime.getTime() }
+            : null,
+        );
+      } catch {
+        return null;
       }
     },
 

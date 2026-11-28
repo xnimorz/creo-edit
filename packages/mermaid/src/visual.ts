@@ -18,6 +18,18 @@
 //                    connected node there
 //   Delete           remove what is selected
 //
+// A mind map, a timeline and a Gantt chart have nothing to connect: there +
+// and Tab add one INSIDE the selected (an idea under an idea, an event in a
+// period) or after it (a task), and Shift+Enter adds the next one beside it.
+// Enter renames, in every kind.
+//
+// Two kinds are dragged, too: a mind map's idea onto another (inside it, or
+// before or after it beside it — `kit.move`), and a Gantt task's bar (whole,
+// to move it; by an end, to make it shorter or longer — `kit.retime`). What is
+// dragged is drawn where it would go; the source changes once, on the drop.
+// Mod+C / Mod+X copy the selection's words (a mind map's idea with what is
+// under it, as an outline), Mod+V adds what is pasted from the selection.
+//
 // Layout of the pieces: Pele owns the SVG inside `canvas` and replaces it on
 // every draw, so nothing of ours can live in there. Selection chrome is in
 // `overlay`, a sibling stacked over it, positioned from the SVG elements'
@@ -38,11 +50,14 @@ import {
   kitFor,
   openSession,
   type DiagramKit,
+  type DropPlace,
   type EditSession,
   type Entities,
   type Entity,
+  type Side,
 } from "./kits";
 import type { MermaidRuntime } from "./runtime";
+import { remapId } from "./textkit";
 import type { MermaidAction } from "./types";
 
 export type VisualHost = {
@@ -85,8 +100,7 @@ type Intent = {
 type Rect = { left: number; top: number; width: number; height: number };
 
 const NO_ENTITIES: Entities = { nodes: [], edges: [], groups: [] };
-const SIDES = ["top", "right", "bottom", "left"] as const;
-type Side = (typeof SIDES)[number];
+const SIDES: readonly Side[] = ["top", "right", "bottom", "left"];
 
 /** Which side of a node "forward" is, for a flow direction. */
 function forwardSide(direction: string | null): Side {
@@ -122,6 +136,20 @@ const styleOf = (node: Element): CSSStyleDeclaration | null =>
 /** A label is one line of text, however the field wrapped or pasted it. */
 const oneLine = (value: string): string => value.replace(/\s*\n\s*/g, " ").trim();
 
+const OWN_SHAPES = ["rect", "circle", "ellipse", "polygon"];
+/**
+ * Where an element is — its own shape's place when it is drawn AROUND other
+ * things that can be selected (a timeline's period holds its events): the
+ * frame goes round the period, not round all that is in it.
+ */
+function ownBox(el: Element): DOMRect {
+  if (el.querySelector(`[${ENTITY_ATTR}]`)) {
+    const own = Array.from(el.children).find((c) => OWN_SHAPES.includes(c.tagName.toLowerCase()));
+    if (own) return own.getBoundingClientRect();
+  }
+  return el.getBoundingClientRect();
+}
+
 let measurer: CanvasRenderingContext2D | null | undefined;
 /** Width of `text` in `font` (a CSS font shorthand), in px. */
 function textWidth(text: string, font: string): number {
@@ -152,6 +180,14 @@ export class VisualLayer {
   private editFrom = "";
   /** Whether the canvas is showing the text that is in the field. */
   private following = true;
+  /** The document's source the ids held here were read from. */
+  private lastDoc: string | null = null;
+  /** A day is being picked in a calendar of the host's (`hold`). */
+  private holding = false;
+  /** Something is being dragged: what ends it early (Escape). */
+  private dragging: (() => void) | null = null;
+  /** The field the clipboard's text is pasted into (`pasteHere`). */
+  private clip: HTMLTextAreaElement | null = null;
   private dead = false;
   private off: (() => void)[] = [];
 
@@ -200,6 +236,7 @@ export class VisualLayer {
       this.off.push(() => target.removeEventListener(type, fn as EventListener));
     };
     on<PointerEvent>(canvas, "pointerdown", (e) => this.onPointerDown(e));
+    on<PointerEvent>(canvas, "pointermove", (e) => this.onHover(e));
     on<MouseEvent>(canvas, "dblclick", (e) => this.onDoubleClick(e));
     on<KeyboardEvent>(canvas, "keydown", (e) => this.onKey(e));
     // The selection belongs to a diagram being worked on. Once the focus is
@@ -207,8 +244,19 @@ export class VisualLayer {
     on<FocusEvent>(root, "focusout", () => {
       setTimeout(() => {
         if (this.dead || this.input) return;
-        if (!root.contains(document.activeElement)) this.select(null);
+        const active = document.activeElement;
+        if (root.contains(active)) return;
+        // …but in a calendar of the host's, opened for what is selected
+        // (`hold`), the work is still on it. Such a calendar is beside the
+        // document, never in it: the focus in the document has left.
+        const away = !active || active === document.body || !!root.closest("[data-creo-edit]")?.contains(active);
+        if (this.holding && !away) return;
+        this.holding = false;
+        this.select(null);
       }, 0);
+    });
+    on<FocusEvent>(root, "focusin", () => {
+      this.holding = false;
     });
 
     if (typeof ResizeObserver !== "undefined") {
@@ -220,9 +268,12 @@ export class VisualLayer {
 
   destroy(): void {
     this.dead = true;
+    this.dragging?.();
     for (const f of this.off) f();
     this.off = [];
     this.closeInput();
+    this.clip?.remove();
+    this.clip = null;
   }
 
   // -------------------------------------------------------------------------
@@ -236,9 +287,24 @@ export class VisualLayer {
     this.found = new Map();
     this.selection = null;
     this.pending = null;
+    this.lastDoc = null;
     this.closeInput();
     this.hideChrome();
     delete this.host.root.dataset.interactive;
+  }
+
+  /**
+   * Carry the ids held here over a change of the document that was not made
+   * here. Where an id is a line of the source (`kit.positional`), a line
+   * someone else added above it would otherwise make it another thing's.
+   */
+  private rebase(): void {
+    const doc = this.host.source();
+    const was = this.lastDoc;
+    this.lastDoc = doc;
+    if (was === null || was === doc || !this.kit?.positional) return;
+    this.selection = remapId(was, doc, this.selection);
+    this.editing = remapId(was, doc, this.editing);
   }
 
   sync(): void {
@@ -267,6 +333,13 @@ export class VisualLayer {
       return;
     }
 
+    this.rebase();
+    if (this.input && !this.editing) {
+      // What was being renamed is gone. Its field goes now; the picture of
+      // the name half typed goes once this draw is done with.
+      this.closeInput();
+      queueMicrotask(() => !this.dead && !this.input && host.preview(null));
+    }
     const session = openSession(visimer, host.canvasSource());
     const kit = kitFor(session.ed.result);
     const typeChanged = kit?.type !== this.kit?.type;
@@ -365,7 +438,7 @@ export class VisualLayer {
       width: r.width,
       height: r.height,
     });
-    if (e.kind !== "edge") return rel(els[0]!.getBoundingClientRect());
+    if (e.kind !== "edge") return rel(ownBox(els[0]!));
     // An edge: its label if it has one on screen, else the middle of its line.
     const label = els.find((n) => n.classList.contains("pele-edge-label"));
     if (label) {
@@ -452,21 +525,42 @@ export class VisualLayer {
       d.style.top = `${at[side][1]}px`;
     });
 
-    const side = forwardSide(this.direction);
-    this.plus.hidden = !isNode;
-    if (isNode) {
+    const label = !isNode ? null : kit.addLabel ? kit.addLabel(e) : `Add a connected ${kit.item}`;
+    this.plus.hidden = label === null;
+    if (label !== null) {
+      const side = kit.side
+        ? kit.side(e, (other) => this.centreOf(other), this.entities)
+        : forwardSide(this.direction);
       const gap = 26;
       const [px, py] = at[side];
       const dx = side === "right" ? gap : side === "left" ? -gap : 0;
       const dy = side === "bottom" ? gap : side === "top" ? -gap : 0;
       this.plus.style.left = `${px + dx}px`;
       this.plus.style.top = `${py + dy}px`;
-      const label = `Add a connected ${kit.item}`;
       this.plus.title = `${label} (Tab)`;
       this.plus.setAttribute("aria-label", label);
     }
 
     this.placeInput();
+  }
+
+  /**
+   * The host is about to open something of its own for what is selected (a
+   * calendar: `options.pickDate`), which may take the focus: the selection
+   * is kept while the focus is in it. Let go by `release`, by the focus
+   * coming back, or by its going anywhere in the document.
+   */
+  hold(): void {
+    this.holding = true;
+  }
+
+  release(): void {
+    this.holding = false;
+  }
+
+  private centreOf(e: Entity): { x: number; y: number } | null {
+    const r = this.found.has(e.id) ? this.rectOf(e) : null;
+    return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
   }
 
   /** What can be done to the selection. Part of the block's action list:
@@ -532,6 +626,69 @@ export class VisualLayer {
         run: () => this.apply((session) => (session.run(reverse(e)) ? { select: null } : false)),
       });
     }
+    if (e.kind === "node" && kit.flags && kit.setFlag) {
+      const setFlag = kit.setFlag;
+      out.push({
+        key: "flags",
+        scope: "entity",
+        label: labels.status,
+        icon: icons.check,
+        run: () => {},
+        choices: kit.flags.map((f) => {
+          const on = e.flags?.includes(f.key) === true;
+          return {
+            key: f.key,
+            label: f.label,
+            icon: iconFor(f.key),
+            on,
+            run: () => this.apply((session) => (session.run(setFlag(e, f.key, !on)) ? { select: e.id } : false)),
+          };
+        }),
+      });
+    }
+    if (e.kind === "node" && kit.fields && kit.setField) {
+      const setField = kit.setField;
+      for (const f of kit.fields) {
+        out.push({
+          key: f.key,
+          scope: "entity",
+          label: f.label,
+          icon: icons.edit,
+          run: () => {},
+          field: {
+            value: e.fields?.[f.key] ?? "",
+            placeholder: f.placeholder,
+            hint: f.hint,
+            // Written on leaving the field — which may be for another task:
+            // that one stays selected.
+            commit: (value) =>
+              this.apply((session) => {
+                if (!session.run(setField(e, f.key, value, () => this.newId()))) return false;
+                return this.selection === e.id ? { select: e.id } : {};
+              }),
+            ...(kit.setDate && e.dates && f.key in e.dates
+              ? {
+                  date: {
+                    value: e.dates[f.key] ?? null,
+                    pick: (day: string) =>
+                      this.apply((session) => {
+                        if (!session.run(kit.setDate?.(e, f.key, day) ?? null)) return false;
+                        return this.selection === e.id ? { select: e.id } : {};
+                      }),
+                  },
+                }
+              : {}),
+          },
+        });
+      }
+    }
+    out.push({
+      key: "copyItem",
+      scope: "entity",
+      label: labels.copyItem,
+      icon: icons.copy,
+      run: () => this.copySelected(),
+    });
     if (kit.remove(e) !== null) {
       out.push({
         key: "delete",
@@ -552,10 +709,10 @@ export class VisualLayer {
    * Run operations against the source and, if they leave a diagram that
    * still draws, write the result to the document.
    *
-   * `build` returns what to do once the new source is drawn, or `false` when
-   * nothing applied.
+   * `build` returns what to do once the new source is drawn, `false` when
+   * the edit was refused, or `null` when there was nothing to do.
    */
-  private apply(build: (session: EditSession, kit: DiagramKit) => Intent | false): boolean {
+  private apply(build: (session: EditSession, kit: DiagramKit) => Intent | false | null): boolean {
     const { host } = this;
     const rt = host.runtime();
     const visimer = rt?.visimerNow();
@@ -565,6 +722,7 @@ export class VisualLayer {
     const kit = kitFor(session.ed.result);
     if (!kit) return false;
     const intent = build(session, kit);
+    if (intent === null) return false;
     if (intent === false) {
       host.toast(rt.labels.rejected);
       return false;
@@ -580,8 +738,15 @@ export class VisualLayer {
       return false;
     }
     this.pending = intent;
+    // This change is ours: the ids `intent` names are the new source's
+    // already, and one kept across it is carried here.
+    const selected = this.selection;
+    if (kit.positional && !("select" in intent)) this.selection = remapId(before, next, selected);
+    this.lastDoc = next;
     if (host.commit(next)) return true;
     this.pending = null;
+    this.selection = selected;
+    this.lastDoc = before;
     return false;
   }
 
@@ -596,15 +761,33 @@ export class VisualLayer {
    *  its label ready to type over. */
   addNode(from?: Entity | null): void {
     this.apply((session, kit) => {
-      const created = session.run(kit.add(kit.newLabel, this.newId()));
-      if (!created || created.length === 0) return false;
-      const id = created[0]!;
-      if (from && kit.connect) {
-        const added = kit.entities(session.ed.result).nodes.find((n) => n.id === id);
-        if (added) session.run(kit.connect(from, added));
-      }
-      return { select: id, edit: true };
+      const id = this.addIn(session, kit, from ?? null);
+      return id ? { select: id, edit: true } : false;
     });
+  }
+
+  /** Add an item in an open session — from `from`, when given: joined to it
+   *  in a graph, inside or after it elsewhere. Its id, or null. */
+  private addIn(session: EditSession, kit: DiagramKit, from: Entity | null): string | null {
+    const created = session.run(kit.add(kit.newLabel, this.newId(), from));
+    if (!created || created.length === 0) return null;
+    const id = created[0]!;
+    if (from && kit.connect) {
+      const added = kit.entities(session.ed.result).nodes.find((n) => n.id === id);
+      if (added) session.run(kit.connect(from, added));
+    }
+    return id;
+  }
+
+  /** Shift+Enter: the next one beside `from`, ready to be named. False
+   *  where the type has no such thing (a graph, a group). */
+  private addNext(from: Entity): boolean {
+    if (!this.kit?.addAfter || this.kit.addAfter(from, this.kit.newLabel) === null) return false;
+    this.apply((session, kit) => {
+      const created = session.run(kit.addAfter?.(from, kit.newLabel) ?? null);
+      return created && created.length > 0 ? { select: created[0]!, edit: true } : false;
+    });
+    return true;
   }
 
   private connect(from: Entity, to: Entity): void {
@@ -622,7 +805,12 @@ export class VisualLayer {
   removeSelected(): void {
     const e = this.current();
     if (!e) return;
-    this.apply((session, kit) => (session.run(kit.remove(e)) ? { select: null } : false));
+    this.apply((session, kit) => {
+      const op = kit.remove(e);
+      // Not something that is removed here (a mind map's root): nothing to say.
+      if (op === null) return null;
+      return session.run(op) ? { select: null } : false;
+    });
   }
 
   /** Flip the diagram between top-down and left-to-right. */
@@ -677,13 +865,14 @@ export class VisualLayer {
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();
-        this.commitEdit();
+        // Shift: named, and on to the next one beside it.
+        this.commitEdit(ev.shiftKey ? "next" : null);
       } else if (ev.key === "Escape") {
         ev.preventDefault();
         this.cancelEdit();
       } else if (ev.key === "Tab" && !ev.shiftKey && e.kind === "node") {
         ev.preventDefault();
-        this.commitEdit(true);
+        this.commitEdit("inside");
       }
     });
     input.addEventListener("blur", () => {
@@ -711,8 +900,10 @@ export class VisualLayer {
    * happens once, on commit, so a rename stays one undo step.
    */
   private typed(): void {
+    this.rebase();
     const input = this.input;
     const id = this.editing;
+    if (input && !id) this.cancelEdit();
     if (!input || !id) return;
     this.previewLabel(id, oneLine(input.value));
     // Whether or not the picture could follow, the field fits its text.
@@ -772,10 +963,19 @@ export class VisualLayer {
     // width a label wraps at, then downwards.
     const WRAP_AT = 220;
     const pad = 20;
-    // An edge's label is bare text; a node's has the node's padding round it.
-    const base = rect.width + (e.kind === "edge" ? 18 : 0);
+    // An edge's label is bare text, and so is a mind map's leaf or a chart's
+    // title; a node's words have the node's padding round them.
+    const drawn = this.elementsOf(e.id)[0];
+    const bare =
+      e.kind === "edge" ||
+      !drawn ||
+      drawn.matches("text") ||
+      !drawn.querySelector("rect, circle, ellipse, polygon, path");
+    const base = rect.width + (bare ? 18 : 0);
     let width = Math.max(base, 48);
-    if (!this.following) {
+    // Bare words have no box to say how wide they are but their own, and a
+    // field does not set them quite as the picture does: it is measured.
+    if (!this.following || bare) {
       const cs = styleOf(input);
       const font = `${cs?.fontSize || "14px"} ${cs?.fontFamily || "sans-serif"}`;
       const needs = textWidth(input.value || " ", font) + pad;
@@ -809,22 +1009,32 @@ export class VisualLayer {
     this.focusCanvas();
   }
 
-  /** `thenAdd`: Tab — keep going with a new node connected to this one. */
-  private commitEdit(thenAdd = false): void {
+  /**
+   * `then`: keep going — "inside" (Tab) with a new node connected to this
+   * one (under it, in a tree), "next" (Shift+Enter) with the one beside it,
+   * where the type has such a thing.
+   */
+  private commitEdit(then: "inside" | "next" | null = null): void {
+    this.rebase();
     const input = this.input;
     const id = this.editing;
+    if (input && !id) this.cancelEdit();
     if (!input || !id) return;
     const value = oneLine(input.value);
     this.closeInput();
     this.focusCanvas();
-    const e = this.found.get(id);
     const unchanged = value === "" || value === this.editFrom;
-    if (!e || (unchanged && !thenAdd)) {
+    if (unchanged && !then) {
       this.host.preview(null);
       return;
     }
 
     const applied = this.apply((session, kit) => {
+      // Found in the document as it is now, not as the canvas last drew it:
+      // the canvas may be showing the name half typed, over an older source.
+      const ents = kit.entities(session.ed.result);
+      const e = [...ents.nodes, ...ents.edges, ...ents.groups].find((x) => x.id === id);
+      if (!e) return null;
       let node: Entity | undefined = e;
       if (!unchanged) {
         if (session.run(kit.rename(e, value)) === null) return false;
@@ -832,14 +1042,16 @@ export class VisualLayer {
         const nodes = kit.entities(session.ed.result).nodes;
         node = nodes.find((n) => n.id === e.id) ?? nodes.find((n) => n.label === value);
       }
-      if (thenAdd && node && node.kind === "node") {
-        const created = session.run(kit.add(kit.newLabel, this.newId()));
-        if (created && created.length > 0) {
-          const added = kit.entities(session.ed.result).nodes.find((n) => n.id === created[0]);
-          if (added && kit.connect) session.run(kit.connect(node, added));
-          return { select: created[0]!, edit: true };
-        }
+      if (then === "inside" && node && node.kind === "node") {
+        const created = this.addIn(session, kit, node);
+        if (created) return { select: created, edit: true };
       }
+      if (then === "next" && node) {
+        const created = session.run(kit.addAfter?.(node, kit.newLabel) ?? null);
+        if (created && created.length > 0) return { select: created[0]!, edit: true };
+      }
+      // Nothing renamed and nothing added: nothing to write.
+      if (unchanged) return null;
       return { select: e.id, orLabel: value };
     });
     // Refused: the canvas may still be showing the name as it was typed.
@@ -861,7 +1073,370 @@ export class VisualLayer {
     // editor around this block and the canvas never gets the keyboard.
     e.preventDefault();
     this.focusCanvas();
-    this.select(this.entityAt(e.target));
+    const id = this.entityAt(e.target);
+    const was = id !== null && this.selection === id;
+    this.select(id);
+    const entity = id ? this.found.get(id) : null;
+    // A finger drags only what it has already selected: before that, a
+    // stroke over the diagram is the page's scroll.
+    if (!entity || (e.pointerType === "touch" && !was)) return;
+    if (this.kit.move && entity.kind === "node" && !entity.root) this.dragIdea(e, entity);
+    else if (this.kit.retime && entity.kind === "node" && entity.dates) this.dragBar(e, entity);
+  }
+
+  // -------------------------------------------------------------------------
+  // Dragging
+  // -------------------------------------------------------------------------
+
+  /**
+   * Follow a press until it is let go: nothing happens until it has moved a
+   * few pixels (a press that does not move is a click). `move` is called with
+   * the pointer as it goes, `drop` once it is let go — not on Escape or a
+   * cancel, after which `end` tidies up either way.
+   */
+  private follow(
+    down: PointerEvent,
+    on: { start(): void; move(ev: PointerEvent): void; drop(ev: PointerEvent): void; end(): void },
+  ): void {
+    const x0 = down.clientX;
+    const y0 = down.clientY;
+    let started = false;
+    const stop = (): void => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+      this.dragging = null;
+      if (started) {
+        delete this.host.root.dataset.dragging;
+        on.end();
+        this.paint();
+      }
+    };
+    const move = (ev: PointerEvent): void => {
+      if (!started) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+        started = true;
+        this.host.root.dataset.dragging = "true";
+        this.hideChrome();
+        on.start();
+      }
+      ev.preventDefault();
+      on.move(ev);
+    };
+    const up = (ev: PointerEvent): void => {
+      const was = started;
+      if (was) on.drop(ev);
+      stop();
+    };
+    const cancel = (): void => stop();
+    const key = (ev: KeyboardEvent): void => {
+      if (ev.key !== "Escape" || !started) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+    this.dragging = stop;
+  }
+
+  /** Whether `inner` is `outer` or anywhere under it, in a tree. */
+  private within(inner: Entity, outer: Entity): boolean {
+    const byId = new Map(this.entities.nodes.map((n) => [n.id, n]));
+    for (let at: Entity | undefined = inner; at; at = at.parent ? byId.get(at.parent) : undefined) {
+      if (at.id === outer.id) return true;
+    }
+    return false;
+  }
+
+  /** A mind map's idea, dragged onto another. */
+  private dragIdea(down: PointerEvent, entity: Entity): void {
+    const chip = el("div", "ce-mmd-drag");
+    chip.textContent = entity.label;
+    const line = el("div", "ce-mmd-dropline");
+    let target: Entity | null = null;
+    let place: DropPlace = "inside";
+    const mark = (next: Entity | null): void => {
+      if (target && target.id !== next?.id) {
+        for (const n of this.elementsOf(target.id)) n.classList.remove("ce-mmd-target");
+      }
+      target = next;
+      if (target) for (const n of this.elementsOf(target.id)) n.classList.add("ce-mmd-target");
+    };
+    this.follow(down, {
+      start: () => {
+        this.host.overlay.append(chip, line);
+        for (const n of this.elementsOf(entity.id)) n.classList.add("ce-mmd-moving");
+      },
+      move: (ev) => {
+        const origin = this.host.overlay.getBoundingClientRect();
+        chip.style.left = `${ev.clientX - origin.left + 12}px`;
+        chip.style.top = `${ev.clientY - origin.top + 12}px`;
+        const over = this.nodeAt(ev.clientX, ev.clientY);
+        const ok = over && !this.within(over, entity) ? over : null;
+        mark(ok);
+        const rect = ok ? this.rectOf(ok) : null;
+        line.hidden = true;
+        if (!ok || !rect) return;
+        // The top and bottom quarters of an idea are beside it; the rest is
+        // inside it. Nothing is beside the root.
+        const y = ev.clientY - origin.top - rect.top;
+        place = ok.root ? "inside" : y < rect.height / 4 ? "before" : y > (rect.height * 3) / 4 ? "after" : "inside";
+        chip.dataset.place = place;
+        if (place === "inside") return;
+        line.hidden = false;
+        Object.assign(line.style, {
+          left: `${rect.left}px`,
+          width: `${rect.width}px`,
+          top: `${place === "before" ? rect.top - 3 : rect.top + rect.height + 2}px`,
+        });
+      },
+      drop: () => {
+        const to = target;
+        if (!to) return;
+        const where = place;
+        this.apply((session, kit) => {
+          const created = session.run(kit.move?.(entity, to, where) ?? null);
+          // Put back where it was: nothing to say.
+          if (created === null) return null;
+          return { select: created[0] ?? null };
+        });
+      },
+      end: () => {
+        mark(null);
+        for (const n of this.elementsOf(entity.id)) n.classList.remove("ce-mmd-moving");
+        chip.remove();
+        line.remove();
+      },
+    });
+  }
+
+  /** Where a press on a Gantt task's bar is: an end of it, or its middle. */
+  private barZone(entity: Entity, x: number): "start" | "end" | "both" {
+    const bar = this.elementsOf(entity.id)[0]?.querySelector("rect");
+    if (!bar) return "both";
+    const r = bar.getBoundingClientRect();
+    const edge = Math.min(8, r.width / 4);
+    if (x >= r.right - edge) return "end";
+    if (x <= r.left + edge) return "start";
+    return "both";
+  }
+
+  /** The pointer over a bar's end says it can be pulled. */
+  private onHover(e: PointerEvent): void {
+    if (e.buttons !== 0 || this.dragging || !this.kit?.retime) return;
+    const id = this.entityAt(e.target);
+    const entity = id ? this.found.get(id) : null;
+    const zone = entity?.dates ? this.barZone(entity, e.clientX) : null;
+    if (zone && zone !== "both") this.host.root.dataset.barEdge = zone;
+    else delete this.host.root.dataset.barEdge;
+  }
+
+  /** A Gantt task's bar, dragged whole or by an end, a day at a time. */
+  private dragBar(down: PointerEvent, entity: Entity): void {
+    const engine = this.host.runtime()?.engineNow();
+    const svg = this.host.canvas.querySelector("svg") as SVGSVGElement | null;
+    const times = engine?.ganttTimes?.(this.host.canvasSource());
+    const index = this.entities.nodes.findIndex((n) => n.id === entity.id);
+    const t = times?.[index];
+    const g = this.elementsOf(entity.id)[0] as SVGGElement | undefined;
+    if (!svg || !times || !t || !g) return;
+    // How the chart is drawn: SVG units a millisecond, from any bar with a
+    // length; the screen's pixels an SVG unit.
+    let perMs = 0;
+    let origin = 0;
+    times.forEach((time, i) => {
+      if (perMs || !time || time.end <= time.start) return;
+      const n = this.entities.nodes[i];
+      const rect = n && this.elementsOf(n.id)[0]?.querySelector("rect");
+      if (!rect) return;
+      perMs = Number(rect.getAttribute("width")) / (time.end - time.start);
+      origin = Number(rect.getAttribute("x")) - time.start * perMs;
+    });
+    const scale = svg.getScreenCTM?.()?.a ?? 1;
+    if (!perMs || !scale) return;
+    const zone = this.barZone(entity, down.clientX);
+    const rect = g.querySelector("rect");
+    const label = g.querySelector("text");
+    const saved = {
+      transform: g.getAttribute("transform"),
+      x: rect?.getAttribute("x") ?? null,
+      width: rect?.getAttribute("width") ?? null,
+      labelX: label?.getAttribute("x") ?? null,
+    };
+    const DAY = 86_400_000;
+    const chip = el("div", "ce-mmd-drag ce-mmd-dates");
+    let days = 0;
+    const shifted = (ms: number, n: number): number => {
+      const d = new Date(ms);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, d.getHours(), d.getMinutes()).getTime();
+    };
+    const span = (): { start: number; end: number } => {
+      if (zone === "both") return { start: shifted(t.start, days), end: shifted(t.end, days) };
+      if (zone === "end") return { start: t.start, end: Math.max(shifted(t.end, days), shifted(t.start, 1)) };
+      return { start: Math.min(shifted(t.start, days), shifted(t.end, -1)), end: t.end };
+    };
+    const iso = (ms: number): string => {
+      const d = new Date(ms);
+      const two = (n: number): string => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+    };
+    const say = (ms: number): string =>
+      new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    this.follow(down, {
+      start: () => {
+        this.host.overlay.appendChild(chip);
+        g.classList.add("ce-mmd-moving");
+        this.host.root.dataset.barDrag = zone;
+      },
+      move: (ev) => {
+        days = Math.round((ev.clientX - down.clientX) / scale / perMs / DAY);
+        const s = span();
+        // Drawn where it would go: the bar moved, or its ends.
+        if (zone === "both") g.setAttribute("transform", `translate(${(s.start - t.start) * perMs},0)`);
+        else if (rect) {
+          const x = origin + s.start * perMs;
+          const w = (s.end - s.start) * perMs;
+          rect.setAttribute("x", String(x));
+          rect.setAttribute("width", String(w));
+          label?.setAttribute("x", String(x + w / 2));
+        }
+        const origin2 = this.host.overlay.getBoundingClientRect();
+        chip.textContent = `${say(s.start)} – ${say(shifted(s.end, -1))}`;
+        chip.style.left = `${ev.clientX - origin2.left + 12}px`;
+        chip.style.top = `${ev.clientY - origin2.top + 14}px`;
+      },
+      drop: () => {
+        if (days === 0) return;
+        const s = span();
+        const to = { start: iso(s.start), end: iso(s.end), moved: zone };
+        this.apply((session, kit) => {
+          const ops = kit.retime?.(entity, to) ?? [];
+          const before = session.code();
+          for (const op of ops) session.run(op);
+          return session.code() === before ? false : { select: entity.id };
+        });
+      },
+      end: () => {
+        g.classList.remove("ce-mmd-moving");
+        delete this.host.root.dataset.barDrag;
+        // Back as drawn: the drop, if it took, draws it again anyway.
+        if (saved.transform === null) g.removeAttribute("transform");
+        else g.setAttribute("transform", saved.transform);
+        if (rect && saved.x !== null) rect.setAttribute("x", saved.x);
+        if (rect && saved.width !== null) rect.setAttribute("width", saved.width);
+        if (label && saved.labelX !== null) label.setAttribute("x", saved.labelX);
+        chip.remove();
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // The clipboard
+  // -------------------------------------------------------------------------
+
+  /** The words of what is selected — a mind map's idea with what is under
+   *  it, as an outline. */
+  private selectedText(): string | null {
+    const e = this.current();
+    const kit = this.kit;
+    const visimer = this.host.runtime()?.visimerNow();
+    if (!e || !kit) return null;
+    if (!kit.copyText || !visimer) return e.label;
+    return kit.copyText(e, openSession(visimer, this.host.source()).ed.result);
+  }
+
+  copySelected(): boolean {
+    const text = this.selectedText();
+    if (text === null) return false;
+    // The block's own window's (a document in a frame has its own).
+    const clip = this.host.root.ownerDocument?.defaultView?.navigator?.clipboard;
+    const said = (): void => this.host.toast(this.host.runtime()?.labels.copied ?? "Copied");
+    if (clip?.writeText) {
+      void clip.writeText(text).then(said, () => this.copyByHand(text) && said());
+    } else if (this.copyByHand(text)) said();
+    return true;
+  }
+
+  /** Where `navigator.clipboard` is not to be had: the old way, through a
+   *  field of our own. */
+  private copyByHand(text: string): boolean {
+    const field = this.clipField();
+    field.value = text;
+    field.focus({ preventScroll: true });
+    field.select();
+    let ok = false;
+    try {
+      ok = document.execCommand?.("copy") ?? false;
+    } catch {
+      ok = false;
+    }
+    this.focusCanvas();
+    return ok;
+  }
+
+  private clipField(): HTMLTextAreaElement {
+    if (this.clip) return this.clip;
+    const field = el("textarea", "ce-mmd-clip");
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+    field.addEventListener("paste", (ev) => {
+      const text = (ev as ClipboardEvent).clipboardData?.getData("text/plain") ?? "";
+      ev.preventDefault();
+      this.focusCanvas();
+      if (text.trim()) this.paste(text);
+    });
+    // Nothing is ever typed in it.
+    field.addEventListener("blur", () => {
+      field.value = "";
+    });
+    isolateInput(field);
+    this.host.overlay.appendChild(field);
+    this.clip = field;
+    return field;
+  }
+
+  /**
+   * Mod+V: the browser pastes into what has the focus as the key goes down,
+   * and a canvas is not a field — so the focus goes to one of ours for that
+   * moment, which hands what it was given to `paste`. (Reading the clipboard
+   * outright asks the user's permission.)
+   */
+  private pasteHere(): void {
+    const field = this.clipField();
+    field.value = "";
+    field.focus({ preventScroll: true });
+  }
+
+  /** Text pasted: added from the selection — a kit's own way (a mind map:
+   *  an outline under the selected idea), else a new item a line. */
+  paste(text: string): void {
+    const from = this.current();
+    this.apply((session, kit) => {
+      if (kit.paste) {
+        const created = session.run(kit.paste(from, text));
+        return created ? { select: created[0] ?? null } : false;
+      }
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => oneLine(l))
+        .filter((l) => l !== "")
+        .slice(0, 50);
+      let last: string | null = null;
+      for (const line of lines) {
+        const id = this.addIn(session, kit, from);
+        if (!id) return false;
+        const all = kit.entities(session.ed.result);
+        const added = [...all.nodes, ...all.edges].find((n) => n.id === id);
+        if (!added || session.run(kit.rename(added, line)) === null) return false;
+        const after = kit.entities(session.ed.result).nodes;
+        last = after.find((n) => n.id === id)?.id ?? after.find((n) => n.label === line)?.id ?? null;
+      }
+      return last ? { select: last } : false;
+    });
   }
 
   private onDoubleClick(e: MouseEvent): void {
@@ -895,10 +1470,42 @@ export class VisualLayer {
       if (e.key === "Escape") {
         handled();
         this.host.runtime()?.editor.focus();
+      } else if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+        e.stopPropagation();
+        this.pasteHere();
       }
       return;
     }
     const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c" || k === "x") {
+        handled();
+        this.copySelected();
+        if (k === "x") this.removeSelected();
+        return;
+      }
+      if (k === "v") {
+        // Not prevented: the paste is the browser's, into our field.
+        e.stopPropagation();
+        this.pasteHere();
+        return;
+      }
+    }
+    // ⌥↑ / ⌥↓: an idea before the one above it, after the one below it.
+    if (e.altKey && !mod && (e.key === "ArrowUp" || e.key === "ArrowDown") && this.kit.move && sel.parent) {
+      handled();
+      const siblings = this.entities.nodes.filter((n) => n.parent === sel.parent);
+      const at = siblings.findIndex((n) => n.id === sel.id);
+      const up = e.key === "ArrowUp";
+      const next = siblings[at + (up ? -1 : 1)];
+      if (!next) return;
+      this.apply((session, kit) => {
+        const created = session.run(kit.move?.(sel, next, up ? "before" : "after") ?? null);
+        return created ? { select: created[0] ?? null } : null;
+      });
+      return;
+    }
     switch (e.key) {
       case "Delete":
       case "Backspace":
@@ -908,6 +1515,9 @@ export class VisualLayer {
       case "Enter":
       case "F2":
         handled();
+        // Enter renames, in every kind. With Shift, where things are in a
+        // row, it is "and the next one".
+        if (e.key === "Enter" && e.shiftKey && this.addNext(sel)) return;
         this.startEdit(sel.id);
         return;
       case "Tab":
