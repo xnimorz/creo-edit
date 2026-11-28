@@ -134,7 +134,11 @@ export function createPeleEngine(
     check(source: string): MermaidDiagnostic | null {
       if (!loaded(source)) return null;
       try {
-        pele.parse(source);
+        const model = pele.parse(source) as { getTasks?: () => unknown } | null;
+        // A Gantt chart's dates are read when its tasks are asked for, not
+        // when it is parsed: a start nobody can read parses, then fails to
+        // draw.
+        if (model && typeof model.getTasks === "function") model.getTasks();
         return null;
       } catch (e) {
         return toDiagnostic(e);

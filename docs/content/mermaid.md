@@ -83,7 +83,34 @@ Every one of these is an edit to the source text. Each is one undo step, undone 
 
 What you cannot do is drag a node to a position. Mermaid lays a diagram out itself, and the source has nowhere to store one.
 
-Visual editing covers flowcharts, sequence, state, class and entity-relationship diagrams. Every other type Pele can draw is drawn, and edited in Code.
+Visual editing covers flowcharts, sequence, state, class and entity-relationship diagrams — and mind maps, timelines and Gantt charts, which are worked on a little differently (below). Every other type Pele can draw is drawn, and edited in Code.
+
+#### Mind maps, timelines and Gantt charts
+
+These three are not graphs: there is nothing to connect, so there are no dots. Selecting, renaming where it is, typing over, `Delete`, the arrow keys and `Escape` work as above. What differs is adding:
+
+| Do this | Mind map | Timeline | Gantt chart |
+|---|---|---|---|
+| **+** beside the selection, or `Tab` | An idea under the selected one | An event in the selected period | A task after the selected one |
+| `Enter` | The next idea beside it | The next period (from an event: the period's next event) | A task after it |
+| `Tab` while typing a name | Commit, and add one under it | Commit, and add an event | Commit, and add the next task |
+| Double-click empty space, or **Add** | An idea under the root | A period at the end | A task at the end |
+| `Delete` | The idea and all under it | A period with its events; an event; a section's or the title's line | A task; a section's or the title's line |
+
+`F2`, a double-click, or just typing renames — `Enter` is "the next one" here, as in an outline.
+
+With something selected, the bar shows:
+
+- **A mind map's idea**: its shape — plain, square, rounded, circle, hexagon, cloud, bang. The root is renamed and reshaped, never removed.
+- **A Gantt task**: its marks (active, done, critical, milestone — any of them at once, except that a task is active or done), and two fields, **Start** and **Length**, written when the field is left or `Enter` is pressed.
+  - *Start* takes a date in the chart's `dateFormat`, or `after` and another task — its id, or simply its name. Left empty, the task starts where the one before it ends.
+  - *Length* takes `5d`, `2w`, `12h` (or `5`, `5 days`, `2 weeks`), or the date the task ends.
+  - A value the chart cannot be drawn with is not written.
+- **A timeline's section, a title**: rename and delete. Deleting a section removes its heading, not its periods.
+
+A label can hold anything: a character the source's grammar would read as syntax (a colon in a task's name, a bracket in an idea) is written as its code (`#58;`) and shown as itself.
+
+Mermaid's Gantt syntax says what a task's values are by how many there are, so two of these edits write a little more than you typed. A task named in another's *Start* needs an id, and gets one if it has none; and a task with an id cannot leave its start out, so clearing it writes `after` the task before it.
 
 ### Code: editing the source
 
@@ -117,7 +144,7 @@ mermaidPlugin({
 
 **`links` / `images`** — off, so a diagram from someone else can neither navigate nor make a network request.
 
-**`nodeId`** — a node added in the picture takes the next free id (`E` after `D`). That is the readable choice for one author; where several people edit one document at once, two nodes added at the same moment would both be `E`, and merge into one. Such a host passes ids no two devices would both pick. It applies to flowchart nodes and states; the other types name an item by its label.
+**`nodeId`** — a node added in the picture takes the next free id (`E` after `D`). That is the readable choice for one author; where several people edit one document at once, two nodes added at the same moment would both be `E`, and merge into one. Such a host passes ids no two devices would both pick. It applies to flowchart nodes and states, and to a Gantt task that has to be given an id (`t1` otherwise); the other types name an item by its label.
 
 **`modes`** — pass your own store to persist which mode each block shows, or to drive it from your own UI.
 
@@ -146,11 +173,11 @@ The bar on the block is drawn from one list. `mermaidActions` hands you the same
 import { mermaidActions } from "creo-edit-mermaid-plugin";
 
 for (const action of mermaidActions(editor, blockId)) {
-  // { key, scope: "block" | "entity", label, icon, on?, disabled?, choices?, run() }
+  // { key, scope: "block" | "entity", label, icon, on?, disabled?, choices?, field?, run() }
 }
 ```
 
-`scope: "entity"` actions apply to whatever is selected in the diagram.
+`scope: "entity"` actions apply to whatever is selected in the diagram. One with `choices` is a set to pick from (a shape; a task's marks, of which several can be `on`). One with `field` is a value that is typed (a task's start): `field.value` is what it is now, and `field.commit(text)` writes another, returning `false` when the diagram would not draw with it.
 
 ## A shell of your own
 
@@ -178,6 +205,8 @@ The block's chrome reads a few custom properties on `.ce-mermaid` (`--ce-mmd-acc
   --pele-surface: #f2f0e5;
 }
 ```
+
+What the pointer is over is lit by `--ce-mmd-hover-glow`, a `filter` (default: a soft shadow in the accent).
 
 The bar is sticky, so on a tall diagram the selection's actions stay in reach. Under a fixed header, set `--ce-mmd-sticky-top` to the header's height.
 

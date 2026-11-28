@@ -115,6 +115,40 @@
   border-left: 1px solid var(--ce-mmd-border);
   border-right: 1px solid var(--ce-mmd-border);
 }
+/* A value of the selection that is typed: a task's start, its length. */
+.ce-mermaid-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+  cursor: text;
+}
+.ce-mermaid-field-name {
+  color: var(--ce-mmd-muted);
+}
+.ce-mermaid-field-input {
+  box-sizing: border-box;
+  height: 24px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--ce-mmd-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ce-mermaid-field-input:focus {
+  border-color: var(--ce-mmd-accent);
+  outline: none;
+  color: inherit;
+}
+.ce-mermaid-field-input::placeholder {
+  color: var(--ce-mmd-muted);
+  opacity: 0.75;
+}
 .ce-mermaid-icon {
   width: 26px;
   padding: 0;
@@ -262,9 +296,16 @@
 .ce-mermaid[data-interactive] [data-ce-entity] {
   cursor: pointer;
 }
-.ce-mermaid[data-interactive] .pele-node[data-ce-entity]:hover,
-.ce-mermaid[data-interactive] .pele-cluster[data-ce-entity]:hover {
-  filter: drop-shadow(0 0 2px var(--ce-mmd-accent));
+/* Under the pointer. One drawn AROUND others (a timeline's period holds its
+   events, a section its periods) lights its own shape, and only while the
+   pointer is on none of what it holds. A host restyles the glow alone:
+   `--ce-mmd-hover-glow`. */
+.ce-mermaid[data-interactive] .pele-node[data-ce-entity]:not(:has([data-ce-entity])):hover,
+.ce-mermaid[data-interactive] .pele-cluster[data-ce-entity]:not(:has([data-ce-entity])):hover,
+.ce-mermaid[data-interactive] .pele-task[data-ce-entity]:hover,
+.ce-mermaid[data-interactive] text[data-ce-entity]:hover,
+.ce-mermaid[data-interactive] [data-ce-entity]:has([data-ce-entity]):hover:not(:has([data-ce-entity]:hover)) > rect {
+  filter: var(--ce-mmd-hover-glow, drop-shadow(0 0 2px var(--ce-mmd-accent)));
 }
 /* The invisible, wide copy of an edge that takes the pointer. */
 .ce-mmd-hit {

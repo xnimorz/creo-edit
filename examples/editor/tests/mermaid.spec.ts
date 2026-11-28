@@ -281,3 +281,168 @@ test.describe("Mermaid block — in the document", () => {
     expect(await source(page)).toContain("[V]");
   });
 });
+
+// A mind map, a timeline and a Gantt chart are not graphs: nothing to
+// connect, and a thing in the source is known by its line. What needs a
+// browser here is where things ARE — which side of an idea its + goes, that
+// a period's frame is the period's and not its events', that a press on an
+// event inside a period is the event's — and typing in a field in the bar.
+// `&diagram=<kind>` opens the example on that kind (src/app.ts).
+test.describe("Mermaid block — mind maps, timelines and Gantt charts", () => {
+  const openKind = async (page: Page, kind: string): Promise<void> => {
+    await open(page, `&diagram=${kind}`);
+    await ready(page);
+  };
+  const thing = (page: Page, id: string) => page.locator(`.ce-mermaid [data-ce-entity="${id}"]`).first();
+  /** Press on the shape of one drawn around others, clear of its words. */
+  const pressOwn = (page: Page, id: string) =>
+    page.locator(`.ce-mermaid [data-ce-entity="${id}"] > rect`).first().click({ position: { x: 6, y: 6 } });
+  const selected = (page: Page): Promise<string[]> =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll(".ce-mermaid .ce-mmd-selected")).map((n) => n.getAttribute("data-ce-entity") ?? ""),
+    );
+  const centre = async (locator: ReturnType<Page["locator"]>): Promise<{ x: number; y: number }> => {
+    const b = (await locator.boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const plus = (page: Page) => page.locator(".ce-mmd-plus");
+  const field = (page: Page, name: string) => page.locator(`.ce-mermaid-field-input[data-field="${name}"]`);
+
+  test("mind map: the + is on the side an idea grows to; Tab goes under, Enter beside", async ({ page }) => {
+    await openKind(page, "mindmap");
+    const root = await centre(thing(page, "idea:1"));
+    // An idea right of the root grows right, one left of it left; the root
+    // itself, down — its branches leave it sideways.
+    for (const id of ["idea:2", "idea:6", "idea:5"]) {
+      await thing(page, id).click();
+      const idea = await centre(thing(page, id));
+      const at = await centre(plus(page));
+      expect(Math.sign(at.x - idea.x)).toBe(Math.sign(idea.x - root.x));
+    }
+    await thing(page, "idea:1").click();
+    expect((await centre(plus(page))).y).toBeGreaterThan(root.y + 20);
+    await expect(page.locator(".ce-mmd-dot:visible")).toHaveCount(0);
+
+    await thing(page, "idea:6").click();
+    await page.keyboard.press("Tab");
+    await rename(page, "Launch party");
+    await page.keyboard.press("Enter");
+    await rename(page, "Retro", "Tab");
+    await rename(page, "Notes");
+    expect(await source(page)).toBe(
+      "mindmap\n  root((Project))\n    Plan\n      Scope\n      Budget\n    Build\n    Ship\n      Launch party\n      Retro\n        Notes",
+    );
+    // The field took the keys; the editor's caret did not move into the map.
+    await expect(page.locator(".ce-mermaid-canvas")).toBeFocused();
+    const mod = await editorMod(page);
+    await page.keyboard.press(`${mod}+z`);
+    expect(await source(page)).toContain("        New idea");
+  });
+
+  test("mind map: a leaf's name is typed in a field as wide as the words", async ({ page }) => {
+    await openKind(page, "mindmap");
+    await thing(page, "idea:3").dblclick();
+    await label(page).waitFor();
+    await page.keyboard.type("A much longer scope");
+    // Bare words have no box of their own to give the field its padding:
+    // it must still hold them on one line, as the map draws them.
+    const box = (await label(page).boundingBox())!;
+    expect(box.height).toBeLessThan(40);
+    await page.keyboard.press("Enter");
+    expect(await source(page)).toContain("      A much longer scope\n");
+    await page.locator('.ce-mermaid-entity [data-action="shape:hexagon"]').click();
+    expect(await source(page)).toContain("      {{A much longer scope}}\n");
+    await page.keyboard.press("Delete");
+    expect(await source(page)).not.toContain("scope");
+  });
+
+  test("timeline: a period's frame is its own; a press on its event is the event's", async ({ page }) => {
+    await openKind(page, "timeline");
+    await pressOwn(page, "period:3");
+    expect(await selected(page)).toEqual(["period:3"]);
+    const frame = (await page.locator(".ce-mmd-box").boundingBox())!;
+    const first = (await thing(page, "event:3:0").boundingBox())!;
+    // Round the period, not round the events drawn under it.
+    expect(frame.y + frame.height).toBeLessThan(first.y);
+
+    await plus(page).click();
+    await rename(page, "Hiring");
+    expect(await source(page)).toContain("  2019 : Idea\n       : Prototype\n       : Hiring\n  2021");
+    expect(await selected(page)).toEqual(["event:5:0"]);
+    await expect(plus(page)).toBeHidden();
+
+    await thing(page, "event:4:0").click();
+    expect(await selected(page)).toEqual(["event:4:0"]);
+    await page.keyboard.press("Delete");
+    expect(await source(page)).toContain("  2019 : Idea\n       : Hiring\n  2021");
+
+    await pressOwn(page, "section:2");
+    expect(await selected(page)).toEqual(["section:2"]);
+    await page.keyboard.press("F2");
+    await rename(page, "Before");
+    expect(await source(page)).toContain("  section Before\n");
+    await pressOwn(page, "period:5");
+    await page.keyboard.press("Enter");
+    await rename(page, "2022");
+    expect(await source(page)).toContain("  2021 : Launch\n  2022\n  section Later");
+  });
+
+  test("Gantt: a task's marks and dates are typed in the bar, and the chart follows", async ({ page }) => {
+    await openKind(page, "gantt");
+    await thing(page, "task:5").click();
+    const before = (await thing(page, "task:5").locator("rect").boundingBox())!;
+    await expect(field(page, "start")).toHaveValue("after d1");
+    await field(page, "length").fill("3 weeks");
+    await field(page, "length").press("Enter");
+    expect(await source(page)).toContain("  Implement :after d1, 3w\n");
+    await expect(field(page, "length")).toHaveValue("3w");
+    const after = (await thing(page, "task:5").locator("rect").boundingBox())!;
+    expect(after.width).not.toBe(before.width);
+
+    // A button of the bar pressed while a field is being typed in: the mark
+    // is written, the field keeps its text and the keyboard…
+    await field(page, "start").fill("2026-01-14");
+    await page.locator('.ce-mermaid-entity [data-action="flags:active"]').click();
+    expect(await source(page)).toContain("  Implement :active, after d1, 3w\n");
+    await expect(page.locator('[data-action="flags:active"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(field(page, "start")).toHaveValue("2026-01-14");
+    await expect(field(page, "start")).toBeFocused();
+    expect(await selected(page)).toEqual(["task:5"]);
+    // …and leaving it writes it, as Enter does.
+    await page.keyboard.press("Tab");
+    await expect.poll(() => source(page)).toContain("  Implement :active, 2026-01-14, 3w\n");
+    await expect(field(page, "length")).toBeFocused();
+    expect(await selected(page)).toEqual(["task:5"]);
+
+    // A start nobody can read is not written.
+    await field(page, "start").fill("someday");
+    await field(page, "start").press("Enter");
+    expect(await source(page)).toContain("  Implement :active, 2026-01-14, 3w\n");
+    await expect(field(page, "start")).toHaveValue("2026-01-14");
+    await expect(page.locator(".ce-mermaid-info")).toContainText("not applied");
+
+    // The + is beside the bar, where the next task is not.
+    const bar = (await thing(page, "task:5").locator("rect").boundingBox())!;
+    expect((await centre(plus(page))).x).toBeGreaterThan(bar.x + bar.width);
+    await plus(page).click();
+    await rename(page, "Review");
+    expect(await source(page)).toContain("  Implement :active, 2026-01-14, 3w\n  Review :1d\n  section Ship");
+    const mod = await editorMod(page);
+    await page.keyboard.press(`${mod}+z`);
+    await page.keyboard.press(`${mod}+z`);
+    expect(await source(page)).not.toContain("Review");
+  });
+
+  test("text around the diagram is still editable after working in one", async ({ page }) => {
+    await openKind(page, "gantt");
+    await thing(page, "task:4").click();
+    await field(page, "length").fill("6d");
+    await field(page, "length").press("Enter");
+    const after = page.locator("[data-creo-edit] p").last();
+    await after.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" OK");
+    await expect(after).toHaveText("Text after the diagram. OK");
+    expect(await source(page)).toContain("  Design :d1, 2026-01-05, 6d\n");
+  });
+});

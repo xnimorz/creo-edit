@@ -115,6 +115,14 @@ function outlineDoc(): SerializedDoc {
 }
 
 function diagramDoc(): SerializedDoc {
+  // The kinds that are not graphs — what the E2E suite works on for each.
+  const DIAGRAMS: Record<string, string> = {
+    mindmap: "mindmap\n  root((Project))\n    Plan\n      Scope\n      Budget\n    Build\n    Ship",
+    timeline:
+      "timeline\n  title History\n  section Early\n  2019 : Idea\n       : Prototype\n  2021 : Launch\n  section Later\n  2024 : Rewrite",
+    gantt:
+      "gantt\n  title Release\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :d1, 2026-01-05, 5d\n  Implement :after d1, 10d\n  section Ship\n  Launch :milestone, 2026-01-26, 0d",
+  };
   return {
     blocks: [
       { type: "h1", runs: [{ text: "Diagrams" }] },
@@ -129,7 +137,9 @@ function diagramDoc(): SerializedDoc {
       },
       {
         type: "mermaid",
+        // `&diagram=<kind>` opens on another kind's source instead.
         source:
+          DIAGRAMS[__params.get("diagram") ?? ""] ??
           "flowchart TD\n  A[Start] --> B{Works?}\n  B -->|Yes| C[Ship it]\n  B -->|No| D[Fix it]\n  D --> B",
       },
       { type: "p", runs: [{ text: "Text after the diagram." }] },

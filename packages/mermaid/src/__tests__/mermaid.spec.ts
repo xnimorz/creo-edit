@@ -496,3 +496,271 @@ describe("mermaid block — visual editing", () => {
     expect(typeof visimerCore.MermaidWysiwygEditor).toBe("function");
   });
 });
+
+// The types that are not graphs: nothing to connect, and what is in the
+// source is known by its LINE (`textkit.ts`). Same block, same gestures.
+describe("mermaid block — mind maps, timelines and Gantt charts", () => {
+  const MAP = "mindmap\n  root((Topic))\n    Idea one\n    Idea two\n      Detail";
+  const TIMELINE = "timeline\n  title History\n  2024 : Idea\n  2025 : Prototype";
+  const GANTT = "gantt\n  title Plan\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :a1, 2026-01-05, 5d\n  Implement :10d";
+
+  const of = (source: string) => mount([{ id: "m1", type: "mermaid", source }]);
+  const entity = (block: HTMLElement, id: string): Element =>
+    Array.from(block.querySelectorAll("[data-ce-entity]")).find((n) => n.getAttribute("data-ce-entity") === id)!;
+  const canvas = (block: HTMLElement): Element => block.querySelector(".ce-mermaid-canvas")!;
+  const input = (block: HTMLElement): HTMLTextAreaElement | null => block.querySelector(".ce-mmd-input");
+  const type = (field: HTMLTextAreaElement, value: string, commit = "Enter"): void => {
+    field.value = value;
+    key(field, commit);
+  };
+  const typing = (field: HTMLTextAreaElement | HTMLInputElement, value: string): void => {
+    field.value = value;
+    field.dispatchEvent(new win.Event("input", { bubbles: true }) as unknown as Event);
+  };
+  const plus = (block: HTMLElement): HTMLElement => block.querySelector(".ce-mmd-plus")!;
+  const selected = (block: HTMLElement): string[] =>
+    Array.from(block.querySelectorAll(".ce-mmd-selected")).map((n) => n.getAttribute("data-ce-entity")!);
+  const actions = (editor: Editor): string[] =>
+    mermaidActions(editor, "m1").map((a) => `${a.scope}:${a.key}`);
+  const setSource = (editor: Editor, source: string): boolean =>
+    editor.dispatch({ t: "mermaid.setSource", payload: { blockId: "m1", source } });
+
+  test("a mind map: an idea's actions; the root is renamed, not removed", async () => {
+    const { block, editor } = await of(MAP);
+    expect(block().dataset.interactive).toBe("true");
+    press(entity(block(), "idea:2"), "pointerdown");
+    expect(actions(editor)).toEqual([
+      "block:mode", "block:add", "block:copy", "block:download",
+      "entity:edit", "entity:shape", "entity:delete",
+    ]);
+    // Nothing to connect: no dots, and the + says what it does here.
+    expect(Array.from(block().querySelectorAll(".ce-mmd-dot")).every((d) => (d as HTMLElement).hidden)).toBe(true);
+    expect(plus(block()).hidden).toBe(false);
+    expect(plus(block()).getAttribute("aria-label")).toBe("Add an idea under this one");
+    press(entity(block(), "idea:1"), "pointerdown");
+    expect(actions(editor)).not.toContain("entity:delete");
+    key(canvas(block()), "Delete");
+    expect(sourceOf(editor)).toBe(MAP);
+    // Nothing was refused, so nothing is said; with nothing selected the bar
+    // says how this kind is worked on.
+    expect(block().querySelector(".ce-mermaid-info")!.textContent).toBe("");
+    key(canvas(block()), "Escape");
+    expect(block().querySelector(".ce-mermaid-info")!.textContent).toMatch(/Tab adds one inside/);
+  });
+
+  test("a mind map: Tab adds an idea under the selected one, Enter the next beside it", async () => {
+    const { block, editor } = await of(MAP);
+    press(entity(block(), "idea:2"), "pointerdown");
+    key(canvas(block()), "Tab");
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea one\n      New idea\n    Idea two\n      Detail");
+    expect(input(block())!.value).toBe("New idea");
+    type(input(block())!, "Under one");
+    expect(selected(block())).toEqual(["idea:3"]);
+    // Enter on a selected idea: the next one, beside it. Tab in its field:
+    // named, and one under it.
+    key(canvas(block()), "Enter");
+    type(input(block())!, "Beside it", "Tab");
+    type(input(block())!, "Deeper");
+    expect(sourceOf(editor)).toBe(
+      "mindmap\n  root((Topic))\n    Idea one\n      Under one\n      Beside it\n        Deeper\n    Idea two\n      Detail",
+    );
+    // Each step is one undo.
+    editor.undo();
+    expect(sourceOf(editor)).toContain("        New idea\n");
+    // The + does what Tab does; the bar's button adds one under the root.
+    press(entity(block(), "idea:2"), "pointerdown");
+    click(plus(block()));
+    expect(sourceOf(editor)).toContain("        New idea\n      New idea\n    Idea two");
+    key(input(block())!, "Escape");
+    click(block().querySelector('.ce-mermaid-bar [data-action="add"]')!);
+    expect(sourceOf(editor)).toMatch(/      Detail\n    New idea$/);
+  });
+
+  test("a mind map: the idea grows as it is named; shape and Delete are edits of its lines", async () => {
+    const { block, editor, changes } = await of(MAP);
+    press(entity(block(), "idea:3"), "pointerdown");
+    key(canvas(block()), "F2");
+    const field = input(block())!;
+    const before = changes.length;
+    typing(field, "A second idea");
+    expect(canvas(block()).textContent).toContain("A second idea");
+    expect(input(block())).toBe(field);
+    expect(sourceOf(editor)).toBe(MAP);
+    key(field, "Enter");
+    expect(sourceOf(editor)).toBe(MAP.replace("Idea two", "A second idea"));
+    expect(changes.length).toBe(before + 1);
+    expect(selected(block())).toEqual(["idea:3"]);
+
+    click(block().querySelector('.ce-mermaid-entity [data-action="shape:hexagon"]')!);
+    expect(sourceOf(editor)).toContain("    {{A second idea}}\n");
+    expect(block().querySelector('[data-action="shape:hexagon"]')!.getAttribute("aria-pressed")).toBe("true");
+    // With everything under it.
+    key(canvas(block()), "Delete");
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea one");
+  });
+
+  test("what is selected is followed when someone else adds a line above it", async () => {
+    const { block, editor } = await of(MAP);
+    press(entity(block(), "idea:3"), "pointerdown");
+    expect(setSource(editor, MAP.replace("    Idea one", "    Idea one\n      From elsewhere"))).toBe(true);
+    await tick(30);
+    expect(selected(block())).toEqual(["idea:4"]);
+    key(canvas(block()), "Delete");
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea one\n      From elsewhere");
+  });
+
+  test("a name being typed lands on its idea though lines arrived above it meanwhile", async () => {
+    const { block, editor } = await of(MAP);
+    entity(block(), "idea:3").dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true, cancelable: true }) as unknown as Event);
+    const field = input(block())!;
+    typing(field, "Renamed");
+    setSource(editor, MAP.replace("    Idea one", "    Idea one\n      From elsewhere"));
+    await tick(30);
+    // The picture follows the next key over the newer source…
+    typing(field, "Renamed here");
+    expect(canvas(block()).textContent).toContain("From elsewhere");
+    expect(canvas(block()).textContent).toContain("Renamed here");
+    expect(canvas(block()).textContent).toContain("Idea one");
+    key(field, "Enter");
+    // …and the name is written to the idea it was opened on.
+    expect(sourceOf(editor)).toBe(
+      "mindmap\n  root((Topic))\n    Idea one\n      From elsewhere\n    Renamed here\n      Detail",
+    );
+  });
+
+  test("the idea being renamed is removed elsewhere: its field goes, nothing is written", async () => {
+    const { block, editor } = await of(MAP);
+    entity(block(), "idea:4").dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true, cancelable: true }) as unknown as Event);
+    const field = input(block())!;
+    typing(field, "Too late");
+    const without = "mindmap\n  root((Topic))\n    Idea one\n    Idea two";
+    setSource(editor, without);
+    await tick(30);
+    key(field, "Enter");
+    await tick(30);
+    expect(input(block())).toBeNull();
+    expect(sourceOf(editor)).toBe(without);
+    expect(canvas(block()).textContent).not.toContain("Too late");
+  });
+
+  test("a timeline: + on a period adds an event, Enter the next period; an event is its own", async () => {
+    const { block, editor } = await of(TIMELINE);
+    expect(block().dataset.interactive).toBe("true");
+    press(entity(block(), "period:2"), "pointerdown");
+    expect(actions(editor)).toContain("entity:delete");
+    click(plus(block()));
+    expect(sourceOf(editor)).toBe("timeline\n  title History\n  2024 : Idea\n       : New event\n  2025 : Prototype");
+    type(input(block())!, "Sketches");
+    expect(selected(block())).toEqual(["event:3:0"]);
+    // An event has no + of its own (it would sit on the event under it);
+    // Tab from it still adds the period's next.
+    expect(plus(block()).hidden).toBe(true);
+    key(canvas(block()), "Tab");
+    type(input(block())!, "Name");
+    expect(sourceOf(editor)).toContain("  2024 : Idea\n       : Sketches\n       : Name\n  2025");
+
+    press(entity(block(), "period:2"), "pointerdown");
+    key(canvas(block()), "Enter");
+    type(input(block())!, "2024 H2", "Tab");
+    type(input(block())!, "Beta");
+    expect(sourceOf(editor)).toBe(
+      "timeline\n  title History\n  2024 : Idea\n       : Sketches\n       : Name\n  2024 H2\n    : Beta\n  2025 : Prototype",
+    );
+    // The event on its period's own line: a click on it is not one on the
+    // period it is drawn inside.
+    press(entity(block(), "event:2:0"), "pointerdown");
+    expect(selected(block())).toEqual(["event:2:0"]);
+    key(canvas(block()), "Delete");
+    expect(sourceOf(editor)).toContain("  2024\n       : Sketches\n");
+    press(entity(block(), "title:1"), "pointerdown");
+    key(canvas(block()), "F2");
+    type(input(block())!, "Our story");
+    expect(sourceOf(editor)).toContain("  title Our story\n");
+    // Enter on a heading renames: there is no "next" of it.
+    key(canvas(block()), "Enter");
+    expect(input(block())!.value).toBe("Our story");
+  });
+
+  test("a Gantt chart: a task's marks and its dates are in the bar", async () => {
+    const { block, editor } = await of(GANTT);
+    expect(block().dataset.interactive).toBe("true");
+    press(entity(block(), "task:5"), "pointerdown");
+    expect(actions(editor)).toEqual([
+      "block:mode", "block:add", "block:copy", "block:download",
+      "entity:edit", "entity:flags", "entity:start", "entity:length", "entity:delete",
+    ]);
+    click(block().querySelector('.ce-mermaid-entity [data-action="flags:done"]')!);
+    expect(sourceOf(editor)).toContain("  Implement :done, 10d");
+    expect(block().querySelector('[data-action="flags:done"]')!.getAttribute("aria-pressed")).toBe("true");
+    click(block().querySelector('.ce-mermaid-entity [data-action="flags:active"]')!);
+    expect(sourceOf(editor)).toContain("  Implement :active, 10d");
+
+    const field = (name: string): HTMLInputElement =>
+      Array.from(block().querySelectorAll<HTMLInputElement>(".ce-mermaid-field-input")).find((i) => i.dataset.field === name)!;
+    expect(field("start").value).toBe("");
+    expect(field("length").value).toBe("10d");
+    typing(field("length"), "2 weeks");
+    key(field("length"), "Enter");
+    expect(sourceOf(editor)).toContain("  Implement :active, 2w");
+    expect(field("length").value).toBe("2w");
+    // By the other task's name: it has an id, which is what is written.
+    typing(field("start"), "after design");
+    field("start").dispatchEvent(new win.FocusEvent("blur") as unknown as Event);
+    expect(sourceOf(editor)).toContain("  Implement :active, after a1, 2w");
+    expect(field("start").value).toBe("after a1");
+    // One undo each.
+    editor.undo();
+    expect(sourceOf(editor)).toContain("  Implement :active, 2w");
+    // A date the engine cannot read is not written, and the field says what
+    // the diagram has.
+    press(entity(block(), "task:5"), "pointerdown");
+    typing(field("start"), "next tuesday");
+    key(field("start"), "Enter");
+    expect(sourceOf(editor)).toContain("  Implement :active, 2w");
+    expect(field("start").value).toBe("");
+    expect(block().querySelector(".ce-mermaid-info")!.textContent).toMatch(/not applied/);
+  });
+
+  test("a Gantt chart: Tab adds the next task; a field being typed in survives the bar's redraw", async () => {
+    const { block, editor, root } = await of(GANTT);
+    press(entity(block(), "task:4"), "pointerdown");
+    key(canvas(block()), "Tab");
+    type(input(block())!, "Review");
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-01-05, 5d\n  Review :1d\n  Implement :10d");
+    expect(selected(block())).toEqual(["task:5"]);
+
+    const length = (): HTMLInputElement =>
+      Array.from(block().querySelectorAll<HTMLInputElement>(".ce-mermaid-field-input")).find((i) => i.dataset.field === "length")!;
+    const first = length();
+    first.focus();
+    typing(first, "3");
+    // Its keys are its own: the editor around it hears none of them.
+    let reached = 0;
+    root.querySelector("[data-creo-edit]")!.addEventListener("keydown", () => reached++);
+    key(first, "a");
+    expect(reached).toBe(0);
+    // Someone else changes the diagram: the bar is drawn again.
+    setSource(editor, sourceOf(editor).replace("title Plan", "title The plan"));
+    await tick(30);
+    const again = length();
+    expect(again).not.toBe(first);
+    expect(again.value).toBe("3");
+    expect(document.activeElement).toBe(again);
+    key(again, "Enter");
+    expect(sourceOf(editor)).toContain("  Review :3d\n");
+    // Escape gives the field back what the diagram has.
+    typing(length(), "99");
+    key(length(), "Escape");
+    expect(length().value).toBe("3d");
+    expect(sourceOf(editor)).toContain("  Review :3d\n");
+  });
+
+  test("a read-only editor edits none of them", async () => {
+    for (const source of [MAP, TIMELINE, GANTT]) {
+      const ro = await mount([{ id: "m1", type: "mermaid", source }], { editable: false });
+      expect(ro.block().dataset.state).toBe("ready");
+      expect(ro.block().dataset.interactive).toBeUndefined();
+      expect(ro.block().querySelectorAll("[data-ce-entity]").length).toBe(0);
+    }
+  });
+});

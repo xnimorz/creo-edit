@@ -18,6 +18,10 @@
 //                    connected node there
 //   Delete           remove what is selected
 //
+// A mind map, a timeline and a Gantt chart have nothing to connect: there +
+// and Tab add one INSIDE the selected (an idea under an idea, an event in a
+// period) or after it (a task), and Enter adds the next one beside it.
+//
 // Layout of the pieces: Pele owns the SVG inside `canvas` and replaces it on
 // every draw, so nothing of ours can live in there. Selection chrome is in
 // `overlay`, a sibling stacked over it, positioned from the SVG elements'
@@ -41,8 +45,10 @@ import {
   type EditSession,
   type Entities,
   type Entity,
+  type Side,
 } from "./kits";
 import type { MermaidRuntime } from "./runtime";
+import { remapId } from "./textkit";
 import type { MermaidAction } from "./types";
 
 export type VisualHost = {
@@ -85,8 +91,7 @@ type Intent = {
 type Rect = { left: number; top: number; width: number; height: number };
 
 const NO_ENTITIES: Entities = { nodes: [], edges: [], groups: [] };
-const SIDES = ["top", "right", "bottom", "left"] as const;
-type Side = (typeof SIDES)[number];
+const SIDES: readonly Side[] = ["top", "right", "bottom", "left"];
 
 /** Which side of a node "forward" is, for a flow direction. */
 function forwardSide(direction: string | null): Side {
@@ -122,6 +127,20 @@ const styleOf = (node: Element): CSSStyleDeclaration | null =>
 /** A label is one line of text, however the field wrapped or pasted it. */
 const oneLine = (value: string): string => value.replace(/\s*\n\s*/g, " ").trim();
 
+const OWN_SHAPES = ["rect", "circle", "ellipse", "polygon"];
+/**
+ * Where an element is — its own shape's place when it is drawn AROUND other
+ * things that can be selected (a timeline's period holds its events): the
+ * frame goes round the period, not round all that is in it.
+ */
+function ownBox(el: Element): DOMRect {
+  if (el.querySelector(`[${ENTITY_ATTR}]`)) {
+    const own = Array.from(el.children).find((c) => OWN_SHAPES.includes(c.tagName.toLowerCase()));
+    if (own) return own.getBoundingClientRect();
+  }
+  return el.getBoundingClientRect();
+}
+
 let measurer: CanvasRenderingContext2D | null | undefined;
 /** Width of `text` in `font` (a CSS font shorthand), in px. */
 function textWidth(text: string, font: string): number {
@@ -152,6 +171,8 @@ export class VisualLayer {
   private editFrom = "";
   /** Whether the canvas is showing the text that is in the field. */
   private following = true;
+  /** The document's source the ids held here were read from. */
+  private lastDoc: string | null = null;
   private dead = false;
   private off: (() => void)[] = [];
 
@@ -236,9 +257,24 @@ export class VisualLayer {
     this.found = new Map();
     this.selection = null;
     this.pending = null;
+    this.lastDoc = null;
     this.closeInput();
     this.hideChrome();
     delete this.host.root.dataset.interactive;
+  }
+
+  /**
+   * Carry the ids held here over a change of the document that was not made
+   * here. Where an id is a line of the source (`kit.positional`), a line
+   * someone else added above it would otherwise make it another thing's.
+   */
+  private rebase(): void {
+    const doc = this.host.source();
+    const was = this.lastDoc;
+    this.lastDoc = doc;
+    if (was === null || was === doc || !this.kit?.positional) return;
+    this.selection = remapId(was, doc, this.selection);
+    this.editing = remapId(was, doc, this.editing);
   }
 
   sync(): void {
@@ -267,6 +303,13 @@ export class VisualLayer {
       return;
     }
 
+    this.rebase();
+    if (this.input && !this.editing) {
+      // What was being renamed is gone. Its field goes now; the picture of
+      // the name half typed goes once this draw is done with.
+      this.closeInput();
+      queueMicrotask(() => !this.dead && !this.input && host.preview(null));
+    }
     const session = openSession(visimer, host.canvasSource());
     const kit = kitFor(session.ed.result);
     const typeChanged = kit?.type !== this.kit?.type;
@@ -365,7 +408,7 @@ export class VisualLayer {
       width: r.width,
       height: r.height,
     });
-    if (e.kind !== "edge") return rel(els[0]!.getBoundingClientRect());
+    if (e.kind !== "edge") return rel(ownBox(els[0]!));
     // An edge: its label if it has one on screen, else the middle of its line.
     const label = els.find((n) => n.classList.contains("pele-edge-label"));
     if (label) {
@@ -452,21 +495,28 @@ export class VisualLayer {
       d.style.top = `${at[side][1]}px`;
     });
 
-    const side = forwardSide(this.direction);
-    this.plus.hidden = !isNode;
-    if (isNode) {
+    const label = !isNode ? null : kit.addLabel ? kit.addLabel(e) : `Add a connected ${kit.item}`;
+    this.plus.hidden = label === null;
+    if (label !== null) {
+      const side = kit.side
+        ? kit.side(e, (other) => this.centreOf(other), this.entities)
+        : forwardSide(this.direction);
       const gap = 26;
       const [px, py] = at[side];
       const dx = side === "right" ? gap : side === "left" ? -gap : 0;
       const dy = side === "bottom" ? gap : side === "top" ? -gap : 0;
       this.plus.style.left = `${px + dx}px`;
       this.plus.style.top = `${py + dy}px`;
-      const label = `Add a connected ${kit.item}`;
       this.plus.title = `${label} (Tab)`;
       this.plus.setAttribute("aria-label", label);
     }
 
     this.placeInput();
+  }
+
+  private centreOf(e: Entity): { x: number; y: number } | null {
+    const r = this.found.has(e.id) ? this.rectOf(e) : null;
+    return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
   }
 
   /** What can be done to the selection. Part of the block's action list:
@@ -532,6 +582,50 @@ export class VisualLayer {
         run: () => this.apply((session) => (session.run(reverse(e)) ? { select: null } : false)),
       });
     }
+    if (e.kind === "node" && kit.flags && kit.setFlag) {
+      const setFlag = kit.setFlag;
+      out.push({
+        key: "flags",
+        scope: "entity",
+        label: labels.status,
+        icon: icons.check,
+        run: () => {},
+        choices: kit.flags.map((f) => {
+          const on = e.flags?.includes(f.key) === true;
+          return {
+            key: f.key,
+            label: f.label,
+            icon: iconFor(f.key),
+            on,
+            run: () => this.apply((session) => (session.run(setFlag(e, f.key, !on)) ? { select: e.id } : false)),
+          };
+        }),
+      });
+    }
+    if (e.kind === "node" && kit.fields && kit.setField) {
+      const setField = kit.setField;
+      for (const f of kit.fields) {
+        out.push({
+          key: f.key,
+          scope: "entity",
+          label: f.label,
+          icon: icons.edit,
+          run: () => {},
+          field: {
+            value: e.fields?.[f.key] ?? "",
+            placeholder: f.placeholder,
+            hint: f.hint,
+            // Written on leaving the field — which may be for another task:
+            // that one stays selected.
+            commit: (value) =>
+              this.apply((session) => {
+                if (!session.run(setField(e, f.key, value, () => this.newId()))) return false;
+                return this.selection === e.id ? { select: e.id } : {};
+              }),
+          },
+        });
+      }
+    }
     if (kit.remove(e) !== null) {
       out.push({
         key: "delete",
@@ -552,10 +646,10 @@ export class VisualLayer {
    * Run operations against the source and, if they leave a diagram that
    * still draws, write the result to the document.
    *
-   * `build` returns what to do once the new source is drawn, or `false` when
-   * nothing applied.
+   * `build` returns what to do once the new source is drawn, `false` when
+   * the edit was refused, or `null` when there was nothing to do.
    */
-  private apply(build: (session: EditSession, kit: DiagramKit) => Intent | false): boolean {
+  private apply(build: (session: EditSession, kit: DiagramKit) => Intent | false | null): boolean {
     const { host } = this;
     const rt = host.runtime();
     const visimer = rt?.visimerNow();
@@ -565,6 +659,7 @@ export class VisualLayer {
     const kit = kitFor(session.ed.result);
     if (!kit) return false;
     const intent = build(session, kit);
+    if (intent === null) return false;
     if (intent === false) {
       host.toast(rt.labels.rejected);
       return false;
@@ -580,8 +675,15 @@ export class VisualLayer {
       return false;
     }
     this.pending = intent;
+    // This change is ours: the ids `intent` names are the new source's
+    // already, and one kept across it is carried here.
+    const selected = this.selection;
+    if (kit.positional && !("select" in intent)) this.selection = remapId(before, next, selected);
+    this.lastDoc = next;
     if (host.commit(next)) return true;
     this.pending = null;
+    this.selection = selected;
+    this.lastDoc = before;
     return false;
   }
 
@@ -596,15 +698,33 @@ export class VisualLayer {
    *  its label ready to type over. */
   addNode(from?: Entity | null): void {
     this.apply((session, kit) => {
-      const created = session.run(kit.add(kit.newLabel, this.newId()));
-      if (!created || created.length === 0) return false;
-      const id = created[0]!;
-      if (from && kit.connect) {
-        const added = kit.entities(session.ed.result).nodes.find((n) => n.id === id);
-        if (added) session.run(kit.connect(from, added));
-      }
-      return { select: id, edit: true };
+      const id = this.addIn(session, kit, from ?? null);
+      return id ? { select: id, edit: true } : false;
     });
+  }
+
+  /** Add an item in an open session — from `from`, when given: joined to it
+   *  in a graph, inside or after it elsewhere. Its id, or null. */
+  private addIn(session: EditSession, kit: DiagramKit, from: Entity | null): string | null {
+    const created = session.run(kit.add(kit.newLabel, this.newId(), from));
+    if (!created || created.length === 0) return null;
+    const id = created[0]!;
+    if (from && kit.connect) {
+      const added = kit.entities(session.ed.result).nodes.find((n) => n.id === id);
+      if (added) session.run(kit.connect(from, added));
+    }
+    return id;
+  }
+
+  /** Enter: the next one beside `from`, ready to be named. False where the
+   *  type has no such thing (a graph, a group). */
+  private addNext(from: Entity): boolean {
+    if (!this.kit?.addAfter || this.kit.addAfter(from, this.kit.newLabel) === null) return false;
+    this.apply((session, kit) => {
+      const created = session.run(kit.addAfter?.(from, kit.newLabel) ?? null);
+      return created && created.length > 0 ? { select: created[0]!, edit: true } : false;
+    });
+    return true;
   }
 
   private connect(from: Entity, to: Entity): void {
@@ -622,7 +742,12 @@ export class VisualLayer {
   removeSelected(): void {
     const e = this.current();
     if (!e) return;
-    this.apply((session, kit) => (session.run(kit.remove(e)) ? { select: null } : false));
+    this.apply((session, kit) => {
+      const op = kit.remove(e);
+      // Not something that is removed here (a mind map's root): nothing to say.
+      if (op === null) return null;
+      return session.run(op) ? { select: null } : false;
+    });
   }
 
   /** Flip the diagram between top-down and left-to-right. */
@@ -711,8 +836,10 @@ export class VisualLayer {
    * happens once, on commit, so a rename stays one undo step.
    */
   private typed(): void {
+    this.rebase();
     const input = this.input;
     const id = this.editing;
+    if (input && !id) this.cancelEdit();
     if (!input || !id) return;
     this.previewLabel(id, oneLine(input.value));
     // Whether or not the picture could follow, the field fits its text.
@@ -772,10 +899,19 @@ export class VisualLayer {
     // width a label wraps at, then downwards.
     const WRAP_AT = 220;
     const pad = 20;
-    // An edge's label is bare text; a node's has the node's padding round it.
-    const base = rect.width + (e.kind === "edge" ? 18 : 0);
+    // An edge's label is bare text, and so is a mind map's leaf or a chart's
+    // title; a node's words have the node's padding round them.
+    const drawn = this.elementsOf(e.id)[0];
+    const bare =
+      e.kind === "edge" ||
+      !drawn ||
+      drawn.matches("text") ||
+      !drawn.querySelector("rect, circle, ellipse, polygon, path");
+    const base = rect.width + (bare ? 18 : 0);
     let width = Math.max(base, 48);
-    if (!this.following) {
+    // Bare words have no box to say how wide they are but their own, and a
+    // field does not set them quite as the picture does: it is measured.
+    if (!this.following || bare) {
       const cs = styleOf(input);
       const font = `${cs?.fontSize || "14px"} ${cs?.fontFamily || "sans-serif"}`;
       const needs = textWidth(input.value || " ", font) + pad;
@@ -811,20 +947,26 @@ export class VisualLayer {
 
   /** `thenAdd`: Tab — keep going with a new node connected to this one. */
   private commitEdit(thenAdd = false): void {
+    this.rebase();
     const input = this.input;
     const id = this.editing;
+    if (input && !id) this.cancelEdit();
     if (!input || !id) return;
     const value = oneLine(input.value);
     this.closeInput();
     this.focusCanvas();
-    const e = this.found.get(id);
     const unchanged = value === "" || value === this.editFrom;
-    if (!e || (unchanged && !thenAdd)) {
+    if (unchanged && !thenAdd) {
       this.host.preview(null);
       return;
     }
 
     const applied = this.apply((session, kit) => {
+      // Found in the document as it is now, not as the canvas last drew it:
+      // the canvas may be showing the name half typed, over an older source.
+      const ents = kit.entities(session.ed.result);
+      const e = [...ents.nodes, ...ents.edges, ...ents.groups].find((x) => x.id === id);
+      if (!e) return null;
       let node: Entity | undefined = e;
       if (!unchanged) {
         if (session.run(kit.rename(e, value)) === null) return false;
@@ -833,12 +975,8 @@ export class VisualLayer {
         node = nodes.find((n) => n.id === e.id) ?? nodes.find((n) => n.label === value);
       }
       if (thenAdd && node && node.kind === "node") {
-        const created = session.run(kit.add(kit.newLabel, this.newId()));
-        if (created && created.length > 0) {
-          const added = kit.entities(session.ed.result).nodes.find((n) => n.id === created[0]);
-          if (added && kit.connect) session.run(kit.connect(node, added));
-          return { select: created[0]!, edit: true };
-        }
+        const created = this.addIn(session, kit, node);
+        if (created) return { select: created, edit: true };
       }
       return { select: e.id, orLabel: value };
     });
@@ -908,6 +1046,8 @@ export class VisualLayer {
       case "Enter":
       case "F2":
         handled();
+        // Where things are in a row, Enter is "and the next one".
+        if (e.key === "Enter" && this.addNext(sel)) return;
         this.startEdit(sel.id);
         return;
       case "Tab":

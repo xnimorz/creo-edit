@@ -26,6 +26,15 @@ export const icons = {
   hexagon: svg('<path d="M5 3.5h6L14 8l-3 4.5H5L2 8z"/>'),
   cylinder: svg('<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7"/>'),
   subroutine: svg('<rect x="2" y="4" width="12" height="8"/><path d="M4.5 4v8M11.5 4v8"/>'),
+  // Mind-map shapes that are not a flowchart's.
+  default: svg('<path d="M4 4.5h8M8 4.5v7.5"/>'),
+  cloud: svg('<path d="M4.8 12.5a2.8 2.8 0 0 1-.4-5.6 3.6 3.6 0 0 1 7-.6 3.1 3.1 0 0 1-.2 6.2z"/>'),
+  bang: svg('<path d="M8 1.8l1.5 3 3.2-1-1 3.2 3 1.5-3 1.5 1 3.2-3.2-1-1.5 3-1.5-3-3.2 1 1-3.2-3-1.5 3-1.5-1-3.2 3.2 1z"/>'),
+  // A Gantt task's marks.
+  active: svg('<path d="M5.5 3.5v9l7-4.5z"/>'),
+  done: svg('<path d="M3 8.5 6.5 12 13 4.5"/>'),
+  crit: svg('<path d="M8 3v6.5M8 12.4v.1"/>'),
+  milestone: svg('<path d="M8 2.5 13.5 8 8 13.5 2.5 8z"/>'),
   // Edge line styles.
   solid: svg('<path d="M2 8h12"/>'),
   dotted: svg('<path d="M2 8h12" stroke-dasharray="1.5 2.5"/>'),
