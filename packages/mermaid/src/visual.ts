@@ -23,6 +23,13 @@
 // period) or after it (a task), and Shift+Enter adds the next one beside it.
 // Enter renames, in every kind.
 //
+// Two kinds are dragged, too: a mind map's idea onto another (inside it, or
+// before or after it beside it — `kit.move`), and a Gantt task's bar (whole,
+// to move it; by an end, to make it shorter or longer — `kit.retime`). What is
+// dragged is drawn where it would go; the source changes once, on the drop.
+// Mod+C / Mod+X copy the selection's words (a mind map's idea with what is
+// under it, as an outline), Mod+V adds what is pasted from the selection.
+//
 // Layout of the pieces: Pele owns the SVG inside `canvas` and replaces it on
 // every draw, so nothing of ours can live in there. Selection chrome is in
 // `overlay`, a sibling stacked over it, positioned from the SVG elements'
@@ -43,6 +50,7 @@ import {
   kitFor,
   openSession,
   type DiagramKit,
+  type DropPlace,
   type EditSession,
   type Entities,
   type Entity,
@@ -176,6 +184,10 @@ export class VisualLayer {
   private lastDoc: string | null = null;
   /** A day is being picked in a calendar of the host's (`hold`). */
   private holding = false;
+  /** Something is being dragged: what ends it early (Escape). */
+  private dragging: (() => void) | null = null;
+  /** The field the clipboard's text is pasted into (`pasteHere`). */
+  private clip: HTMLTextAreaElement | null = null;
   private dead = false;
   private off: (() => void)[] = [];
 
@@ -224,6 +236,7 @@ export class VisualLayer {
       this.off.push(() => target.removeEventListener(type, fn as EventListener));
     };
     on<PointerEvent>(canvas, "pointerdown", (e) => this.onPointerDown(e));
+    on<PointerEvent>(canvas, "pointermove", (e) => this.onHover(e));
     on<MouseEvent>(canvas, "dblclick", (e) => this.onDoubleClick(e));
     on<KeyboardEvent>(canvas, "keydown", (e) => this.onKey(e));
     // The selection belongs to a diagram being worked on. Once the focus is
@@ -255,9 +268,12 @@ export class VisualLayer {
 
   destroy(): void {
     this.dead = true;
+    this.dragging?.();
     for (const f of this.off) f();
     this.off = [];
     this.closeInput();
+    this.clip?.remove();
+    this.clip = null;
   }
 
   // -------------------------------------------------------------------------
@@ -666,6 +682,13 @@ export class VisualLayer {
         });
       }
     }
+    out.push({
+      key: "copyItem",
+      scope: "entity",
+      label: labels.copyItem,
+      icon: icons.copy,
+      run: () => this.copySelected(),
+    });
     if (kit.remove(e) !== null) {
       out.push({
         key: "delete",
@@ -1050,7 +1073,370 @@ export class VisualLayer {
     // editor around this block and the canvas never gets the keyboard.
     e.preventDefault();
     this.focusCanvas();
-    this.select(this.entityAt(e.target));
+    const id = this.entityAt(e.target);
+    const was = id !== null && this.selection === id;
+    this.select(id);
+    const entity = id ? this.found.get(id) : null;
+    // A finger drags only what it has already selected: before that, a
+    // stroke over the diagram is the page's scroll.
+    if (!entity || (e.pointerType === "touch" && !was)) return;
+    if (this.kit.move && entity.kind === "node" && !entity.root) this.dragIdea(e, entity);
+    else if (this.kit.retime && entity.kind === "node" && entity.dates) this.dragBar(e, entity);
+  }
+
+  // -------------------------------------------------------------------------
+  // Dragging
+  // -------------------------------------------------------------------------
+
+  /**
+   * Follow a press until it is let go: nothing happens until it has moved a
+   * few pixels (a press that does not move is a click). `move` is called with
+   * the pointer as it goes, `drop` once it is let go — not on Escape or a
+   * cancel, after which `end` tidies up either way.
+   */
+  private follow(
+    down: PointerEvent,
+    on: { start(): void; move(ev: PointerEvent): void; drop(ev: PointerEvent): void; end(): void },
+  ): void {
+    const x0 = down.clientX;
+    const y0 = down.clientY;
+    let started = false;
+    const stop = (): void => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+      this.dragging = null;
+      if (started) {
+        delete this.host.root.dataset.dragging;
+        on.end();
+        this.paint();
+      }
+    };
+    const move = (ev: PointerEvent): void => {
+      if (!started) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+        started = true;
+        this.host.root.dataset.dragging = "true";
+        this.hideChrome();
+        on.start();
+      }
+      ev.preventDefault();
+      on.move(ev);
+    };
+    const up = (ev: PointerEvent): void => {
+      const was = started;
+      if (was) on.drop(ev);
+      stop();
+    };
+    const cancel = (): void => stop();
+    const key = (ev: KeyboardEvent): void => {
+      if (ev.key !== "Escape" || !started) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+    this.dragging = stop;
+  }
+
+  /** Whether `inner` is `outer` or anywhere under it, in a tree. */
+  private within(inner: Entity, outer: Entity): boolean {
+    const byId = new Map(this.entities.nodes.map((n) => [n.id, n]));
+    for (let at: Entity | undefined = inner; at; at = at.parent ? byId.get(at.parent) : undefined) {
+      if (at.id === outer.id) return true;
+    }
+    return false;
+  }
+
+  /** A mind map's idea, dragged onto another. */
+  private dragIdea(down: PointerEvent, entity: Entity): void {
+    const chip = el("div", "ce-mmd-drag");
+    chip.textContent = entity.label;
+    const line = el("div", "ce-mmd-dropline");
+    let target: Entity | null = null;
+    let place: DropPlace = "inside";
+    const mark = (next: Entity | null): void => {
+      if (target && target.id !== next?.id) {
+        for (const n of this.elementsOf(target.id)) n.classList.remove("ce-mmd-target");
+      }
+      target = next;
+      if (target) for (const n of this.elementsOf(target.id)) n.classList.add("ce-mmd-target");
+    };
+    this.follow(down, {
+      start: () => {
+        this.host.overlay.append(chip, line);
+        for (const n of this.elementsOf(entity.id)) n.classList.add("ce-mmd-moving");
+      },
+      move: (ev) => {
+        const origin = this.host.overlay.getBoundingClientRect();
+        chip.style.left = `${ev.clientX - origin.left + 12}px`;
+        chip.style.top = `${ev.clientY - origin.top + 12}px`;
+        const over = this.nodeAt(ev.clientX, ev.clientY);
+        const ok = over && !this.within(over, entity) ? over : null;
+        mark(ok);
+        const rect = ok ? this.rectOf(ok) : null;
+        line.hidden = true;
+        if (!ok || !rect) return;
+        // The top and bottom quarters of an idea are beside it; the rest is
+        // inside it. Nothing is beside the root.
+        const y = ev.clientY - origin.top - rect.top;
+        place = ok.root ? "inside" : y < rect.height / 4 ? "before" : y > (rect.height * 3) / 4 ? "after" : "inside";
+        chip.dataset.place = place;
+        if (place === "inside") return;
+        line.hidden = false;
+        Object.assign(line.style, {
+          left: `${rect.left}px`,
+          width: `${rect.width}px`,
+          top: `${place === "before" ? rect.top - 3 : rect.top + rect.height + 2}px`,
+        });
+      },
+      drop: () => {
+        const to = target;
+        if (!to) return;
+        const where = place;
+        this.apply((session, kit) => {
+          const created = session.run(kit.move?.(entity, to, where) ?? null);
+          // Put back where it was: nothing to say.
+          if (created === null) return null;
+          return { select: created[0] ?? null };
+        });
+      },
+      end: () => {
+        mark(null);
+        for (const n of this.elementsOf(entity.id)) n.classList.remove("ce-mmd-moving");
+        chip.remove();
+        line.remove();
+      },
+    });
+  }
+
+  /** Where a press on a Gantt task's bar is: an end of it, or its middle. */
+  private barZone(entity: Entity, x: number): "start" | "end" | "both" {
+    const bar = this.elementsOf(entity.id)[0]?.querySelector("rect");
+    if (!bar) return "both";
+    const r = bar.getBoundingClientRect();
+    const edge = Math.min(8, r.width / 4);
+    if (x >= r.right - edge) return "end";
+    if (x <= r.left + edge) return "start";
+    return "both";
+  }
+
+  /** The pointer over a bar's end says it can be pulled. */
+  private onHover(e: PointerEvent): void {
+    if (e.buttons !== 0 || this.dragging || !this.kit?.retime) return;
+    const id = this.entityAt(e.target);
+    const entity = id ? this.found.get(id) : null;
+    const zone = entity?.dates ? this.barZone(entity, e.clientX) : null;
+    if (zone && zone !== "both") this.host.root.dataset.barEdge = zone;
+    else delete this.host.root.dataset.barEdge;
+  }
+
+  /** A Gantt task's bar, dragged whole or by an end, a day at a time. */
+  private dragBar(down: PointerEvent, entity: Entity): void {
+    const engine = this.host.runtime()?.engineNow();
+    const svg = this.host.canvas.querySelector("svg") as SVGSVGElement | null;
+    const times = engine?.ganttTimes?.(this.host.canvasSource());
+    const index = this.entities.nodes.findIndex((n) => n.id === entity.id);
+    const t = times?.[index];
+    const g = this.elementsOf(entity.id)[0] as SVGGElement | undefined;
+    if (!svg || !times || !t || !g) return;
+    // How the chart is drawn: SVG units a millisecond, from any bar with a
+    // length; the screen's pixels an SVG unit.
+    let perMs = 0;
+    let origin = 0;
+    times.forEach((time, i) => {
+      if (perMs || !time || time.end <= time.start) return;
+      const n = this.entities.nodes[i];
+      const rect = n && this.elementsOf(n.id)[0]?.querySelector("rect");
+      if (!rect) return;
+      perMs = Number(rect.getAttribute("width")) / (time.end - time.start);
+      origin = Number(rect.getAttribute("x")) - time.start * perMs;
+    });
+    const scale = svg.getScreenCTM?.()?.a ?? 1;
+    if (!perMs || !scale) return;
+    const zone = this.barZone(entity, down.clientX);
+    const rect = g.querySelector("rect");
+    const label = g.querySelector("text");
+    const saved = {
+      transform: g.getAttribute("transform"),
+      x: rect?.getAttribute("x") ?? null,
+      width: rect?.getAttribute("width") ?? null,
+      labelX: label?.getAttribute("x") ?? null,
+    };
+    const DAY = 86_400_000;
+    const chip = el("div", "ce-mmd-drag ce-mmd-dates");
+    let days = 0;
+    const shifted = (ms: number, n: number): number => {
+      const d = new Date(ms);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, d.getHours(), d.getMinutes()).getTime();
+    };
+    const span = (): { start: number; end: number } => {
+      if (zone === "both") return { start: shifted(t.start, days), end: shifted(t.end, days) };
+      if (zone === "end") return { start: t.start, end: Math.max(shifted(t.end, days), shifted(t.start, 1)) };
+      return { start: Math.min(shifted(t.start, days), shifted(t.end, -1)), end: t.end };
+    };
+    const iso = (ms: number): string => {
+      const d = new Date(ms);
+      const two = (n: number): string => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+    };
+    const say = (ms: number): string =>
+      new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    this.follow(down, {
+      start: () => {
+        this.host.overlay.appendChild(chip);
+        g.classList.add("ce-mmd-moving");
+        this.host.root.dataset.barDrag = zone;
+      },
+      move: (ev) => {
+        days = Math.round((ev.clientX - down.clientX) / scale / perMs / DAY);
+        const s = span();
+        // Drawn where it would go: the bar moved, or its ends.
+        if (zone === "both") g.setAttribute("transform", `translate(${(s.start - t.start) * perMs},0)`);
+        else if (rect) {
+          const x = origin + s.start * perMs;
+          const w = (s.end - s.start) * perMs;
+          rect.setAttribute("x", String(x));
+          rect.setAttribute("width", String(w));
+          label?.setAttribute("x", String(x + w / 2));
+        }
+        const origin2 = this.host.overlay.getBoundingClientRect();
+        chip.textContent = `${say(s.start)} – ${say(shifted(s.end, -1))}`;
+        chip.style.left = `${ev.clientX - origin2.left + 12}px`;
+        chip.style.top = `${ev.clientY - origin2.top + 14}px`;
+      },
+      drop: () => {
+        if (days === 0) return;
+        const s = span();
+        const to = { start: iso(s.start), end: iso(s.end), moved: zone };
+        this.apply((session, kit) => {
+          const ops = kit.retime?.(entity, to) ?? [];
+          const before = session.code();
+          for (const op of ops) session.run(op);
+          return session.code() === before ? false : { select: entity.id };
+        });
+      },
+      end: () => {
+        g.classList.remove("ce-mmd-moving");
+        delete this.host.root.dataset.barDrag;
+        // Back as drawn: the drop, if it took, draws it again anyway.
+        if (saved.transform === null) g.removeAttribute("transform");
+        else g.setAttribute("transform", saved.transform);
+        if (rect && saved.x !== null) rect.setAttribute("x", saved.x);
+        if (rect && saved.width !== null) rect.setAttribute("width", saved.width);
+        if (label && saved.labelX !== null) label.setAttribute("x", saved.labelX);
+        chip.remove();
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // The clipboard
+  // -------------------------------------------------------------------------
+
+  /** The words of what is selected — a mind map's idea with what is under
+   *  it, as an outline. */
+  private selectedText(): string | null {
+    const e = this.current();
+    const kit = this.kit;
+    const visimer = this.host.runtime()?.visimerNow();
+    if (!e || !kit) return null;
+    if (!kit.copyText || !visimer) return e.label;
+    return kit.copyText(e, openSession(visimer, this.host.source()).ed.result);
+  }
+
+  copySelected(): boolean {
+    const text = this.selectedText();
+    if (text === null) return false;
+    // The block's own window's (a document in a frame has its own).
+    const clip = this.host.root.ownerDocument?.defaultView?.navigator?.clipboard;
+    const said = (): void => this.host.toast(this.host.runtime()?.labels.copied ?? "Copied");
+    if (clip?.writeText) {
+      void clip.writeText(text).then(said, () => this.copyByHand(text) && said());
+    } else if (this.copyByHand(text)) said();
+    return true;
+  }
+
+  /** Where `navigator.clipboard` is not to be had: the old way, through a
+   *  field of our own. */
+  private copyByHand(text: string): boolean {
+    const field = this.clipField();
+    field.value = text;
+    field.focus({ preventScroll: true });
+    field.select();
+    let ok = false;
+    try {
+      ok = document.execCommand?.("copy") ?? false;
+    } catch {
+      ok = false;
+    }
+    this.focusCanvas();
+    return ok;
+  }
+
+  private clipField(): HTMLTextAreaElement {
+    if (this.clip) return this.clip;
+    const field = el("textarea", "ce-mmd-clip");
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+    field.addEventListener("paste", (ev) => {
+      const text = (ev as ClipboardEvent).clipboardData?.getData("text/plain") ?? "";
+      ev.preventDefault();
+      this.focusCanvas();
+      if (text.trim()) this.paste(text);
+    });
+    // Nothing is ever typed in it.
+    field.addEventListener("blur", () => {
+      field.value = "";
+    });
+    isolateInput(field);
+    this.host.overlay.appendChild(field);
+    this.clip = field;
+    return field;
+  }
+
+  /**
+   * Mod+V: the browser pastes into what has the focus as the key goes down,
+   * and a canvas is not a field — so the focus goes to one of ours for that
+   * moment, which hands what it was given to `paste`. (Reading the clipboard
+   * outright asks the user's permission.)
+   */
+  private pasteHere(): void {
+    const field = this.clipField();
+    field.value = "";
+    field.focus({ preventScroll: true });
+  }
+
+  /** Text pasted: added from the selection — a kit's own way (a mind map:
+   *  an outline under the selected idea), else a new item a line. */
+  paste(text: string): void {
+    const from = this.current();
+    this.apply((session, kit) => {
+      if (kit.paste) {
+        const created = session.run(kit.paste(from, text));
+        return created ? { select: created[0] ?? null } : false;
+      }
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => oneLine(l))
+        .filter((l) => l !== "")
+        .slice(0, 50);
+      let last: string | null = null;
+      for (const line of lines) {
+        const id = this.addIn(session, kit, from);
+        if (!id) return false;
+        const all = kit.entities(session.ed.result);
+        const added = [...all.nodes, ...all.edges].find((n) => n.id === id);
+        if (!added || session.run(kit.rename(added, line)) === null) return false;
+        const after = kit.entities(session.ed.result).nodes;
+        last = after.find((n) => n.id === id)?.id ?? after.find((n) => n.label === line)?.id ?? null;
+      }
+      return last ? { select: last } : false;
+    });
   }
 
   private onDoubleClick(e: MouseEvent): void {
@@ -1084,10 +1470,42 @@ export class VisualLayer {
       if (e.key === "Escape") {
         handled();
         this.host.runtime()?.editor.focus();
+      } else if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+        e.stopPropagation();
+        this.pasteHere();
       }
       return;
     }
     const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c" || k === "x") {
+        handled();
+        this.copySelected();
+        if (k === "x") this.removeSelected();
+        return;
+      }
+      if (k === "v") {
+        // Not prevented: the paste is the browser's, into our field.
+        e.stopPropagation();
+        this.pasteHere();
+        return;
+      }
+    }
+    // ⌥↑ / ⌥↓: an idea before the one above it, after the one below it.
+    if (e.altKey && !mod && (e.key === "ArrowUp" || e.key === "ArrowDown") && this.kit.move && sel.parent) {
+      handled();
+      const siblings = this.entities.nodes.filter((n) => n.parent === sel.parent);
+      const at = siblings.findIndex((n) => n.id === sel.id);
+      const up = e.key === "ArrowUp";
+      const next = siblings[at + (up ? -1 : 1)];
+      if (!next) return;
+      this.apply((session, kit) => {
+        const created = session.run(kit.move?.(sel, next, up ? "before" : "after") ?? null);
+        return created ? { select: created[0] ?? null } : null;
+      });
+      return;
+    }
     switch (e.key) {
       case "Delete":
       case "Backspace":

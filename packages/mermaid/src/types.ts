@@ -72,6 +72,12 @@ export type MermaidEngine = {
    * a visual edit that would leave the diagram broken.
    */
   check(source: string): MermaidDiagnostic | null;
+  /**
+   * A Gantt chart's tasks as the engine places them, in the order they are
+   * written: when each starts and ends (ms, the end exclusive). What lets a
+   * bar be dragged. Null when it cannot tell (not loaded, not a Gantt chart).
+   */
+  ganttTimes?(source: string): ({ start: number; end: number } | null)[] | null;
   /** Fetch ahead of time whatever drawing `types` will need. */
   preload?(types?: readonly string[]): Promise<void>;
 };
@@ -149,6 +155,8 @@ export type MermaidLabels = {
   reverse: string;
   /** A Gantt task's marks: active, done, critical, milestone. */
   status: string;
+  /** Copying what is selected: its words (and what is under it). */
+  copyItem: string;
   /** The calendar beside a field that takes a date. */
   pickDate: string;
   delete: string;

@@ -74,6 +74,24 @@ export function removeLines(r: VisimerResult, from: number, to: number): TextEdi
   return { start: Math.max(0, a.start - 1), end: b.end, text: "" };
 }
 
+/**
+ * The one edit that turns `before` into `after`: what they begin and end
+ * with alike is kept. For a change that moves lines about, where no smaller
+ * edit says it.
+ */
+export function diffEdit(before: string, after: string): TextEdit | null {
+  if (before === after) return null;
+  let start = 0;
+  const min = Math.min(before.length, after.length);
+  while (start < min && before[start] === after[start]) start++;
+  let tail = 0;
+  while (
+    tail < min - start &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  ) tail++;
+  return { start, end: before.length - tail, text: after.slice(start, after.length - tail) };
+}
+
 /** A new line, `text`, after `line`. */
 export const lineAfter = (line: Line, text: string): TextEdit => ({
   start: line.end,

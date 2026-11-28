@@ -52,6 +52,9 @@ export type VisimerResult = {
 
 export type Side = "top" | "right" | "bottom" | "left";
 
+/** Where a node dragged onto another goes. */
+export type DropPlace = "inside" | "before" | "after";
+
 export type EntityKind = "node" | "edge" | "group";
 
 export type Entity = {
@@ -74,6 +77,8 @@ export type Entity = {
   sub?: string;
   /** The one a tree starts from. */
   root?: boolean;
+  /** The entity it is inside, in a tree (a mind map's idea's parent). */
+  parent?: string;
   /** The kit's `flags` this one has (a Gantt task's "done"). */
   flags?: readonly string[];
   /** The kit's `fields`, as written (a Gantt task's start and length). */
@@ -149,6 +154,26 @@ export type DiagramKit = {
   setField?(node: Entity, field: string, value: string, newId: () => string | undefined): Op;
   /** A day (`2026-01-05`) picked for one of the node's `dates`. */
   setDate?(node: Entity, field: string, day: string): Op;
+  /**
+   * Move a node, with all it holds, to `place` relative to `target`: inside
+   * it (its last), or just before or after it, beside it. Creates the moved
+   * node's new id. Kits without it have nothing to drag.
+   */
+  move?(node: Entity, target: Entity, place: DropPlace): Op;
+  /**
+   * A task's bar dragged: the days it now starts and ends (`2026-01-05`; the
+   * end exclusive, as a bar is drawn) and which end moved — "both" when the
+   * bar was moved whole. The operations to run, in order.
+   */
+  retime?(node: Entity, to: { start: string; end: string; moved: "start" | "end" | "both" }): Op[];
+  /** What a copy of `entity` puts on the clipboard. Default: its label. */
+  copyText?(entity: Entity, result: VisimerResult): string;
+  /**
+   * Text pasted with `target` selected (null: none): a kit that reads it
+   * whole (a mind map, an outline). Otherwise each line is added as an item
+   * of its own, from the selection, as + would.
+   */
+  paste?(target: Entity | null, text: string): Op;
   /**
    * Find what draws each entity, where ids and order as `correlate` reads
    * them are not how this type is drawn: call `tag` for each pair.

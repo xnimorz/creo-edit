@@ -342,7 +342,7 @@ describe("mermaid block — visual editing", () => {
     const keys = mermaidActions(editor, "m1").map((a) => `${a.scope}:${a.key}`);
     expect(keys).toEqual([
       "block:mode", "block:add", "block:direction", "block:copy", "block:download",
-      "entity:edit", "entity:shape", "entity:delete",
+      "entity:edit", "entity:shape", "entity:copyItem", "entity:delete",
     ]);
     // The bar draws the same list.
     expect(block().querySelector('.ce-mermaid-entity [data-action="delete"]')).not.toBeNull();
@@ -531,7 +531,7 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     press(entity(block(), "idea:2"), "pointerdown");
     expect(actions(editor)).toEqual([
       "block:mode", "block:add", "block:copy", "block:download",
-      "entity:edit", "entity:shape", "entity:delete",
+      "entity:edit", "entity:shape", "entity:copyItem", "entity:delete",
     ]);
     // Nothing to connect: no dots, and the + says what it does here.
     expect(Array.from(block().querySelectorAll(".ce-mmd-dot")).every((d) => (d as HTMLElement).hidden)).toBe(true);
@@ -614,6 +614,64 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     // With everything under it.
     key(canvas(block()), "Delete");
     expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea one");
+  });
+
+  test("a mind map: ⌥↑ / ⌥↓ move an idea among its siblings, with what is under it", async () => {
+    const { block, editor } = await of(MAP);
+    press(entity(block(), "idea:3"), "pointerdown");
+    key(canvas(block()), "ArrowUp", { altKey: true });
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea two\n      Detail\n    Idea one");
+    expect(selected(block())).toEqual(["idea:2"]);
+    // At the top: nothing.
+    key(canvas(block()), "ArrowUp", { altKey: true });
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea two\n      Detail\n    Idea one");
+    key(canvas(block()), "ArrowDown", { altKey: true });
+    expect(sourceOf(editor)).toBe(MAP);
+    editor.undo();
+    expect(sourceOf(editor)).toContain("    Idea two\n      Detail\n    Idea one");
+  });
+
+  test("copy, cut and paste: the selected thing's words — a mind map's idea as an outline", async () => {
+    const written: string[] = [];
+    const clipboard = { writeText: (t: string) => (written.push(t), Promise.resolve()) };
+    Object.defineProperty(win.navigator, "clipboard", { configurable: true, get: () => clipboard });
+    const { block, editor } = await of(MAP);
+    press(entity(block(), "idea:3"), "pointerdown");
+    key(canvas(block()), "c", { metaKey: true });
+    expect(written).toEqual(["Idea two\n  Detail"]);
+    // The bar has it too.
+    click(block().querySelector('.ce-mermaid-entity [data-action="copyItem"]')!);
+    expect(written).toHaveLength(2);
+    // ⌘V: the browser's paste, into a field of the block's for that moment.
+    press(entity(block(), "idea:2"), "pointerdown");
+    key(canvas(block()), "v", { metaKey: true });
+    const field = block().querySelector<HTMLTextAreaElement>(".ce-mmd-clip")!;
+    expect(document.activeElement).toBe(field);
+    const pasteIt = (into: Element, text: string): void => {
+      const ev = new win.Event("paste", { bubbles: true, cancelable: true }) as unknown as Event;
+      Object.defineProperty(ev, "clipboardData", { value: { getData: () => text } });
+      into.dispatchEvent(ev);
+    };
+    pasteIt(field, written[0]!);
+    expect(sourceOf(editor)).toBe("mindmap\n  root((Topic))\n    Idea one\n      Idea two\n        Detail\n    Idea two\n      Detail");
+    expect(selected(block())).toEqual(["idea:3"]);
+    expect(document.activeElement).toBe(canvas(block()));
+    // ⌘X: copied, and gone with what is under it.
+    key(canvas(block()), "x", { metaKey: true });
+    expect(written.at(-1)).toBe("Idea two\n  Detail");
+    expect(sourceOf(editor)).toBe(MAP);
+    delete (win.navigator as unknown as { clipboard?: unknown }).clipboard;
+  });
+
+  test("paste in a kind with no outline: a new item a line, from the selection", async () => {
+    const { block, editor } = await of(GANTT);
+    press(entity(block(), "task:4"), "pointerdown");
+    key(canvas(block()), "v", { metaKey: true });
+    const field = block().querySelector<HTMLTextAreaElement>(".ce-mmd-clip")!;
+    const ev = new win.Event("paste", { bubbles: true, cancelable: true }) as unknown as Event;
+    Object.defineProperty(ev, "clipboardData", { value: { getData: () => "Review\nShip: v1" } });
+    field.dispatchEvent(ev);
+    expect(sourceOf(editor)).toContain("  Design :a1, 2026-01-05, 5d\n  Ship#58; v1 :1d\n  Review :1d\n  Implement :10d");
   });
 
   test("what is selected is followed when someone else adds a line above it", async () => {
@@ -707,7 +765,7 @@ describe("mermaid block — mind maps, timelines and Gantt charts", () => {
     press(entity(block(), "task:5"), "pointerdown");
     expect(actions(editor)).toEqual([
       "block:mode", "block:add", "block:copy", "block:download",
-      "entity:edit", "entity:flags", "entity:start", "entity:length", "entity:delete",
+      "entity:edit", "entity:flags", "entity:start", "entity:length", "entity:copyItem", "entity:delete",
     ]);
     click(block().querySelector('.ce-mermaid-entity [data-action="flags:done"]')!);
     expect(sourceOf(editor)).toContain("  Implement :done, 10d");

@@ -24,6 +24,13 @@ itself is unchanged; no breaking API changes.
   before" — and **Length** (`5d`, `2 weeks`, or the date it ends). A
   calendar beside each picks the day: the browser's date picker, or the
   host's own (`options.pickDate`), written in the chart's `dateFormat`.
+- **Dragging.** A mind map's idea onto another — inside it, or before or
+  after it — with all under it (`Alt+↑` / `Alt+↓` move it among its
+  siblings). A Gantt bar to move its task, or by an end to make it shorter
+  or longer, a day at a time (`kit.retime`, `MermaidEngine.ganttTimes`).
+- **Copy and paste.** `Mod+C` / `Mod+X` copy what is selected (a mind map's
+  idea with all under it, as an outline); `Mod+V` adds what is pasted from
+  it. New label: `copyItem`.
 - A label takes any character: one the source's grammar would read as syntax
   is written as its code (`#58;`) and shown as itself.
 - These three kinds know a thing in the source by its line. What is selected

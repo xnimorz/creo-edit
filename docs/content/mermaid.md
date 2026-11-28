@@ -99,6 +99,10 @@ These three are not graphs: there is nothing to connect, so there are no dots. S
 
 `Enter` renames, as in every other kind.
 
+**Dragging.** A mind map's idea is dragged onto another: dropped on its middle it goes inside it (as its last), on its top or bottom edge just before or after it, beside it — always with everything under it. `Alt+↑` / `Alt+↓` move it before the idea above or after the one below. A Gantt task's bar is dragged to move the task, a day at a time; its left or right end, to make it start earlier or later or end so. What moves is drawn where it would go, with the days it would take; the source changes once, on the drop (one undo step), and `Escape` puts it back. A task's start is then written as a day (an `after …` it had is given up for it), and its end keeps its form: a length stays a length (`8d`), an end date a date — except in a chart with `excludes`, where a length counts only the days kept, and the end is written as its date. On a touch screen an idea or a bar is dragged once it is selected; before that, a stroke is the page's scroll.
+
+**Copy and paste.** `Mod+C` (or the copy button in the bar) copies what is selected: its words — a mind map's idea with all under it, as an indented outline. `Mod+X` copies and removes. `Mod+V` adds what is pasted from the selection: in a mind map an outline becomes ideas under the selected one, as deep as it is indented; elsewhere each line is a new item, added as **+** would.
+
 With something selected, the bar shows:
 
 - **A mind map's idea**: its shape — plain, square, rounded, circle, hexagon, cloud, bang. The root is renamed and reshaped, never removed.

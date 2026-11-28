@@ -402,6 +402,44 @@ function setStart(
   return { edits };
 }
 
+const DAY_MS = 86_400_000;
+const daysBetween = (from: string, to: string): number => {
+  const [a, b] = [from, to].map((d) => {
+    const [y, m, dd] = d.split("-").map(Number);
+    return Date.UTC(y!, m! - 1, dd!);
+  });
+  return Math.round((b! - a!) / DAY_MS);
+};
+/** `day` and `n` days on, both `2026-01-05`. */
+const addDay = (day: string, n: number): string => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! + n)).toISOString().slice(0, 10);
+};
+
+/**
+ * What a bar dragged writes. A task's start is written as the day it now
+ * starts (a dependency — `after a1`, or none, after the one before — is given
+ * up for it: the bar was put somewhere). Its end keeps the form it has: a
+ * date stays a date; a length stays a length, in days (`5d`) — but in a chart
+ * that leaves days out (`excludes`), where a length counts only the days kept,
+ * the end is written as the date it is.
+ */
+function retimeEnd(result: VisimerResult, entity: Entity, start: string, end: string): Compiled | null {
+  const g = readGantt(result);
+  const task = g.tasks[taskOf(g, entity)];
+  const format = dayFormat(g.dateFormat);
+  if (!task || !task.until || !format) return null;
+  const code = typeof result.code === "string" ? result.code : "";
+  const asDate = format.read(task.until.text) !== null || /^\s*excludes\s+\S/im.test(code);
+  if (asDate) {
+    // An end date is the last day of the task where the chart says so.
+    const last = /^\s*inclusiveEndDates\b/im.test(code) ? addDay(end, -1) : end;
+    return setDate(result, entity, "length", last);
+  }
+  const days = Math.max(task.marks.some((m) => m.text === "milestone") ? 0 : 1, daysBetween(start, end));
+  return setLength(result, entity, `${days}d`);
+}
+
 /** A day picked for a task's start, or for the day it ends. */
 function setDate(result: VisimerResult, entity: Entity, field: string, day: string): Compiled | null {
   const format = dayFormat(readGantt(result).dateFormat);
@@ -464,6 +502,20 @@ export const gantt: DiagramKit = {
   setField: (e, field, typed, newId): TextOp => (r) =>
     field === "start" ? setStart(r, e, typed, newId) : field === "length" ? setLength(r, e, typed) : null,
   setDate: (e, field, day): TextOp => (r) => setDate(r, e, field, day),
+  retime(e, { start, end, moved }) {
+    const ops: TextOp[] = [];
+    if (moved !== "end") ops.push((r) => setDate(r, e, "start", start));
+    // Moved whole, a length is still the length; only an end date moves too.
+    ops.push((r) => {
+      if (moved !== "both") return retimeEnd(r, e, start, end);
+      const g = readGantt(r);
+      const task = g.tasks[taskOf(g, e)];
+      const format = dayFormat(g.dateFormat);
+      if (!task?.until || !format || format.read(task.until.text) === null) return { edits: [] };
+      return retimeEnd(r, e, start, end);
+    });
+    return ops;
+  },
   // Pele draws the tasks in the order they are written and tags each with
   // its id — its own count (`task1`) for one that has none. Paired by order;
   // an id that is written must agree.

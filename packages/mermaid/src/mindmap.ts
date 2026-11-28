@@ -20,8 +20,11 @@
 // ---------------------------------------------------------------------------
 
 import type { DiagramKit, Entities, Entity, VisimerResult } from "./kits";
+import type { DropPlace } from "./kits";
 import {
+  codeOf,
   decodeLabel,
+  diffEdit,
   encodeLabel,
   headerOf,
   lineAfter,
@@ -171,9 +174,10 @@ function bareWords(label: string): string {
   return isDecoration(out) ? `#58;${out.slice(1)}` : out;
 }
 
-/** An idea's indent for a child: its children's, or its own and one step. */
-function childIndent(ideas: Idea[], index: number): string {
-  const child = ideas.find((i) => i.parent === index);
+/** An idea's indent for a child: its children's, or its own and one step.
+ *  `but`: a child not to go by (the one being moved there). */
+function childIndent(ideas: Idea[], index: number, but?: Idea): string {
+  const child = ideas.find((i) => i.parent === index && i !== but);
   if (child) return child.indent;
   const own = ideas[index]!.indent;
   return own + (own.endsWith("\t") ? "\t" : "  ");
@@ -265,9 +269,92 @@ function remove(result: VisimerResult, entity: Entity): Compiled | null {
   return edit ? { edits: [edit] } : null;
 }
 
+/**
+ * An idea and all under it, moved: its lines taken out and put back at
+ * `place` of `target`, each indented as deep as its new place asks (what
+ * is under it keeps its depth below it). The root does not move, and an
+ * idea is never put inside itself.
+ */
+function move(result: VisimerResult, entity: Entity, target: Entity, place: DropPlace): Compiled | null {
+  const ideas = readMindmap(result);
+  const at = find(ideas, entity);
+  const to = find(ideas, target);
+  if (!at || !to || at.idea.parent < 0) return null;
+  const { idea } = at;
+  if (to.idea.line >= idea.line && to.idea.line <= idea.last) return null;
+  // Nothing is beside the root: what goes there goes inside it.
+  const where = to.idea.parent < 0 ? "inside" : place;
+  const code = codeOf(result);
+  const lines = code.split("\n");
+  const from = idea.line;
+  const until = idea.last;
+  const indent = where === "inside" ? childIndent(ideas, to.index, idea) : to.idea.indent;
+  const block = lines.slice(from, until + 1).map((line) => {
+    if (line.trim() === "") return line;
+    if (line.startsWith(idea.indent)) return indent + line.slice(idea.indent.length);
+    return indent + line.trimStart();
+  });
+  const rest = [...lines.slice(0, from), ...lines.slice(until + 1)];
+  const insert = where === "before" ? to.idea.line : to.idea.last + 1;
+  const at2 = insert > until ? insert - (until - from + 1) : insert;
+  const next = [...rest.slice(0, at2), ...block, ...rest.slice(at2)].join("\n");
+  const edit = diffEdit(code, next);
+  return edit ? { edits: [edit], created: [ideaId(at2)] } : null;
+}
+
+/** An idea, and what is under it, as an outline: its words, a line each,
+ *  two spaces a level deeper. One alone is its words. */
+function outline(result: VisimerResult, entity: Entity): string {
+  const ideas = readMindmap(result);
+  const at = find(ideas, entity);
+  if (!at) return entity.label;
+  const depth = (i: number): number => (i === at.index ? 0 : depth(ideas[i]!.parent) + 1);
+  const out: string[] = [];
+  ideas.forEach((idea, i) => {
+    if (idea.line < at.idea.line || idea.line > at.idea.last) return;
+    out.push(`${"  ".repeat(depth(i))}${idea.label}`);
+  });
+  return out.join("\n");
+}
+
+/** An outline pasted under `target` (the root with none): each line an idea,
+ *  as deep below it as it is indented below the outline's first. */
+function paste(result: VisimerResult, target: Entity | null, text: string): Compiled | null {
+  const rows = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .slice(0, 200)
+    .map((l) => {
+      const tabs = l.match(/^[ \t]*/)![0].replace(/\t/g, "  ");
+      // A bullet's mark is not words.
+      return { depth: tabs.length, words: l.trim().replace(/^(?:[-*+•]|\d+[.)])\s+/, "") };
+    });
+  if (rows.length === 0) return null;
+  const ideas = readMindmap(result);
+  const lines = linesOf(result);
+  if (ideas.length === 0) return addUnder(result, rows.map((r) => r.words).join(" "), null);
+  const at = target ? find(ideas, target) : { idea: ideas[0]!, index: 0 };
+  if (!at) return null;
+  const base = childIndent(ideas, at.index);
+  const step = base.endsWith("\t") ? "\t" : "  ";
+  // Levels by how far each line is indented, against the lines above it.
+  const stack: number[] = [];
+  const out = rows.map((r) => {
+    while (stack.length > 0 && stack[stack.length - 1]! >= r.depth) stack.pop();
+    const level = stack.length;
+    stack.push(r.depth);
+    return `${base}${step.repeat(level)}${bareWords(oneLine(r.words))}`;
+  });
+  const after = lines[at.idea.last];
+  if (!after) return null;
+  return { edits: [lineAfter(after, out.join("\n"))], created: [ideaId(at.idea.last + 1)] };
+}
+
 function entities(result: VisimerResult): Entities {
+  const ideas = readMindmap(result);
   return {
-    nodes: readMindmap(result).map((idea) => ({
+    nodes: ideas.map((idea) => ({
       id: ideaId(idea.line),
       kind: "node" as const,
       ref: ideaId(idea.line),
@@ -275,6 +362,7 @@ function entities(result: VisimerResult): Entities {
       label: idea.label,
       shape: idea.shape,
       root: idea.parent < 0,
+      ...(idea.parent >= 0 ? { parent: ideaId(ideas[idea.parent]!.line) } : {}),
     })),
     edges: [],
     groups: [],
@@ -300,6 +388,9 @@ export const mindmap: DiagramKit = {
   remove: (e): TextOp | null => (e.root ? null : (r) => remove(r, e)),
   setShape: (e, shape): TextOp => (r) => setShape(r, e, shape),
   shapes: MINDMAP_SHAPES,
+  move: (e, target, place): TextOp => (r) => move(r, e, target, place),
+  copyText: (e, r) => outline(r, e),
+  paste: (target, text): TextOp => (r) => paste(r, target, text),
   // Pele draws the root last and the others in the order they are written,
   // and tags each with its id or its words — which two ideas can share. So
   // they are paired by order, and an id that is written must agree.

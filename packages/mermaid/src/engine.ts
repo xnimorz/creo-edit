@@ -145,6 +145,23 @@ export function createPeleEngine(
       }
     },
 
+    ganttTimes(source: string) {
+      if (!loaded(source)) return null;
+      try {
+        const model = pele.parse(source) as {
+          getTasks?: () => { startTime?: Date; endTime?: Date }[];
+        } | null;
+        if (!model || typeof model.getTasks !== "function") return null;
+        return model.getTasks().map((t) =>
+          t.startTime instanceof Date && t.endTime instanceof Date
+            ? { start: t.startTime.getTime(), end: t.endTime.getTime() }
+            : null,
+        );
+      } catch {
+        return null;
+      }
+    },
+
     async preload(types = []): Promise<void> {
       await Promise.all(
         types.map((t) => pele.load(t as never).catch(() => false)),

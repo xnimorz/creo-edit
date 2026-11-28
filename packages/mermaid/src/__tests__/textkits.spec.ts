@@ -251,6 +251,48 @@ describe("mind maps", () => {
     expect(() => render(o.s.code())).not.toThrow();
   });
 
+  test("an idea is moved with all under it: inside another, before or after it", () => {
+    const o = open(MAP);
+    const before = o.nodes().map((n) => [n.label, n.parent ?? null]);
+    expect(before.slice(0, 3)).toEqual([["Project", null], ["Plan", "idea:1"], ["Scope", "idea:2"]]);
+    // Build (and its icon, and Tests under it) into Plan, as its last.
+    const created = o.s.run(o.kit.move!(o.node("Build"), o.node("Plan"), "inside"));
+    expect(created).toEqual(["idea:5"]);
+    expect(o.s.code()).toBe(
+      "mindmap\n  root((Project))\n    Plan\n      Scope\n      Budget\n      b1[Build]\n      ::icon(fa fa-wrench)\n        Tests\n    Tests\n",
+    );
+    expect(words(o.s.code())).toContain("Build");
+    // Back out, before Plan.
+    expect(o.run(o.kit.move!(o.node("Build"), o.node("Plan"), "before"))).toBe(
+      "mindmap\n  root((Project))\n    b1[Build]\n    ::icon(fa fa-wrench)\n      Tests\n    Plan\n      Scope\n      Budget\n    Tests\n",
+    );
+    // A leaf after a sibling of its parent; deeper ideas take its depth.
+    expect(o.run(o.kit.move!(o.node("Scope"), o.nodes().at(-1)!, "after"))).toMatch(/\n    Tests\n    Scope\n$/);
+    // Onto the root is inside it; nothing goes inside itself; the root stays.
+    expect(o.s.run(o.kit.move!(o.node("Build"), o.node("Tests"), "inside"))).toBeNull();
+    expect(o.s.run(o.kit.move!(o.nodes()[0]!, o.node("Plan"), "inside"))).toBeNull();
+    expect(o.run(o.kit.move!(o.node("Budget"), o.nodes()[0]!, "before"))).toMatch(/\n    Scope\n    Budget\n$/);
+    // Where it already is: nothing to write.
+    expect(o.s.run(o.kit.move!(o.node("Budget"), o.nodes()[0]!, "inside"))).toBeNull();
+    expect(() => render(o.s.code())).not.toThrow();
+  });
+
+  test("copied as an outline of its words; an outline pasted is ideas, as deep as indented", () => {
+    const o = open(MAP);
+    expect(o.kit.copyText!(o.node("Plan"), o.s.ed.result)).toBe("Plan\n  Scope\n  Budget");
+    expect(o.kit.copyText!(o.node("Scope"), o.s.ed.result)).toBe("Scope");
+    expect(o.kit.copyText!(o.node("Build"), o.s.ed.result)).toBe("Build\n  Tests");
+    const created = o.s.run(o.kit.paste!(o.node("Scope"), "Plan\n  Scope (v2)\n\n  Budget\n    - Q1\r\n"));
+    expect(created).toEqual(["idea:4"]);
+    expect(o.s.code()).toContain(
+      "      Scope\n        Plan\n          Scope #40;v2#41;\n          Budget\n            Q1\n      Budget\n",
+    );
+    expect(words(o.s.code())).toContain("Scope (v2)");
+    // With nothing selected, under the root.
+    expect(o.run(o.kit.paste!(null, "Loose"))).toMatch(/\n    Tests\n    Loose\n$/);
+    expect(o.s.run(o.kit.paste!(null, "  \n"))).toBeNull();
+  });
+
   test("the source keeps its last line's ending, comments and tabs", () => {
     const o = open("mindmap\n\troot\n\t\t%% note\n\t\tA");
     expect(o.run(o.kit.add("B", undefined, o.node("A")))).toBe("mindmap\n\troot\n\t\t%% note\n\t\tA\n\t\t\tB");
@@ -554,6 +596,35 @@ describe("Gantt charts", () => {
     const timed = open("gantt\n  dateFormat YYYY-MM-DD HH:mm\n  A :2026-01-05 09:00, 2d\n");
     expect(timed.nodes()[0]!.dates).toBeUndefined();
     expect(timed.s.run(timed.kit.setDate!(timed.node("A"), "start", "2026-01-07"))).toBeNull();
+  });
+
+  test("a bar dragged: moved whole, or by an end — its length kept as a length, a date as a date", () => {
+    const o = open("gantt\n  dateFormat YYYY-MM-DD\n  A :a, 2026-01-05, 5d\n  B :after a, 3d\n  C :2026-01-20, 2026-01-25\n  M :milestone, 2026-01-30, 0d\n");
+    const run = (label: string, to: { start: string; end: string; moved: "start" | "end" | "both" }) => {
+      for (const op of o.kit.retime!(o.node(label), to)) o.s.run(op);
+      return o.s.code();
+    };
+    // Moved whole: the start; a length stays what it was.
+    expect(run("A", { start: "2026-01-07", end: "2026-01-12", moved: "both" })).toContain("  A :a, 2026-01-07, 5d\n");
+    // A task after another, put somewhere: a day of its own now.
+    expect(run("B", { start: "2026-01-14", end: "2026-01-17", moved: "both" })).toContain("  B :2026-01-14, 3d\n");
+    // Its end pulled: a length again, in days.
+    expect(run("B", { start: "2026-01-14", end: "2026-01-19", moved: "end" })).toContain("  B :2026-01-14, 5d\n");
+    // Its start pulled: the end stays where it was.
+    expect(run("B", { start: "2026-01-16", end: "2026-01-19", moved: "start" })).toContain("  B :2026-01-16, 3d\n");
+    // An end that is a date stays a date, moved with the bar too.
+    expect(run("C", { start: "2026-01-21", end: "2026-01-26", moved: "both" })).toContain("  C :2026-01-21, 2026-01-26\n");
+    expect(run("C", { start: "2026-01-21", end: "2026-01-28", moved: "end" })).toContain("  C :2026-01-21, 2026-01-28\n");
+    expect(run("M", { start: "2026-02-02", end: "2026-02-02", moved: "both" })).toContain("  M :milestone, 2026-02-02, 0d\n");
+    expect(() => render(o.s.code())).not.toThrow();
+    // A chart that leaves days out: a length counts only the days kept, so an
+    // end pulled is written as its date. One that counts its end day: the day before.
+    const ex = open("gantt\n  dateFormat YYYY-MM-DD\n  excludes weekends\n  A :2026-01-05, 5d\n");
+    for (const op of ex.kit.retime!(ex.node("A"), { start: "2026-01-05", end: "2026-01-15", moved: "end" })) ex.s.run(op);
+    expect(ex.s.code()).toContain("  A :2026-01-05, 2026-01-15\n");
+    const inc = open("gantt\n  dateFormat YYYY-MM-DD\n  inclusiveEndDates\n  A :2026-01-05, 2026-01-09\n");
+    for (const op of inc.kit.retime!(inc.node("A"), { start: "2026-01-05", end: "2026-01-13", moved: "end" })) inc.s.run(op);
+    expect(inc.s.code()).toContain("  A :2026-01-05, 2026-01-12\n");
   });
 
   test("a task with an id cannot leave its start out: it names the one before", () => {
